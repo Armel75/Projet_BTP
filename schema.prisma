@@ -1,0 +1,230 @@
+// schema.prisma
+// Note: Using SQLite provider for local execution in preview environment.
+// For production, change to `provider = "postgresql"`.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = "file:./dev.db"
+}
+
+model User {
+  id            String   @id @default(uuid())
+  firstname     String
+  lastname      String
+  email         String   @unique
+  phone         String?
+  password_hash String
+  status        String   @default("ACTIVE") // ACTIVE, SUSPENDED
+  created_at    DateTime @default(now())
+  updated_at    DateTime @updatedAt
+  deleted_at    DateTime?
+  is_active     Boolean  @default(true)
+  version       Int      @default(1)
+  tenant_id     String   @default("default-tenant")
+
+  roles         UserRole[]
+  departments   UserDepartment[]
+  projectsCreated Project[] @relation("ProjectCreatedBy")
+}
+
+model Role {
+  id            String   @id @default(uuid())
+  code          String   @unique // SUPERADMIN, ADMIN, DIRECTOR, PROJECT_MANAGER, CONTROL, ACCOUNTANT, PURCHASE, SECRETARY, VIEWER
+  description   String?
+  created_at    DateTime @default(now())
+
+  users         UserRole[]
+}
+
+model UserRole {
+  id      String @id @default(uuid())
+  user_id String
+  role_id String
+
+  user User @relation(fields: [user_id], references: [id])
+  role Role @relation(fields: [role_id], references: [id])
+
+  @@unique([user_id, role_id])
+}
+
+model Department {
+  id   String @id @default(uuid())
+  code String @unique // PROJECT, CONTROL_GESTION, PURCHASE, ACCOUNTING, ADMIN, EXECUTION
+
+  users UserDepartment[]
+}
+
+model UserDepartment {
+  id            String @id @default(uuid())
+  user_id       String
+  department_id String
+
+  user       User       @relation(fields: [user_id], references: [id])
+  department Department @relation(fields: [department_id], references: [id])
+
+  @@unique([user_id, department_id])
+}
+
+model Project {
+  id             String   @id @default(uuid())
+  project_code   String   @unique
+  title          String
+  description    String?
+  client_name    String?
+  location       String?
+  status         String   @default("DRAFT") // DRAFT, IN_VALIDATION, APPROVED, REJECTED, IN_PROGRESS, CLOSED
+  start_date     DateTime?
+  end_date       DateTime?
+  created_by     String
+  
+  created_at     DateTime @default(now())
+  updated_at     DateTime @updatedAt
+  deleted_at     DateTime?
+  is_active      Boolean  @default(true)
+  version        Int      @default(1)
+  tenant_id      String   @default("default-tenant")
+
+  creator        User     @relation("ProjectCreatedBy", fields: [created_by], references: [id])
+  
+  metadata       ProjectMetadata?
+  workflowInstances WorkflowInstance[]
+  documents      Document[]
+  purchaseRequests PurchaseRequest[]
+  tasks          Task[]
+}
+
+model ProjectMetadata {
+  id               String @id @default(uuid())
+  project_id       String @unique
+  budget_estimated Float
+  currency         String @default("EUR")
+  priority         String @default("MEDIUM") // LOW, MEDIUM, HIGH, CRITICAL
+
+  project Project @relation(fields: [project_id], references: [id])
+}
+
+model WorkflowDefinition {
+  id          String   @id @default(uuid())
+  name        String
+  entity_type String   // PROJECT
+  version     Int      @default(1)
+
+  steps       WorkflowStep[]
+  instances   WorkflowInstance[]
+}
+
+model WorkflowStep {
+  id               String   @id @default(uuid())
+  workflow_id      String
+  step_code        String   // INITIATION, VALIDATION_PROJECT, STUDY, SYNTHESIS, ADMIN_VALIDATION, PROCUREMENT, EXECUTION, CONTROL, ACCOUNTING, ARCHIVE
+  step_order       Int
+  required_role_id String
+  is_parallel      Boolean  @default(false)
+  is_final         Boolean  @default(false)
+
+  definition       WorkflowDefinition @relation(fields: [workflow_id], references: [id])
+}
+
+model WorkflowInstance {
+  id               String   @id @default(uuid())
+  workflow_id      String
+  entity_id        String   // matches project_id
+  current_step_id  String
+  status           String   @default("IN_PROGRESS") // IN_PROGRESS, COMPLETED, REJECTED
+
+  definition       WorkflowDefinition @relation(fields: [workflow_id], references: [id])
+  project          Project @relation(fields: [entity_id], references: [id])
+  actions          WorkflowAction[]
+  approvals        Approval[]
+}
+
+model WorkflowAction {
+  id                   String   @id @default(uuid())
+  workflow_instance_id String
+  step_id              String
+  action               String   // APPROVE, REJECT, RETURN, COMMENT
+  performed_by         String
+  comment              String?
+  created_at           DateTime @default(now())
+
+  instance             WorkflowInstance @relation(fields: [workflow_instance_id], references: [id])
+}
+
+model Approval {
+  id                   String   @id @default(uuid())
+  workflow_instance_id String
+  step_id              String
+  approved_by          String
+  status               String   @default("PENDING") // PENDING, APPROVED, REJECTED
+  comment              String?
+  signature_hash       String?
+  created_at           DateTime @default(now())
+
+  instance             WorkflowInstance @relation(fields: [workflow_instance_id], references: [id])
+}
+
+model Document {
+  id               String   @id @default(uuid())
+  project_id       String
+  workflow_step_id String?
+  name             String
+  type             String   // PLAN, INVOICE, CONTRACT, STUDY, REPORT
+  file_url         String
+  uploaded_by      String
+  version          Int      @default(1)
+  is_archived      Boolean  @default(false)
+  created_at       DateTime @default(now())
+
+  project          Project  @relation(fields: [project_id], references: [id])
+}
+
+model PurchaseRequest {
+  id           String   @id @default(uuid())
+  project_id   String
+  requested_by String
+  status       String   @default("DRAFT") // DRAFT, APPROVED, REJECTED, ORDERED
+  created_at   DateTime @default(now())
+
+  project      Project  @relation(fields: [project_id], references: [id])
+  items        PurchaseRequestItem[]
+}
+
+model PurchaseRequestItem {
+  id                  String   @id @default(uuid())
+  purchase_request_id String
+  item_name           String
+  quantity            Int
+  estimated_price     Float
+
+  request             PurchaseRequest @relation(fields: [purchase_request_id], references: [id])
+}
+
+model Task {
+  id          String    @id @default(uuid())
+  project_id  String
+  title       String
+  description String?
+  assigned_to String?
+  status      String    @default("TODO") // TODO, IN_PROGRESS, DONE
+  start_date  DateTime?
+  end_date    DateTime?
+  created_at  DateTime  @default(now())
+
+  project     Project   @relation(fields: [project_id], references: [id])
+}
+
+model AuditLog {
+  id          String   @id @default(uuid())
+  user_id     String
+  action      String   // CREATE, UPDATE, DELETE, APPROVE, REJECT
+  entity_type String
+  entity_id   String
+  old_value   String?  // JSON string
+  new_value   String?  // JSON string
+  created_at  DateTime @default(now())
+  ip_address  String?
+}
