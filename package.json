@@ -1,20 +1,27 @@
 {
-  "name": "react-example",
+  "name": "btp-erp-monorepo",
   "private": true,
   "version": "0.0.0",
   "type": "module",
+  "workspaces": [
+    "web",
+    "api"
+  ],
   "scripts": {
-    "dev": "tsx server.ts",
-    "build": "vite build",
-    "preview": "vite preview",
-    "clean": "rm -rf dist",
-    "lint": "tsc --noEmit"
+    "dev": "npm --workspace=@btp-erp/api run dev",
+    "dev:web": "npm --workspace=@btp-erp/web run dev",
+    "dev:api": "npm --workspace=@btp-erp/api run dev",
+    "build": "npm --workspace=@btp-erp/web run build",
+    "preview": "npm --workspace=@btp-erp/web run preview",
+    "clean": "npm --workspace=@btp-erp/web run clean",
+    "lint": "npm --workspace=@btp-erp/web run lint && tsc --noEmit --project api/tsconfig.json"
   },
   "dependencies": {
     "@base-ui/react": "^1.4.1",
     "@fontsource-variable/geist": "^5.2.8",
     "@google/genai": "^1.29.0",
     "@prisma/client": "^5.22.0",
+    "@radix-ui/react-avatar": "^1.1.11",
     "@tailwindcss/vite": "^4.1.14",
     "@vitejs/plugin-react": "^5.0.4",
     "bcrypt": "^6.0.0",

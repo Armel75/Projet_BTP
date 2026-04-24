@@ -4,6 +4,11 @@ import { PrismaClient } from "@prisma/client";
 import cors from "cors";
 import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
+import path from "path";
+import { fileURLToPath } from "url";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 const prisma = new PrismaClient();
 const JWT_SECRET = process.env.JWT_SECRET || "fallback_secret_key_dev_only";
@@ -207,13 +212,20 @@ async function startServer() {
 
   // Vite middleware for development
   if (process.env.NODE_ENV !== "production") {
+    const webRoot = path.resolve(__dirname, "../web");
     const vite = await createViteServer({
+      root: webRoot,
       server: { middlewareMode: true },
       appType: "spa",
     });
     app.use(vite.middlewares);
   } else {
     // Note: Assuming dist is built
+    const distPath = path.resolve(__dirname, '../web/dist');
+    app.use(express.static(distPath));
+    app.get('*', (req, res) => {
+      res.sendFile(path.join(distPath, 'index.html'));
+    });
   }
 
   app.listen(PORT, "0.0.0.0", () => {
