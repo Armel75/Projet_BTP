@@ -27,4 +27,19 @@
 body {
   background-color: var(--color-gb-app);
   color: var(--color-gb-text);
+  @apply antialiased;
+}
+
+@layer utilities {
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+  .no-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+}
+
+.sidebar-icon {
+  @apply w-12 h-12 flex items-center justify-center rounded-xl transition-all duration-200 mb-4 hover:bg-gb-surface-hover hover:scale-105 active:scale-95;
 }

@@ -1,5 +1,6 @@
 import React from "react";
 import { Settings, Users, Database } from "lucide-react";
+import { Link } from "react-router-dom";
 
 export default function SettingsView() {
   return (
@@ -36,11 +37,11 @@ export default function SettingsView() {
             </h3>
             <p className="text-sm text-gb-muted mb-4">Configurez les accès et les permissions de validation.</p>
              <div className="space-y-3">
+              <Link to="/settings/rbac" className="block w-full text-left p-3 border border-gb-border rounded bg-gb-app hover:border-gb-primary transition-colors text-sm font-medium">
+                Matrice des droits (RBAC Configuration)
+              </Link>
               <button className="w-full text-left p-3 border border-gb-border rounded bg-gb-app hover:border-gb-primary transition-colors text-sm font-medium">
                 Annuaire Employés
-              </button>
-              <button className="w-full text-left p-3 border border-gb-border rounded bg-gb-app hover:border-gb-primary transition-colors text-sm font-medium">
-                Matrice des droits SG/DG
               </button>
             </div>
           </div>

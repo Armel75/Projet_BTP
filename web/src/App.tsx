@@ -1,12 +1,17 @@
 import React, { useEffect, useState } from "react";
 import { BrowserRouter as Router, Routes, Route, Link, useLocation } from "react-router-dom";
-import { LayoutDashboard, FolderKanban, CheckSquare, Settings, Bell, Search, ShieldCheck } from "lucide-react";
+import { LayoutDashboard, FolderKanban, CheckSquare, Settings, Bell, Search, ShieldCheck, Users, ShoppingCart, ClipboardList, Banknote, LogOut } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "./components/ui/avatar";
 import DashboardView from "./views/DashboardView";
 import ProjectsView from "./views/ProjectsView";
 import WorkflowView from "./views/WorkflowView";
 import TasksView from "./views/TasksView";
+import ProcurementView from "./views/ProcurementView";
 import SettingsView from "./views/SettingsView";
+import RbacAdminView from "./views/RbacAdminView";
+import ResourcesView from "./views/ResourcesView";
+import ReportingView from "./views/ReportingView";
+import FinancialsView from "./views/FinancialsView";
 import { ThemeProvider } from "./components/ThemeProvider";
 import { ThemeToggle } from "./components/ThemeToggle";
 import { AuthProvider, useAuth } from "./contexts/AuthContext";
@@ -19,7 +24,11 @@ const MAIN_LINKS = [
   { path: "/", icon: <LayoutDashboard size={20} />, label: "Dashboard" },
   { path: "/projects", icon: <FolderKanban size={20} />, label: "Projets" },
   { path: "/workflow", icon: <ShieldCheck size={20} />, label: "Validation" },
+  { path: "/resources", icon: <Users size={20} />, label: "Ressources" },
+  { path: "/procurement", icon: <ShoppingCart size={20} />, label: "Achats" },
   { path: "/tasks", icon: <CheckSquare size={20} />, label: "Chantier" },
+  { path: "/reporting", icon: <ClipboardList size={20} />, label: "Reporting" },
+  { path: "/finance", icon: <Banknote size={20} />, label: "Finance" },
 ];
 
 function Sidebar() {
@@ -65,31 +74,41 @@ function BottomNav() {
   const currentPath = location.pathname;
 
   return (
-    <nav className="md:hidden fixed bottom-0 left-0 right-0 h-16 bg-gb-surface-solid border-t border-gb-border z-50 flex items-center justify-around px-2 pb-[env(safe-area-inset-bottom)] transition-colors duration-300">
-      {MAIN_LINKS.map((link) => {
-        const isActive = currentPath === link.path;
-        return (
-          <Link
-            key={link.path}
-            to={link.path}
-            className={`flex flex-col items-center justify-center w-full h-full space-y-1 ${
-              isActive ? "text-gb-primary" : "text-gb-muted"
-            }`}
-          >
-            {link.icon}
-            <span className="text-[10px] font-medium truncate w-full text-center px-1">{link.label}</span>
-          </Link>
-        );
-      })}
-      <Link
-        to="/settings"
-        className={`flex flex-col items-center justify-center w-full h-full space-y-1 ${
-          currentPath === "/settings" ? "text-gb-primary" : "text-gb-muted"
-        }`}
-      >
-        <Settings size={20} />
-        <span className="text-[10px] font-medium truncate w-full text-center px-1">Admin</span>
-      </Link>
+    <nav className="md:hidden fixed bottom-0 left-0 right-0 h-16 bg-gb-surface-solid border-t border-gb-border z-50 flex items-center overflow-x-auto no-scrollbar px-2 pb-[env(safe-area-inset-bottom)] transition-colors duration-300">
+      <div className="flex items-center min-w-max h-full">
+        {MAIN_LINKS.map((link) => {
+          const isActive = currentPath === link.path;
+          return (
+            <Link
+              key={link.path}
+              to={link.path}
+              className={`flex flex-col items-center justify-center min-w-[72px] px-2 h-full space-y-1 transition-colors ${
+                isActive ? "text-gb-primary" : "text-gb-muted"
+              }`}
+            >
+              <div className={`${isActive ? "bg-gb-primary/10 p-1.5 rounded-lg" : ""}`}>
+                {link.icon}
+              </div>
+              <span className={`text-[9px] font-bold uppercase tracking-tighter truncate w-full text-center px-1 ${isActive ? "text-gb-primary" : "text-gb-muted"}`}>
+                {link.label}
+              </span>
+            </Link>
+          );
+        })}
+        <Link
+          to="/settings"
+          className={`flex flex-col items-center justify-center min-w-[72px] px-2 h-full space-y-1 ${
+            currentPath === "/settings" ? "text-gb-primary" : "text-gb-muted"
+          }`}
+        >
+          <div className={`${currentPath === "/settings" ? "bg-gb-primary/10 p-1.5 rounded-lg" : ""}`}>
+            <Settings size={20} />
+          </div>
+          <span className={`text-[9px] font-bold uppercase tracking-tighter truncate w-full text-center px-1 ${currentPath === "/settings" ? "text-gb-primary" : "text-gb-muted"}`}>
+            Admin
+          </span>
+        </Link>
+      </div>
     </nav>
   );
 }
@@ -125,10 +144,11 @@ function Header() {
             </Avatar>
             <button 
               onClick={logout}
-              className="hidden sm:block text-xs font-bold text-gb-danger hover:underline"
+              className="flex items-center justify-center p-2 rounded-lg text-gb-danger hover:bg-gb-danger/10 transition-colors"
               title="Déconnexion"
             >
-              Déconnexion
+              <LogOut size={18} />
+              <span className="hidden sm:inline ml-2 text-xs font-bold">Déconnexion</span>
             </button>
           </div>
         )}
@@ -148,8 +168,13 @@ function MainLayout() {
             <Route path="/" element={<ProtectedRoute><DashboardView /></ProtectedRoute>} />
             <Route path="/projects" element={<ProtectedRoute><ProjectsView /></ProtectedRoute>} />
             <Route path="/workflow" element={<ProtectedRoute><WorkflowView /></ProtectedRoute>} />
+            <Route path="/resources" element={<ProtectedRoute><ResourcesView /></ProtectedRoute>} />
+            <Route path="/procurement" element={<ProtectedRoute><ProcurementView /></ProtectedRoute>} />
             <Route path="/tasks" element={<ProtectedRoute><TasksView /></ProtectedRoute>} />
+            <Route path="/reporting" element={<ProtectedRoute><ReportingView /></ProtectedRoute>} />
+            <Route path="/finance" element={<ProtectedRoute><FinancialsView /></ProtectedRoute>} />
             <Route path="/settings" element={<ProtectedRoute><SettingsView /></ProtectedRoute>} />
+            <Route path="/settings/rbac" element={<ProtectedRoute><RbacAdminView /></ProtectedRoute>} />
             <Route path="*" element={<div className="text-gb-muted text-center mt-10">En cours de développement...</div>} />
           </Routes>
         </main>
