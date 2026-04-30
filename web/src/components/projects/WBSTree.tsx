@@ -51,12 +51,12 @@ export function WBSTree({ nodes, onTaskSelect }: WBSTreeProps) {
                 className="ml-4 sm:ml-8 py-2 px-3 bg-gb-surface-solid border border-gb-border rounded-md hover:border-gb-primary transition-all cursor-pointer group"
                 onClick={(e) => { e.stopPropagation(); onTaskSelect(task); }}
               >
-                <div className="flex justify-between items-start">
-                  <div className="flex items-center space-x-2">
-                    <ListChecks size={14} className="text-emerald-500" />
-                    <span className="text-sm font-medium">{task.title}</span>
+                <div className="flex justify-between items-start gap-2">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <ListChecks size={14} className="text-emerald-500 shrink-0" />
+                    <span className="text-sm font-medium truncate">{task.title}</span>
                   </div>
-                  <Badge variant={task.status === "DONE" ? "default" : "secondary"}>
+                  <Badge variant={task.status === "DONE" ? "default" : "secondary"} className="shrink-0">
                     {task.status}
                   </Badge>
                 </div>

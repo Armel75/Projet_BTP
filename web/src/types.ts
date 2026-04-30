@@ -3,7 +3,8 @@ export type User = {
   firstname: string;
   lastname: string;
   email: string;
-  roles?: { role: { code: string } }[];
+  userRoles?: { role: { code: string; name: string } }[];
+  permissions?: string[]; // resolved permission codes, e.g. ["user:read", "project:create"]
 };
 
 export type Project = {

@@ -1,32 +1,29 @@
 import { Router } from "express";
 import { RbacController } from "../controllers/rbac.controller.js";
-import { requireAuth, requireRole, requirePermission } from "../middlewares/auth.middleware.js";
+import { requireAuth, requirePermission } from "../middlewares/auth.middleware.js";
 
 const rbacRouter = Router();
 
-// Only ADMIN can access RBAC generally, we can apply requireRole("ADMIN") later if needed. 
-// For now let's just make it required an authenticated user, and optionally we can protect tests.
+// All RBAC routes require authentication
 rbacRouter.use(requireAuth);
-rbacRouter.use(requireRole("ADMIN"));
 
-
-// Roles
-rbacRouter.get("/roles", RbacController.getRoles);
-rbacRouter.post("/roles", RbacController.createRole);
-rbacRouter.delete("/roles/:id", RbacController.deleteRole);
+// Roles — controlled by permission, not by role name
+rbacRouter.get("/roles", requirePermission("role:read"), RbacController.getRoles);
+rbacRouter.post("/roles", requirePermission("role:create"), RbacController.createRole);
+rbacRouter.delete("/roles/:id", requirePermission("role:delete"), RbacController.deleteRole);
 
 // Permissions
-rbacRouter.get("/permissions", RbacController.getPermissions);
-rbacRouter.post("/permissions", RbacController.createPermission);
-rbacRouter.delete("/permissions/:id", RbacController.deletePermission);
+rbacRouter.get("/permissions", requirePermission("permission:read"), RbacController.getPermissions);
+rbacRouter.post("/permissions", requirePermission("permission:create"), RbacController.createPermission);
+rbacRouter.delete("/permissions/:id", requirePermission("permission:delete"), RbacController.deletePermission);
 
-// Role <=> Permission
-rbacRouter.post("/roles/:id/permissions", RbacController.addPermissionToRole);
-rbacRouter.delete("/roles/:id/permissions/:permissionId", RbacController.removePermissionFromRole);
+// Role <=> Permission assignment
+rbacRouter.post("/roles/:id/permissions", requirePermission("role:assign-permission"), RbacController.addPermissionToRole);
+rbacRouter.delete("/roles/:id/permissions/:permissionId", requirePermission("role:assign-permission"), RbacController.removePermissionFromRole);
 
-// Users <=> Role
-rbacRouter.get("/users", RbacController.getAllUsers); // Used for listing users and their roles
-rbacRouter.post("/users/:id/roles", RbacController.assignRoleToUser);
-rbacRouter.delete("/users/:id/roles/:roleId", RbacController.removeRoleFromUser);
+// Users <=> Role assignment
+rbacRouter.get("/users", requirePermission("user:read"), RbacController.getAllUsers);
+rbacRouter.post("/users/:id/roles", requirePermission("user:assign-role"), RbacController.assignRoleToUser);
+rbacRouter.delete("/users/:id/roles/:roleId", requirePermission("user:assign-role"), RbacController.removeRoleFromUser);
 
 export default rbacRouter;

@@ -21,6 +21,9 @@ import {
 import { Badge } from "../ui/badge";
 import { format } from "date-fns";
 import { fr } from "date-fns/locale";
+import { apiFetch } from "../../lib/api";
+
+const API_BASE = import.meta.env.VITE_API_URL;
 
 interface WeeklyReportDetailDrawerProps {
   open: boolean;
@@ -41,10 +44,7 @@ export default function WeeklyReportDetailDrawer({ open, onOpenChange, reportId 
   const fetchReport = async () => {
     setLoading(true);
     try {
-      const token = localStorage.getItem("token");
-      const res = await fetch(`/api/weekly-reports/${reportId}`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
+      const res = await apiFetch(`${API_BASE}/weekly-reports/${reportId}`);
       if (res.ok) {
         setReport(await res.json());
       }

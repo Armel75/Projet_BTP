@@ -74,6 +74,10 @@ model Tenant {
   weeklyReports WeeklyReport[]
   roles     Role[]
   userRoles UserRole[]
+
+  // ─── Intégration GLPI ──────────────────────────────────────
+  glpiUsers GLPIUser[]
+  tickets   Ticket[]
 }
 
 model User {
@@ -126,7 +130,9 @@ model User {
   stockMovementsCreated StockMovement[]
   materialConsumptionsCreated MaterialConsumption[]
 
-  contractsCreated Contract[] @relation("ContractCreatedBy")
+  contractsCreated         Contract[]         @relation("ContractCreatedBy")
+  contractsApproved        Contract[]         @relation("ContractApprovedBy")
+  contractLineItemsCreated ContractLineItem[] @relation("ContractLineItemCreatedBy")
   changeOrdersCreated ChangeOrder[] @relation("ChangeOrderCreatedBy")
 
   invoicesCreated Invoice[] @relation("InvoiceCreatedBy")
@@ -135,7 +141,8 @@ model User {
   controlReportsCreated ControlReport[] @relation("ControlReportCreatedBy")
   workAcceptancesCreated WorkAcceptance[] @relation("WorkAcceptanceCreatedBy")
 
-  incidentsCreated Incident[] @relation("IncidentCreatedBy")
+  incidentsCreated   Incident[] @relation("IncidentCreatedBy")
+  incidentsAssigned  Incident[] @relation("IncidentAssignedTo")
 
   documentsCreated Document[] @relation("DocumentCreatedBy")
   documentExchangesCreated DocumentExchange[] @relation("DocumentExchangeCreatedBy")
@@ -145,12 +152,21 @@ model User {
   workflowActionsPerformed WorkflowAction[] @relation("WorkflowActionPerformed")
 
   dailyLogsCreated DailyLog[] @relation("DailyLogCreatedBy")
-  inspectionsCreated Inspection[] @relation("InspectionCreatedBy")
-  punchItemsCreated PunchItem[] @relation("PunchItemCreatedBy")
+  inspectionsCreated   Inspection[] @relation("InspectionCreatedBy")
+  inspectionsAssigned  Inspection[] @relation("InspectionInspector")
+  punchItemsCreated   PunchItem[] @relation("PunchItemCreatedBy")
+  punchItemsAssigned  PunchItem[] @relation("PunchItemAssignedTo")
   meetingsCreated Meeting[] @relation("MeetingCreatedBy")
 
   costTransactionsCreated CostTransaction[] @relation("CostTransactionCreatedBy")
   weeklyReportsCreated WeeklyReport[] @relation("WeeklyReportCreatedBy")
+
+  // ─── Lots corps d'état ──────────────────────────────────────────
+  lotsResponsible ProjectLot[] @relation("LotResponsible")
+
+  // ─── Gestion de projets ──────────────────────────────────────────
+  managedProjects          Project[]        @relation("ProjectManager")
+  workAcceptancesInspected WorkAcceptance[] @relation("WorkAcceptanceInspector")
 
   created_at DateTime @default(now())
   updated_at DateTime @updatedAt
@@ -180,6 +196,93 @@ model Session {
   @@index([expiresAt])
 }
 
+//////////////////////////////
+// GLPI INTEGRATION
+//////////////////////////////
+
+model GLPIUser {
+  id                    Int      @id @default(autoincrement())
+  tenant_id             Int
+  tenant                Tenant   @relation(fields: [tenant_id], references: [id], onUpdate: NoAction, onDelete: NoAction)
+
+  glpi_id               Int      // ID interne GLPI (stable, utilisé pour l'upsert)
+  login                 String?
+  email                 String?
+  first_name            String?
+  last_name             String?
+  full_name             String?
+  phone                 String?
+  department_name       String?  // Nom du département GLPI (non FK, syncé tel quel)
+  entity_name           String?  // Entité GLPI
+
+  status                String   @default("ACTIVE")  // ACTIVE | INACTIVE | DELETED
+  is_deleted_in_source  Boolean  @default(false)     // true si supprimé dans GLPI
+  source_updated_at     DateTime?                    // date_mod côté GLPI
+  last_synced_at        DateTime?                    // dernière synchro réussie
+  sync_status           String   @default("SYNCED")  // SYNCED | ERROR | PENDING
+  raw_payload           String?  @db.NVarChar(Max)   // payload JSON brut GLPI pour debug
+
+  requested_tickets Ticket[] @relation("TicketRequesterGLPIUser")
+  assigned_tickets  Ticket[] @relation("TicketAssigneeGLPIUser")
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  @@unique([tenant_id, glpi_id])
+  @@index([tenant_id, email])
+  @@index([tenant_id, login])
+  @@index([tenant_id, status])
+}
+
+model Ticket {
+  id          Int    @id @default(autoincrement())
+  tenant_id   Int
+  tenant      Tenant @relation(fields: [tenant_id], references: [id], onUpdate: NoAction, onDelete: NoAction)
+
+  glpi_id       Int     // ID interne GLPI (stable, utilisé pour l'upsert)
+  ticket_number String?                  // Numéro affiché dans GLPI (ex: "TKT-4521")
+  title         String                   // Titre du ticket (NOT NULL, toujours présent dans GLPI)
+  description   String? @db.NVarChar(Max)
+
+  ticket_type   String?                  // INCIDENT | REQUEST
+  status        String  @default("OPEN") // OPEN | IN_PROGRESS | PENDING | RESOLVED | CLOSED
+  priority      String?                  // 1 Very High ... 6 Very Low (valeur brute GLPI)
+  urgency       String?                  // idem
+  impact        String?                  // idem
+
+  category_name  String?                 // Nom de la catégorie GLPI
+  entity_name    String?                 // Entité GLPI
+  location_name  String?                 // Localisation GLPI
+
+  opened_at   DateTime?
+  due_at      DateTime?
+  resolved_at DateTime?
+  closed_at   DateTime?
+
+  requester_glpi_user_id Int?
+  requester_glpi_user    GLPIUser? @relation("TicketRequesterGLPIUser", fields: [requester_glpi_user_id], references: [id], onUpdate: NoAction, onDelete: NoAction)
+
+  assignee_glpi_user_id Int?
+  assignee_glpi_user    GLPIUser? @relation("TicketAssigneeGLPIUser", fields: [assignee_glpi_user_id], references: [id], onUpdate: NoAction, onDelete: NoAction)
+
+  source_updated_at DateTime?                   // date_mod côté GLPI
+  last_synced_at    DateTime?                   // dernière synchro réussie
+  sync_status       String   @default("SYNCED") // SYNCED | ERROR | PENDING
+  raw_payload       String?  @db.NVarChar(Max)  // payload JSON brut GLPI pour debug
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  @@unique([tenant_id, glpi_id])
+  @@index([tenant_id, status])
+  @@index([tenant_id, ticket_number])
+  @@index([requester_glpi_user_id])
+  @@index([assignee_glpi_user_id])
+}
+
+//////////////////////////////
+// RESOURCES
+//////////////////////////////
 
 model Resource {
   id        Int @id @default(autoincrement())
@@ -207,15 +310,20 @@ model Project {
   id           Int @id @default(autoincrement())
   code         String @unique
   title        String @db.NVarChar(Max)
+  description  String? @db.NVarChar(Max)
   status       String
+  phase        String @default("PREPARATION") // ETUDE | PREPARATION | EXECUTION | RECEPTION | CLOTURE
+  client_name  String?
 
-  tenant_id Int
-  created_by Int
-  document_id Int
+  tenant_id          Int
+  created_by         Int
+  document_id        Int
+  project_manager_id Int?  // Chef de projet
 
-  tenant    Tenant @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  createdBy   User     @relation("ProjectCreatedBy", fields: [created_by], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  document Document @relation("ProjectMainDocument", fields: [document_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  tenant         Tenant   @relation(fields: [tenant_id],          references: [id], onDelete: NoAction, onUpdate: NoAction)
+  createdBy      User     @relation("ProjectCreatedBy",            fields: [created_by],         references: [id], onDelete: NoAction, onUpdate: NoAction)
+  document       Document @relation("ProjectMainDocument",         fields: [document_id],        references: [id], onDelete: NoAction, onUpdate: NoAction)
+  projectManager User?    @relation("ProjectManager",              fields: [project_manager_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
   start_date DateTime?
   end_date   DateTime?
@@ -259,21 +367,74 @@ model Project {
   }
 
   //////////////////////////////
+  // TRADE CATEGORIES (catalogue BTP)
+  //////////////////////////////
+
+  model TradeCategory {
+    code  String @id  // ex: "GROS_OEUVRE", "ELECTRICITE_CFO_CFA"
+    label String      // ex: "Gros Œuvre", "Électricité CFO/CFA"
+    order Int         @default(0)
+
+    lots ProjectLot[]
+  }
+
+  //////////////////////////////
   // PROJECT LOT
   //////////////////////////////
 
   model ProjectLot {
-    id         Int @id @default(autoincrement())
-    project_id Int
-    name       String
+    id          Int    @id @default(autoincrement())
+    project_id  Int
+    name        String
     description String? @db.NVarChar(Max)
     tenant_id   Int
 
-    tenant Tenant @relation(fields: [tenant_id], references: [id], onUpdate: NoAction, onDelete: NoAction)
-    project Project @relation(fields: [project_id], references: [id], onUpdate: NoAction, onDelete: NoAction)
+    // ─── Corps d'état ────────────────────────────────────────────────────
+    lot_number       String           // Numéro officiel du lot : "01", "02", "A"...
+    trade_code       String           // FK → TradeCategory.code
+    status           String           @default("CONCEPTION")
+    // CONCEPTION | APPEL_OFFRES | ATTRIBUTION | EN_COURS
+    // RECEPTION_PROVISOIRE | RECEPTION_DEFINITIVE | CLOS
+    budget_allocated Float            @default(0)  // Budget alloué à ce lot
+    progress         Float            @default(0)  // Avancement 0–100
+
+    // ─── Données optionnelles (disponibles après attribution) ─────────────
+    start_date     DateTime?
+    end_date       DateTime?
+    responsible_id Int?       // Chef de lot (User)
+    contractor_id  Int?       // Entrepreneur principal (Supplier)
+    contract_id    Int?       // Contrat de sous-traitance lié (Contract)
+
+    // ─── Relations ───────────────────────────────────────────────────────
+    tenant      Tenant        @relation(fields: [tenant_id],     references: [id],   onUpdate: NoAction, onDelete: NoAction)
+    project     Project       @relation(fields: [project_id],    references: [id],   onUpdate: NoAction, onDelete: NoAction)
+    trade       TradeCategory @relation(fields: [trade_code],    references: [code], onUpdate: NoAction, onDelete: NoAction)
+    responsible User?         @relation("LotResponsible",        fields: [responsible_id], references: [id], onUpdate: NoAction, onDelete: NoAction)
+    contractor  Supplier?     @relation("LotContractor",         fields: [contractor_id],  references: [id], onUpdate: NoAction, onDelete: NoAction)
+    contract    Contract?     @relation("LotContract",           fields: [contract_id],    references: [id], onUpdate: NoAction, onDelete: NoAction)
+
+    // ─── Inverses ─────────────────────────────────────────────────────────
+    wbsNodes        WBSNode[]
+    tasks           Task[]
+    budgetLines     BudgetLine[]
+    inspections     Inspection[]
+    punchItems      PunchItem[]
+    documents       Document[]
+    tenders         Tender[]
+    changeOrders      ChangeOrder[]
+    contractLineItems ContractLineItem[]
+    incidents         Incident[]
+    workAcceptances   WorkAcceptance[]
+    controlReports  ControlReport[]
+    purchaseOrders  PurchaseOrder[]
+    invoices        Invoice[]
 
     created_at DateTime @default(now())
     updated_at DateTime @updatedAt
+
+    @@unique([project_id, lot_number])
+    @@index([project_id, trade_code])
+    @@index([project_id, status])
   }
 
 //////////////////////////////
@@ -284,7 +445,8 @@ model WBSNode {
   id         Int @id @default(autoincrement())
   project_id Int
   parent_id  Int?
-  tenant_id Int
+  tenant_id  Int
+  lot_id     Int?
   code  String
   name  String
   level Int
@@ -292,20 +454,22 @@ model WBSNode {
   created_at DateTime @default(now())
   updated_at DateTime @updatedAt
 
-  tenant Tenant @relation(fields: [tenant_id], references: [id], onUpdate: NoAction, onDelete: NoAction)
-  project Project @relation(fields: [project_id], references: [id], onUpdate: NoAction, onDelete: NoAction)
-  parent WBSNode? @relation("WBSParent", fields: [parent_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  tenant  Tenant   @relation(fields: [tenant_id], references: [id], onUpdate: NoAction, onDelete: NoAction)
+  project Project  @relation(fields: [project_id], references: [id], onUpdate: NoAction, onDelete: NoAction)
+  parent  WBSNode? @relation("WBSParent", fields: [parent_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
   children WBSNode[] @relation("WBSParent")
-  tasks Task[]
+  lot     ProjectLot? @relation(fields: [lot_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  tasks   Task[]
   tenders Tender[] // ✅ INVERSE
 
   // Relations inverses pour corriger les erreurs Prisma
   contractLineItems ContractLineItem[]
-  budgetLines BudgetLine[]
-  costTransactions CostTransaction[]
+  budgetLines       BudgetLine[]
+  costTransactions  CostTransaction[]
 
   @@index([tenant_id, project_id])
   @@index([project_id, parent_id])
+  @@index([lot_id])
 }
 
 //////////////////////////////
@@ -313,24 +477,31 @@ model WBSNode {
 //////////////////////////////
 
 model Task {
-    incidents Incident[]
+    incidents  Incident[]
+    punchItems PunchItem[]
   id         Int @id @default(autoincrement())
   project_id Int
   wbs_id     Int?
+  lot_id     Int?
 
-  title    String
-  status   String
-  progress Float
-  tenant_id Int
+  title       String
+  description String? @db.NVarChar(Max)
+  status      String
+  priority    String  @default("MEDIUM") // LOW | MEDIUM | HIGH | CRITICAL
+  progress    Float
+  tenant_id   Int
 
   planned_start DateTime?
   planned_end   DateTime?
+  actual_start  DateTime?
+  actual_end    DateTime?
   materialConsumptions MaterialConsumption[]
   created_by Int?
   createdBy  User? @relation("TaskCreatedBy", fields: [created_by], references: [id], onUpdate: NoAction, onDelete: NoAction)
-  tenant Tenant @relation(fields: [tenant_id], references: [id], onUpdate: NoAction, onDelete: NoAction)
-  project Project @relation(fields: [project_id], references: [id], onUpdate: NoAction, onDelete: NoAction)
-  wbs WBSNode? @relation(fields: [wbs_id], references: [id])
+  tenant  Tenant   @relation(fields: [tenant_id], references: [id], onUpdate: NoAction, onDelete: NoAction)
+  project Project  @relation(fields: [project_id], references: [id], onUpdate: NoAction, onDelete: NoAction)
+  wbs     WBSNode? @relation(fields: [wbs_id], references: [id])
+  lot     ProjectLot? @relation(fields: [lot_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
   dependencies TaskDependency[] @relation("TaskDependency_task")
   dependents   TaskDependency[] @relation("TaskDependency_dependsOn")
@@ -341,6 +512,7 @@ model Task {
   @@index([tenant_id, project_id])
   @@index([tenant_id, status])
   @@index([project_id, wbs_id])
+  @@index([lot_id])
 }
 
 model TaskAssignment {
@@ -381,82 +553,131 @@ model TaskDependency {
 //////////////////////////////
 
 model Supplier {
-  id        Int @id @default(autoincrement())
-  tenant_id Int
+  id           Int    @id @default(autoincrement())
+  tenant_id    Int
+  name         String
+  email        String?                       // Email du contact principal
+  phone        String?                       // Téléphone
+  address      String? @db.NVarChar(Max)     // Adresse complète
+  siret        String?                       // SIRET / RCCM / NIF selon le pays
+  contact_name String?                       // Nom du responsable commercial
+  status       String  @default("ACTIVE")    // ACTIVE | INACTIVE | BLACKLISTED
+  specialty    String?                       // Corps d'état principal
+
   tenant Tenant @relation(fields: [tenant_id], references: [id], onUpdate: NoAction, onDelete: NoAction)
-  name      String
 
   created_at DateTime @default(now())
   updated_at DateTime @updatedAt
 
   budgetLines BudgetLine[]
-  tenders       TenderBid[]
-  purchaseOrders PurchaseOrder[]
-  contracts     Contract[]
+  tenders         TenderBid[]
+  tendersAwarded  Tender[] @relation("TenderAwardedSupplier")
+  purchaseOrders  PurchaseOrder[]
+  contracts       Contract[]
   deliveries Delivery[] // ✅ INVERSE
+  lots       ProjectLot[] @relation("LotContractor")
 
   created_by   Int
   createdBy    User @relation(fields: [created_by], references: [id], onUpdate: NoAction, onDelete: NoAction)
 }
 
 model Tender {
-  id         Int @id @default(autoincrement())
-  project_id Int
-  title      String
-  status     String
-  tenant_id  Int
-  wbs_id     Int?   // ✅ AJOU
+  id              Int @id @default(autoincrement())
+  project_id      Int
+  lot_id          Int?
+  wbs_id          Int?
+  reference       String?           // AO-2026-001
+  title           String
+  description     String? @db.NVarChar(Max)
+  type            String  @default("OPEN")     // OPEN | RESTRICTED | NEGOTIATED
+  category        String  @default("TRAVAUX")  // TRAVAUX | FOURNITURES | SERVICES | MOE
+  status          String  @default("DRAFT")    // DRAFT | PUBLISHED | EVALUATION | AWARDED | CANCELLED | CLOSED
+  tenant_id       Int
+  currency        String  @default("EUR")
+  budget_estimate     Float?
+  submission_deadline DateTime?
+  opening_date        DateTime?
+  award_date          DateTime?
+  awarded_supplier_id Int?
+  document_url        String?
+  notes               String? @db.NVarChar(Max)
 
-  wbs     WBSNode? @relation(fields: [wbs_id], references: [id]) // ✅
-  project Project @relation(fields: [project_id], references: [id], onUpdate: NoAction, onDelete: NoAction)
-  tenant Tenant @relation(fields: [tenant_id], references: [id], onUpdate: NoAction, onDelete: NoAction)
-  bids TenderBid[]
+  wbs             WBSNode?    @relation(fields: [wbs_id],              references: [id])
+  project         Project     @relation(fields: [project_id],          references: [id], onUpdate: NoAction, onDelete: NoAction)
+  tenant          Tenant      @relation(fields: [tenant_id],           references: [id], onUpdate: NoAction, onDelete: NoAction)
+  lot             ProjectLot? @relation(fields: [lot_id],              references: [id], onUpdate: NoAction, onDelete: NoAction)
+  awardedSupplier Supplier?   @relation("TenderAwardedSupplier",       fields: [awarded_supplier_id], references: [id], onUpdate: NoAction, onDelete: NoAction)
+  bids            TenderBid[]
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
 
   @@index([wbs_id])
+  @@index([lot_id])
+  @@index([awarded_supplier_id])
 
-    created_by   Int
-    createdBy    User @relation("TenderCreatedBy", fields: [created_by], references: [id], onUpdate: NoAction, onDelete: NoAction)
+  created_by   Int
+  createdBy    User @relation("TenderCreatedBy", fields: [created_by], references: [id], onUpdate: NoAction, onDelete: NoAction)
 }
 
 model TenderBid {
-  id         Int @id @default(autoincrement())
-  tender_id  Int
+  id          Int @id @default(autoincrement())
+  tender_id   Int
   supplier_id Int
-  amount     Float
+  amount      Float
+  status      String  @default("SUBMITTED") // SUBMITTED | EVALUATED | ACCEPTED | REJECTED | WITHDRAWN
+  technical_score Float?
+  financial_score Float?
+  total_score     Float?
+  rank            Int?
+  submitted_at    DateTime?
+  document_url    String?
+  is_compliant    Boolean  @default(true)
+  validity_period Int?     // jours
+  notes           String?  @db.NVarChar(Max)
 
-  tender Tender @relation(fields: [tender_id], references: [id], onUpdate: NoAction, onDelete: NoAction)
+  tender   Tender   @relation(fields: [tender_id],   references: [id], onUpdate: NoAction, onDelete: NoAction)
   supplier Supplier @relation(fields: [supplier_id], references: [id], onUpdate: NoAction, onDelete: NoAction)
 
   created_at DateTime @default(now())
   updated_at DateTime @updatedAt
 
   @@index([supplier_id])
+  @@index([tender_id])
 
   created_by   Int
   createdBy    User @relation("TenderBidCreatedBy", fields: [created_by], references: [id], onUpdate: NoAction, onDelete: NoAction)
 }
 
 model PurchaseOrder {
-  id          Int @id @default(autoincrement())
-  project_id  Int
-  supplier_id Int
-  tenant_id   Int
-  status String
-  currency  String
+  id             Int    @id @default(autoincrement())
+  project_id     Int
+  supplier_id    Int
+  tenant_id      Int
+  lot_id         Int?
+  number         String?          // Numéro du bon de commande (ex: BC-2026-001)
+  title          String?          // Objet du bon de commande
+  total_amount   Float  @default(0) // Montant total du BC
+  status         String
+  currency       String
+  delivery_date  DateTime?        // Date de livraison prévue
+  notes          String? @db.NVarChar(Max)
 
-  project Project @relation(fields: [project_id], references: [id], onUpdate: NoAction, onDelete: NoAction)
-  tenant Tenant @relation(fields: [tenant_id], references: [id], onUpdate: NoAction, onDelete: NoAction)
-  supplier Supplier @relation(fields: [supplier_id], references: [id], onUpdate: NoAction, onDelete: NoAction)
+  project  Project     @relation(fields: [project_id],  references: [id], onUpdate: NoAction, onDelete: NoAction)
+  tenant   Tenant      @relation(fields: [tenant_id],   references: [id], onUpdate: NoAction, onDelete: NoAction)
+  supplier Supplier    @relation(fields: [supplier_id], references: [id], onUpdate: NoAction, onDelete: NoAction)
+  lot      ProjectLot? @relation(fields: [lot_id],      references: [id], onUpdate: NoAction, onDelete: NoAction)
 
   created_at DateTime @default(now())
   updated_at DateTime @updatedAt
 
   goodsReceipts GoodsReceipt[]
-  invoices Invoice[] // ✅ INVERSE
+  invoices      Invoice[]
 
   @@index([tenant_id, project_id])
   @@index([tenant_id, supplier_id])
   @@index([tenant_id, status])
+  @@index([lot_id])
 
     created_by   Int
     createdBy    User @relation(fields: [created_by], references: [id], onUpdate: NoAction, onDelete: NoAction)
@@ -483,10 +704,14 @@ model Delivery {
   }
 
 model InventoryItem {
-  id        Int @id @default(autoincrement())
-  tenant_id Int
-  name      String
-  unit      String // kg, m3, piece
+  id          Int    @id @default(autoincrement())
+  tenant_id   Int
+  code        String?                     // Code article interne (ex: MAT-001)
+  name        String
+  description String? @db.NVarChar(Max)
+  unit        String                      // kg, m3, piece, ml...
+  category    String?                     // MATERIAL | EQUIPMENT | CONSUMABLE | CHEMICAL
+  unit_cost   Float?                      // Coût unitaire de référence
 
   created_at DateTime @default(now())
   tenant Tenant @relation(fields: [tenant_id], references: [id], onUpdate: NoAction, onDelete: NoAction)
@@ -644,21 +869,42 @@ model MaterialConsumption {
     id             Int @id @default(autoincrement())
     project_id     Int
     supplier_id    Int
-    type           String   // "OWNER" or "SUBCONTRACT"
+    type           String    // OWNER | SUBCONTRACT | SUPPLY | CONSULTING
+    title          String                        // Intitulé / objet du marché (obligatoire)
     reference      String
-    status         String   // DRAFT, APPROVED, EXECUTED, CLOSED
+    description    String?   @db.NVarChar(Max)   // Objet détaillé du marché
+    category       String?                       // TRAVAUX | FOURNITURES | SERVICES | MOE | ETUDES
+    status         String    // DRAFT | PENDING_SIGNATURE | APPROVED | EXECUTED | SUSPENDED | TERMINATED | CLOSED
+    amount         Decimal   @db.Decimal(15, 2) @default(0)  // Montant initial du contrat
+    signed_at      DateTime?                     // Date de signature
     executed_at    DateTime?
+    start_date     DateTime?
+    end_date       DateTime?
     retention_pct  Float?
-    currency  String
+
+    advance_payment_pct    Float?                // % d'avance forfaitaire (pratique BTP)
+    advance_payment_amount Decimal? @db.Decimal(15, 2)  // Montant de l'avance versée
+    price_revision_index   String?               // Indice de révision des prix (BT01, TP01, ICC...)
+    payment_terms          Int?                  // Délai de paiement légal en jours (30, 45...)
+    document_url           String?               // URL du contrat signé (PDF scanné)
+
+    approved_by        Int?
+    approved_at        DateTime?
+    terminated_at      DateTime?
+    termination_reason String? @db.NVarChar(Max)
+
+    currency       String
     tenant_id      Int
 
-    supplier Supplier @relation(fields: [supplier_id], references: [id])
-    tenant   Tenant   @relation(fields: [tenant_id], references: [id], onUpdate: NoAction, onDelete: NoAction)
-    project  Project  @relation(fields: [project_id], references: [id], onUpdate: NoAction, onDelete: NoAction)
-    
+    supplier   Supplier @relation(fields: [supplier_id], references: [id])
+    tenant     Tenant   @relation(fields: [tenant_id], references: [id], onUpdate: NoAction, onDelete: NoAction)
+    project    Project  @relation(fields: [project_id], references: [id], onUpdate: NoAction, onDelete: NoAction)
+    approvedBy User?    @relation("ContractApprovedBy", fields: [approved_by], references: [id], onUpdate: NoAction, onDelete: NoAction)
+
     line_items    ContractLineItem[]
     change_orders ChangeOrder[]
     invoices      Invoice[]
+    lots          ProjectLot[] @relation("LotContract")
     created_by Int?
     createdBy  User? @relation("ContractCreatedBy", fields: [created_by], references: [id], onUpdate: NoAction, onDelete: NoAction)
 
@@ -668,6 +914,7 @@ model MaterialConsumption {
     @@index([tenant_id, project_id])
     @@index([status])
     @@index([created_at])
+    @@index([supplier_id])
   }
 
 
@@ -675,37 +922,58 @@ model MaterialConsumption {
     id          Int @id @default(autoincrement())
     contract_id Int
     wbs_id      Int?
-    description String @db.NVarChar(Max)
-    quantity    Float
+    lot_id      Int?
+    order_index Int     @default(0)              // Numérotation et ordre d'affichage
+    description String  @db.NVarChar(Max)
+    category    String?                          // Corps d'état / nature de prestation
+    quantity    Decimal @db.Decimal(15, 4) @default(0)
     unit        String
-    unit_price  Float
-    total_price Float
-    tenant_id   Int
-    status      String // "APPROVED", "PENDING_APPROVAL", "REJECTED"
+    unit_price  Decimal @db.Decimal(15, 2) @default(0)
+    total_price Decimal @db.Decimal(15, 2) @default(0)
 
-    tenant Tenant @relation(fields: [tenant_id], references: [id])
-    contract Contract @relation(fields: [contract_id], references: [id])
-    wbs_node WBSNode? @relation(fields: [wbs_id], references: [id])
+    progress_pct  Float   @default(0)            // Avancement de la ligne (0–100)
+    billed_amount Decimal @db.Decimal(15, 2) @default(0)  // Montant déjà facturé sur cette ligne
+
+    tenant_id  Int
+    status     String   // APPROVED | PENDING_APPROVAL | REJECTED
+    created_by Int?
+
+    tenant    Tenant      @relation(fields: [tenant_id],   references: [id])
+    contract  Contract    @relation(fields: [contract_id], references: [id])
+    wbs_node  WBSNode?    @relation(fields: [wbs_id],      references: [id])
+    lot       ProjectLot? @relation(fields: [lot_id],      references: [id], onUpdate: NoAction, onDelete: NoAction)
+    createdBy User?       @relation("ContractLineItemCreatedBy", fields: [created_by], references: [id], onUpdate: NoAction, onDelete: NoAction)
+
+    created_at DateTime @default(now())
+    updated_at DateTime @updatedAt
+
+    @@index([contract_id])
+    @@index([lot_id])
   }
 
   model ChangeOrder {
     id          Int @id @default(autoincrement())
     project_id  Int
     contract_id Int
+    lot_id      Int?
     number      String
-    description String @db.NVarChar(Max)
-    status      String   // "PENDING_APPROVAL", "APPROVED", "REJECTED"
+    title       String                        // Objet de l'OdS (obligatoire en BTP)
+    reason      String? @db.NVarChar(Max)     // Motif / cause
+    description String  @db.NVarChar(Max)
+    status      String  // "PENDING_APPROVAL" | "APPROVED" | "REJECTED"
     amount      Float
+    impact_days Int?                          // Impact sur le planning (jours)
     approved_at DateTime?
     tenant_id   Int
-    created_by Int?
-    createdBy  User? @relation("ChangeOrderCreatedBy", fields: [created_by], references: [id], onUpdate: NoAction, onDelete: NoAction)
-
-    tenant Tenant @relation(fields: [tenant_id], references: [id], onUpdate: NoAction, onDelete: NoAction)
-    project Project @relation(fields: [project_id], references: [id], onUpdate: NoAction, onDelete: NoAction)
-    contract Contract @relation(fields: [contract_id], references: [id], onUpdate: NoAction, onDelete: NoAction)
+    created_by  Int?
+    createdBy   User?       @relation("ChangeOrderCreatedBy",  fields: [created_by],  references: [id], onUpdate: NoAction, onDelete: NoAction)
+    tenant      Tenant      @relation(fields: [tenant_id],      references: [id], onUpdate: NoAction, onDelete: NoAction)
+    project     Project     @relation(fields: [project_id],     references: [id], onUpdate: NoAction, onDelete: NoAction)
+    contract    Contract    @relation(fields: [contract_id],    references: [id], onUpdate: NoAction, onDelete: NoAction)
+    lot         ProjectLot? @relation(fields: [lot_id],         references: [id], onUpdate: NoAction, onDelete: NoAction)
     created_at DateTime @default(now())
     updated_at DateTime @updatedAt
+    @@index([lot_id])
   }
 
     //////////////////////////////
@@ -777,37 +1045,43 @@ model MaterialConsumption {
 //////////////////////////////
 
 model BudgetLine {
-  id         Int @id @default(autoincrement())
-  project_id Int
-  wbs_id     Int?
-  category   String
-  planned    Float
-  currency  String
-  tenant_id  Int
-  supplier_id Int? 
-  actual     Float // calculé à partir des engagements
+  id          Int @id @default(autoincrement())
+  project_id  Int
+  wbs_id      Int?
+  lot_id      Int?
+  category    String
+  planned     Float
+  currency    String
+  tenant_id   Int
+  supplier_id Int?
+  actual      Float // calculé à partir des engagements
 
-  wbs     WBSNode? @relation(fields: [wbs_id],     references: [id], onUpdate: NoAction, onDelete: NoAction)
-  project Project @relation(fields: [project_id], references: [id], onUpdate: NoAction, onDelete: NoAction)
+  wbs     WBSNode?   @relation(fields: [wbs_id],     references: [id], onUpdate: NoAction, onDelete: NoAction)
+  lot     ProjectLot? @relation(fields: [lot_id],    references: [id], onUpdate: NoAction, onDelete: NoAction)
+  project Project    @relation(fields: [project_id], references: [id], onUpdate: NoAction, onDelete: NoAction)
   supplier Supplier? @relation(fields: [supplier_id], references: [id], onUpdate: NoAction, onDelete: NoAction)
   controlReports ControlReport[]
-  tenant  Tenant   @relation(fields: [tenant_id], references: [id], onUpdate: NoAction, onDelete: NoAction)
-  
+  tenant  Tenant     @relation(fields: [tenant_id],  references: [id], onUpdate: NoAction, onDelete: NoAction)
+
   created_at DateTime @default(now())
   updated_at DateTime @updatedAt
+
+  @@index([lot_id])
 }
 
 model Invoice {
-  id              Int @id @default(autoincrement())
-  contract_id     Int
-  purchase_order_id Int?   // ✅ AJOUT
-  project_id      Int
-  number          String
-  amount          Float
-  retention       Float?
-  status          String // DRAFT, SUBMITTED, APPROVED, PAID
-  due_date        DateTime?
-  tenant_id       Int
+  id                Int @id @default(autoincrement())
+  contract_id       Int
+  purchase_order_id Int?
+  project_id        Int
+  lot_id            Int?
+  number            String
+  amount            Float
+  retention         Float?
+  status            String   // DRAFT | SUBMITTED | APPROVED | PAID | CANCELLED
+  invoice_date      DateTime   // Date figurant sur la facture (obligatoire, ≠ created_at)
+  due_date          DateTime?
+  tenant_id         Int
 
   created_at DateTime @default(now())
   updated_at DateTime @updatedAt
@@ -815,10 +1089,11 @@ model Invoice {
   created_by Int?
   createdBy  User? @relation("InvoiceCreatedBy", fields: [created_by], references: [id], onUpdate: NoAction, onDelete: NoAction)
 
-  contract Contract @relation(fields: [contract_id], references: [id])
-  purchaseOrder PurchaseOrder? @relation(fields: [purchase_order_id], references: [id]) // ✅
-  project Project @relation(fields: [project_id], references: [id], onUpdate: NoAction, onDelete: NoAction)
-  tenant Tenant @relation(fields: [tenant_id], references: [id], onUpdate: NoAction, onDelete: NoAction)
+  contract      Contract       @relation(fields: [contract_id],       references: [id])
+  purchaseOrder PurchaseOrder? @relation(fields: [purchase_order_id], references: [id])
+  project       Project        @relation(fields: [project_id],        references: [id], onUpdate: NoAction, onDelete: NoAction)
+  tenant        Tenant         @relation(fields: [tenant_id],         references: [id], onUpdate: NoAction, onDelete: NoAction)
+  lot           ProjectLot?    @relation(fields: [lot_id],            references: [id], onUpdate: NoAction, onDelete: NoAction)
     
   payments Payment[]
 
@@ -826,6 +1101,7 @@ model Invoice {
   @@index([status])
   @@index([created_at])
   @@index([purchase_order_id])
+  @@index([lot_id])
   }
   
 
@@ -849,33 +1125,77 @@ model Payment {
 //////////////////////////////
 
 model ControlReport {
-  id         Int @id @default(autoincrement())
-  project_id Int
-  task_id    Int?
-  tenant_id  Int
-  status  String
-  comment String @db.NVarChar(Max)
+  id          Int @id @default(autoincrement())
+  project_id  Int
+  task_id     Int?
+  lot_id      Int?
+  tenant_id   Int
+  title       String?
+  type        String  @default("QUALITY") // QUALITY | SAFETY | COMPLIANCE | TECHNICAL
+  status      String
+  report_date DateTime?
+  comment     String @db.NVarChar(Max)
 
   budgetLines BudgetLine[]
-  created_by Int?
-  createdBy  User? @relation("ControlReportCreatedBy", fields: [created_by], references: [id], onUpdate: NoAction, onDelete: NoAction)
+  created_by  Int?
+  createdBy   User?       @relation("ControlReportCreatedBy", fields: [created_by], references: [id], onUpdate: NoAction, onDelete: NoAction)
 
-  project Project @relation(fields: [project_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  tenant Tenant @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  task Task? @relation(fields: [task_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  project Project     @relation(fields: [project_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  tenant  Tenant      @relation(fields: [tenant_id],  references: [id], onDelete: NoAction, onUpdate: NoAction)
+  task    Task?       @relation(fields: [task_id],    references: [id], onDelete: NoAction, onUpdate: NoAction)
+  lot     ProjectLot? @relation(fields: [lot_id],     references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([lot_id])
 }
 
 model WorkAcceptance {
   id         Int @id @default(autoincrement())
   project_id Int
+  lot_id     Int?
   tenant_id  Int
-  status     String
-  accepted_at DateTime?
-  created_by Int?
-  createdBy  User? @relation("WorkAcceptanceCreatedBy", fields: [created_by], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
-  tenant Tenant @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  project Project @relation(fields: [project_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  reference String?                          // PV-RP-2026-001 — numéro légal du PV
+  title     String?                          // Intitulé du PV (ex: "Réception provisoire Bât A")
+  type      String  @default("PROVISIONAL")  // PROVISIONAL | FINAL
+  status    String  @default("PENDING")
+  // PENDING | SCHEDULED | IN_PROGRESS | ACCEPTED | ACCEPTED_WITH_RESERVES | REFUSED | WITHDRAWN
+
+  planned_date      DateTime?                // Date prévisionnelle de la visite
+  inspection_date   DateTime?                // Date effective de la visite physique
+  accepted_at       DateTime?                // Date officielle de réception signée
+  contra_visit_date DateTime?                // Date de contre-visite prévue (si réserves)
+
+  warranty_months   Int      @default(12)    // Durée GPA en mois (12 mois légaux, loi Spinetta)
+  warranty_end_date DateTime?                // Date de fin GPA = accepted_at + warranty_months
+
+  amount_accepted Decimal? @db.Decimal(15, 2) // Montant des travaux réceptionnés
+  penalty_amount  Decimal? @db.Decimal(15, 2) // Pénalités de retard déduites
+
+  reserve_count        Int     @default(0)   // Nombre de réserves constatées
+  notes                String? @db.NVarChar(Max)  // Observations générales (champ d'origine conservé)
+  observations         String? @db.NVarChar(Max)  // Compte-rendu détaillé de la visite
+  reserves_text        String? @db.NVarChar(Max)  // Liste formelle des réserves notifiées
+  attendees            String? @db.NVarChar(Max)  // JSON: [{ name, role, company, signed }]
+
+  signed_by_owner      Boolean @default(false)    // Le Maître d'Ouvrage a signé le PV
+  signed_by_contractor Boolean @default(false)    // L'Entreprise a signé le PV
+  document_url         String?                    // URL du PV signé (scan PDF)
+
+  inspector_id Int?
+
+  created_by Int?
+  createdBy  User?       @relation("WorkAcceptanceCreatedBy",  fields: [created_by],   references: [id], onDelete: NoAction, onUpdate: NoAction)
+  inspector  User?       @relation("WorkAcceptanceInspector",  fields: [inspector_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  tenant     Tenant      @relation(fields: [tenant_id],         references: [id], onDelete: NoAction, onUpdate: NoAction)
+  project    Project     @relation(fields: [project_id],        references: [id], onDelete: NoAction, onUpdate: NoAction)
+  lot        ProjectLot? @relation(fields: [lot_id],            references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  @@index([lot_id])
+  @@index([project_id, status])
+  @@index([tenant_id, status])
 }
 
 //////////////////////////////
@@ -883,28 +1203,43 @@ model WorkAcceptance {
 //////////////////////////////
 
 model Incident {
-  id         Int @id @default(autoincrement())
-  project_id Int
-  task_id    Int?
-  tenant_id  Int
-  type       String  // SAFETY / QUALITY / DELAY / TECHNICAL
-  severity   String  // LOW / MEDIUM / HIGH / CRITICAL
-  status     String  // OPEN / IN_PROGRESS / RESOLVED / CLOSED
+  id          Int @id @default(autoincrement())
+  project_id  Int
+  task_id     Int?
+  lot_id      Int?
+  tenant_id   Int
+  type        String  // SAFETY | QUALITY | DELAY | TECHNICAL | ENVIRONMENTAL
+  severity    String  // LOW | MEDIUM | HIGH | CRITICAL
+  status      String  // OPEN | IN_PROGRESS | RESOLVED | CLOSED
 
-  description String @db.NVarChar(Max)
+  title             String?
+  description       String @db.NVarChar(Max)
+  location          String?                     // Localisation sur le chantier
+  incident_date     DateTime?                   // Date/heure de survenue (≠ created_at)
+  root_cause        String? @db.NVarChar(Max)   // Analyse des causes racines (REX / prévention)
+  corrective_action String? @db.NVarChar(Max)   // Action corrective mise en place
+  cost_impact       Float?                      // Impact financier estimé
+  delay_impact_days Int?                        // Impact planning en jours
 
-  created_at DateTime @default(now())
+  assigned_to_id Int?                           // Responsable de traitement
+  assignedTo     User?       @relation("IncidentAssignedTo", fields: [assigned_to_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  created_at  DateTime @default(now())
+  updated_at  DateTime @updatedAt
   resolved_at DateTime?
 
   created_by Int?
-  createdBy  User? @relation("IncidentCreatedBy", fields: [created_by], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  tenant Tenant @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  project Project @relation(fields: [project_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  task    Task?   @relation(fields: [task_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  createdBy  User?       @relation("IncidentCreatedBy", fields: [created_by], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  tenant     Tenant      @relation(fields: [tenant_id],  references: [id], onDelete: NoAction, onUpdate: NoAction)
+  project    Project     @relation(fields: [project_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  task       Task?       @relation(fields: [task_id],    references: [id], onDelete: NoAction, onUpdate: NoAction)
+  lot        ProjectLot? @relation(fields: [lot_id],     references: [id], onDelete: NoAction, onUpdate: NoAction)
   
   @@index([tenant_id, project_id])
   @@index([status])
   @@index([created_at])
+  @@index([lot_id])
+  @@index([assigned_to_id])
 }
 
 //////////////////////////////
@@ -915,6 +1250,7 @@ model Document {
     
   id          Int @id @default(autoincrement())
   project_id  Int
+  lot_id      Int?
   category    String @default("PLAN") // REPORT / CONTRACT
   name        String
   description String? @db.NVarChar(Max)
@@ -923,6 +1259,7 @@ model Document {
 
   tenant Tenant @relation(fields: [tenant_id], references: [id])
   project Project @relation(fields: [project_id], references: [id])
+  lot     ProjectLot? @relation(fields: [lot_id], references: [id], onUpdate: NoAction, onDelete: NoAction)
   created_by Int?
   createdBy  User? @relation("DocumentCreatedBy", fields: [created_by], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
@@ -938,6 +1275,8 @@ model Document {
   projects         Project[] @relation("ProjectMainDocument")
   documentVersions DocumentVersion[] @relation("DocumentVersions")
   costTransactions CostTransaction[]
+
+  @@index([lot_id])
 }
 
 model DocumentVersion {
@@ -1163,25 +1502,41 @@ model WorkflowAction {
     model Inspection {
       id          Int @id @default(autoincrement())
       project_id  Int
+      lot_id      Int?
       title       String
-      type        String // "DAILY", "HOLD_POINT", "FINAL"
+      type        String // "DAILY", "HOLD_POINT", "WITNESS_POINT", "FINAL"
       status      String // "SCHEDULED", "IN_PROGRESS", "PASSED", "FAILED"
       scheduled_date DateTime?
       completed_date DateTime?
+
+      description      String? @db.NVarChar(Max) // Périmètre / contexte de l'inspection
+      location         String?                   // Localisation sur l'ouvrage (Niv. R+3, Zone A...)
+      reference_norm   String?                   // Référence DTU, Eurocode, article CCTP
+
+      inspector_id Int?                          // Contrôleur assigné (OPC, MOE, bureau de contrôle)
+      inspector    User? @relation("InspectionInspector", fields: [inspector_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
       tenant_id Int
       created_by Int?
       createdBy  User? @relation("InspectionCreatedBy", fields: [created_by], references: [id], onDelete: NoAction, onUpdate: NoAction)
-      project Project @relation(fields: [project_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
-      tenant Tenant @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
-      
+      project Project    @relation(fields: [project_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+      lot     ProjectLot? @relation(fields: [lot_id],    references: [id], onDelete: NoAction, onUpdate: NoAction)
+      tenant  Tenant      @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
       items InspectionItem[]
       created_at DateTime @default(now())
       updated_at DateTime @updatedAt
+
+      @@index([lot_id])
+      @@index([inspector_id])
+      @@index([tenant_id, project_id])
     }
 
     model InspectionItem {
       id           Int @id @default(autoincrement())
       inspection_id Int
+      order         Int     @default(0)          // Ordre dans la checklist
+      category      String?                      // Regroupement : Structure, Étanchéité, Finitions...
       description   String @db.NVarChar(Max)
       result        String? // "PASS", "FAIL", "N/A"
       comment       String? @db.NVarChar(Max)
@@ -1191,20 +1546,41 @@ model WorkflowAction {
     model PunchItem {
       id          Int @id @default(autoincrement())
       project_id  Int
+      lot_id      Int?
+      task_id     Int?                         // Tâche WBS liée (optionnel)
+
       title       String
       description String @db.NVarChar(Max)
-      status      String // "OPEN", "IN_PROGRESS", "CLOSED"
-      assigned_to String?
+
+      category    String  @default("QUALITY")  // QUALITY | SAFETY | FINISHING | STRUCTURAL | MEP
+      priority    String  @default("MEDIUM")   // LOW | MEDIUM | HIGH | BLOCKING
+      status      String  @default("OPEN")     // OPEN | IN_PROGRESS | SUBMITTED | VERIFIED | CLOSED | REJECTED
+
+      location    String?                      // Localisation : Bât A, R+2, Zone Nord...
+      image_urls  String? @db.NVarChar(Max)    // JSON array d'URLs photos (preuve opposable)
+
+      assigned_to_id Int?                      // Responsable levée de réserve (User)
+      assignedTo     User? @relation("PunchItemAssignedTo", fields: [assigned_to_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
       due_date    DateTime?
       resolved_at DateTime?
+
       tenant_id Int
       created_by Int?
-      createdBy  User? @relation("PunchItemCreatedBy", fields: [created_by], references: [id], onDelete: NoAction, onUpdate: NoAction)
-      project Project @relation(fields: [project_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
-      tenant Tenant @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
-      
+      createdBy  User?       @relation("PunchItemCreatedBy", fields: [created_by],   references: [id], onDelete: NoAction, onUpdate: NoAction)
+      project    Project     @relation(fields: [project_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+      lot        ProjectLot? @relation(fields: [lot_id],     references: [id], onDelete: NoAction, onUpdate: NoAction)
+      task       Task?       @relation(fields: [task_id],    references: [id], onDelete: NoAction, onUpdate: NoAction)
+      tenant     Tenant      @relation(fields: [tenant_id],  references: [id], onDelete: NoAction, onUpdate: NoAction)
+
       created_at DateTime @default(now())
       updated_at DateTime @updatedAt
+
+      @@index([lot_id])
+      @@index([task_id])
+      @@index([assigned_to_id])
+      @@index([project_id, status])
+      @@index([tenant_id, status])
       }
 
       //////////////////////////////

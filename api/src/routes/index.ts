@@ -10,8 +10,10 @@ import weeklyReportRouter from './weekly-report.routes.js';
 import inspectionRouter from './inspection.routes.js';
 import punchItemRouter from './punch-item.routes.js';
 import incidentRouter from './incident.routes.js';
+import workAcceptanceRouter from './work-acceptance.routes.js';
 import seedRouter from './seed.routes.js';
 import rbacRouter from './rbac.routes.js';
+import tenantRouter from './tenant.routes.js';
 
 const router = Router();
 
@@ -30,7 +32,9 @@ router.use("/weekly-reports", weeklyReportRouter);
 router.use("/inspections", inspectionRouter);
 router.use("/punch-items", punchItemRouter);
 router.use("/incidents", incidentRouter);
+router.use("/work-acceptances", workAcceptanceRouter);
 router.use("/seed", seedRouter);
 router.use("/rbac", rbacRouter);
+router.use("/tenants", tenantRouter);
 
 export default router;

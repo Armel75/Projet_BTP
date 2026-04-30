@@ -1,4 +1,6 @@
 import React, { useEffect, useState } from "react";
+import { apiFetch, API_BASE } from "../lib/api";
+import { usePermissions, useAuth } from "../contexts/AuthContext";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "../components/ui/tabs";
 import { UserTable } from "../components/rbac/UserTable";
 import { RoleTable } from "../components/rbac/RoleTable";
@@ -7,6 +9,8 @@ import { ShieldCheck, Users, Key, Loader2, AlertCircle } from "lucide-react";
 import { motion } from "motion/react";
 
 export default function RbacAdminView() {
+  const { can } = usePermissions();
+  const { loading: authLoading } = useAuth();
   const [users, setUsers] = useState<any[]>([]);
   const [roles, setRoles] = useState<any[]>([]);
   const [permissions, setPermissions] = useState<any[]>([]);
@@ -14,22 +18,24 @@ export default function RbacAdminView() {
   const [error, setError] = useState<string | null>(null);
 
   const fetchData = async () => {
-    const token = localStorage.getItem("token");
-    if (!token) return;
     setLoading(true);
     setError(null);
     try {
-      const [uRes, rRes, pRes] = await Promise.all([
-        fetch("/api/rbac/users", { headers: { Authorization: `Bearer ${token}` } }),
-        fetch("/api/rbac/roles", { headers: { Authorization: `Bearer ${token}` } }),
-        fetch("/api/rbac/permissions", { headers: { Authorization: `Bearer ${token}` } })
-      ]);
+      const fetches: Promise<Response>[] = [];
+      const keys: string[] = [];
 
-      if (!uRes.ok || !rRes.ok || !pRes.ok) throw new Error("Erreur lors de la récupération des données");
+      if (can("user:read"))       { fetches.push(apiFetch(`${API_BASE}/rbac/users`));       keys.push("users"); }
+      if (can("role:read"))       { fetches.push(apiFetch(`${API_BASE}/rbac/roles`));       keys.push("roles"); }
+      if (can("permission:read")) { fetches.push(apiFetch(`${API_BASE}/rbac/permissions`)); keys.push("permissions"); }
 
-      setUsers(await uRes.json());
-      setRoles(await rRes.json());
-      setPermissions(await pRes.json());
+      const results = await Promise.all(fetches);
+      for (let i = 0; i < results.length; i++) {
+        if (!results[i].ok) throw new Error("Erreur lors de la récupération des données");
+        const data = await results[i].json();
+        if (keys[i] === "users")       setUsers(data);
+        if (keys[i] === "roles")       setRoles(data);
+        if (keys[i] === "permissions") setPermissions(data);
+      }
     } catch (e: any) {
       setError(e.message);
       console.error(e);
@@ -39,23 +45,19 @@ export default function RbacAdminView() {
   };
 
   useEffect(() => {
-    fetchData();
-  }, []);
+    if (!authLoading) fetchData();
+  }, [authLoading]);
 
-  // API Wrapper
-  const callApi = async (url: string, method: string, body?: any) => {
-    const token = localStorage.getItem("token");
+  // API Wrapper — uses apiFetch for consistent auth/proxy handling
+  const callApi = async (path: string, method: string, body?: any) => {
     try {
-      const res = await fetch(url, {
+      const res = await apiFetch(`${API_BASE}${path}`, {
         method,
-        headers: { 
-          "Content-Type": "application/json", 
-          Authorization: `Bearer ${token}` 
-        },
+        headers: { "Content-Type": "application/json" },
         body: body ? JSON.stringify(body) : undefined
       });
       if (!res.ok) {
-        const err = await res.json();
+        const err = await res.json().catch(() => ({}));
         throw new Error(err.error || "Une erreur est survenue");
       }
       await fetchData();
@@ -64,7 +66,7 @@ export default function RbacAdminView() {
     }
   };
 
-  if (loading && users.length === 0) {
+  if (loading && users.length === 0 && roles.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center h-full space-y-4">
         <Loader2 className="w-8 h-8 text-gb-primary animate-spin" />
@@ -111,31 +113,56 @@ export default function RbacAdminView() {
         </TabsList>
 
         <TabsContent value="users" className="mt-0 focus-visible:outline-none">
-          <UserTable 
-            users={users} 
-            roles={roles} 
-            onAssignRole={(uId, rId) => callApi(`/api/rbac/users/${uId}/roles`, "POST", { roleId: rId })}
-            onRemoveRole={(uId, rId) => callApi(`/api/rbac/users/${uId}/roles/${rId}`, "DELETE")}
-          />
+          {can("user:read") ? (
+            <UserTable 
+              users={users} 
+              roles={roles}
+              canAssign={can("user:assign-role")}
+              onAssignRole={(uId, rId) => callApi(`/rbac/users/${uId}/roles`, "POST", { roleId: rId })}
+              onRemoveRole={(uId, rId) => callApi(`/rbac/users/${uId}/roles/${rId}`, "DELETE")}
+            />
+          ) : (
+            <div className="flex items-center gap-3 p-6 rounded-lg border border-gb-border bg-gb-surface-solid text-gb-muted">
+              <AlertCircle className="w-5 h-5 shrink-0 text-gb-warning" />
+              <span className="text-sm">Vous n'avez pas la permission <code className="bg-gb-app px-1 rounded text-xs">user:read</code> pour accéder à cette section.</span>
+            </div>
+          )}
         </TabsContent>
 
         <TabsContent value="roles" className="mt-0 focus-visible:outline-none">
-          <RoleTable 
-            roles={roles} 
-            permissions={permissions}
-            onCreateRole={(r) => callApi("/api/rbac/roles", "POST", r)}
-            onDeleteRole={(id) => callApi(`/api/rbac/roles/${id}`, "DELETE")}
-            onAssignPermission={(rId, pId) => callApi(`/api/rbac/roles/${rId}/permissions`, "POST", { permissionId: pId })}
-            onRemovePermission={(rId, pId) => callApi(`/api/rbac/roles/${rId}/permissions/${pId}`, "DELETE")}
-          />
+          {can("role:read") ? (
+            <RoleTable 
+              roles={roles} 
+              permissions={permissions}
+              canWrite={can("role:create")}
+              canAssignPermission={can("role:assign-permission")}
+              onCreateRole={(r) => callApi("/rbac/roles", "POST", r)}
+              onDeleteRole={(id) => callApi(`/rbac/roles/${id}`, "DELETE")}
+              onAssignPermission={(rId, pId) => callApi(`/rbac/roles/${rId}/permissions`, "POST", { permissionId: pId })}
+              onRemovePermission={(rId, pId) => callApi(`/rbac/roles/${rId}/permissions/${pId}`, "DELETE")}
+            />
+          ) : (
+            <div className="flex items-center gap-3 p-6 rounded-lg border border-gb-border bg-gb-surface-solid text-gb-muted">
+              <AlertCircle className="w-5 h-5 shrink-0 text-gb-warning" />
+              <span className="text-sm">Vous n'avez pas la permission <code className="bg-gb-app px-1 rounded text-xs">role:read</code> pour accéder à cette section.</span>
+            </div>
+          )}
         </TabsContent>
 
         <TabsContent value="permissions" className="mt-0 focus-visible:outline-none">
-          <PermissionTable 
-            permissions={permissions}
-            onCreatePermission={(p) => callApi("/api/rbac/permissions", "POST", p)}
-            onDeletePermission={(id) => callApi(`/api/rbac/permissions/${id}`, "DELETE")}
-          />
+          {can("permission:read") ? (
+            <PermissionTable 
+              permissions={permissions}
+              canWrite={can("permission:create")}
+              onCreatePermission={(p) => callApi("/rbac/permissions", "POST", p)}
+              onDeletePermission={(id) => callApi(`/rbac/permissions/${id}`, "DELETE")}
+            />
+          ) : (
+            <div className="flex items-center gap-3 p-6 rounded-lg border border-gb-border bg-gb-surface-solid text-gb-muted">
+              <AlertCircle className="w-5 h-5 shrink-0 text-gb-warning" />
+              <span className="text-sm">Vous n'avez pas la permission <code className="bg-gb-app px-1 rounded text-xs">permission:read</code> pour accéder à cette section.</span>
+            </div>
+          )}
         </TabsContent>
       </Tabs>
     </motion.div>

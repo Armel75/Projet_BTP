@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { BrowserRouter as Router, Routes, Route, Link, useLocation } from "react-router-dom";
-import { LayoutDashboard, FolderKanban, CheckSquare, Settings, Bell, Search, ShieldCheck, Users, ShoppingCart, ClipboardList, Banknote, LogOut } from "lucide-react";
+import { LayoutDashboard, FolderKanban, CheckSquare, Settings, Bell, Search, ShieldCheck, Users, ShoppingCart, ClipboardList, Banknote, LogOut, ShieldAlert, ClipboardCheck, ListTodo, ClipboardSignature } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "./components/ui/avatar";
 import DashboardView from "./views/DashboardView";
 import ProjectsView from "./views/ProjectsView";
@@ -9,9 +9,14 @@ import TasksView from "./views/TasksView";
 import ProcurementView from "./views/ProcurementView";
 import SettingsView from "./views/SettingsView";
 import RbacAdminView from "./views/RbacAdminView";
+import TenantAdminView from "./views/TenantAdminView";
 import ResourcesView from "./views/ResourcesView";
 import ReportingView from "./views/ReportingView";
 import FinancialsView from "./views/FinancialsView";
+import IncidentsView from "./views/IncidentsView";
+import InspectionsView from "./views/InspectionsView";
+import PunchListView from "./views/PunchListView";
+import WorkAcceptanceView from "./views/WorkAcceptanceView";
 import { ThemeProvider } from "./components/ThemeProvider";
 import { ThemeToggle } from "./components/ThemeToggle";
 import { AuthProvider, useAuth } from "./contexts/AuthContext";
@@ -28,7 +33,11 @@ const MAIN_LINKS = [
   { path: "/procurement", icon: <ShoppingCart size={20} />, label: "Achats" },
   { path: "/tasks", icon: <CheckSquare size={20} />, label: "Chantier" },
   { path: "/reporting", icon: <ClipboardList size={20} />, label: "Reporting" },
-  { path: "/finance", icon: <Banknote size={20} />, label: "Finance" },
+  { path: "/incidents",    icon: <ShieldAlert size={20} />,    label: "Incidents" },
+  { path: "/inspections",  icon: <ClipboardCheck size={20} />, label: "Inspections" },
+  { path: "/punch-list",   icon: <ListTodo size={20} />,           label: "Punch List" },
+  { path: "/receptions",   icon: <ClipboardSignature size={20} />, label: "Réceptions" },
+  { path: "/finance",      icon: <Banknote size={20} />,           label: "Finance" },
 ];
 
 function Sidebar() {
@@ -136,7 +145,7 @@ function Header() {
           <div className="flex items-center space-x-2 sm:space-x-4">
             <div className="text-right hidden lg:block">
               <p className="text-xs font-medium text-gb-text">{user.firstname} {user.lastname}</p>
-              <p className="text-[10px] text-gb-muted uppercase">{user.roles?.[0]?.role?.code || "EMPLOYÉ"}</p>
+              <p className="text-[10px] text-gb-muted uppercase">{user.userRoles?.[0]?.role?.code || "EMPLOYÉ"}</p>
             </div>
             <Avatar className="w-8 h-8 rounded-full border border-gb-border">
               <AvatarImage src={`https://ui-avatars.com/api/?name=${user.firstname}+${user.lastname}&background=0D8ABC&color=fff`} />
@@ -172,9 +181,14 @@ function MainLayout() {
             <Route path="/procurement" element={<ProtectedRoute><ProcurementView /></ProtectedRoute>} />
             <Route path="/tasks" element={<ProtectedRoute><TasksView /></ProtectedRoute>} />
             <Route path="/reporting" element={<ProtectedRoute><ReportingView /></ProtectedRoute>} />
+            <Route path="/incidents" element={<ProtectedRoute><IncidentsView /></ProtectedRoute>} />
+            <Route path="/inspections" element={<ProtectedRoute><InspectionsView /></ProtectedRoute>} />
+            <Route path="/punch-list" element={<ProtectedRoute><PunchListView /></ProtectedRoute>} />
+            <Route path="/receptions" element={<ProtectedRoute><WorkAcceptanceView /></ProtectedRoute>} />
             <Route path="/finance" element={<ProtectedRoute><FinancialsView /></ProtectedRoute>} />
             <Route path="/settings" element={<ProtectedRoute><SettingsView /></ProtectedRoute>} />
             <Route path="/settings/rbac" element={<ProtectedRoute><RbacAdminView /></ProtectedRoute>} />
+            <Route path="/settings/tenants" element={<ProtectedRoute><TenantAdminView /></ProtectedRoute>} />
             <Route path="*" element={<div className="text-gb-muted text-center mt-10">En cours de développement...</div>} />
           </Routes>
         </main>
@@ -186,14 +200,14 @@ function MainLayout() {
 
 export default function App() {
   useEffect(() => {
-    // Attempt to seed data once, but ideally this should be explicit in /settings
-    fetch("/api/seed", { method: "POST" }).catch(() => {});
+    // Seed initial data via the correct proxied endpoint
+    fetch("/api/btp/seed", { method: "POST" }).catch(() => {});
   }, []);
 
   return (
     <ThemeProvider defaultTheme="system">
       <AuthProvider>
-        <Router>
+        <Router basename="/btp">
           <Routes>
             <Route path="/login" element={<LoginView />} />
             <Route path="/register" element={<RegisterView />} />

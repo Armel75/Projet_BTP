@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import { apiFetch, API_BASE } from "../../lib/api";
 import { 
   Dialog, 
   DialogContent, 
@@ -30,7 +31,7 @@ export default function SubmitBidDialog({ open, onOpenChange, tender, onSuccess 
     setLoading(true);
     try {
       const token = localStorage.getItem("token");
-      const res = await fetch("/api/procurement/suppliers", {
+        const res = await apiFetch(`${API_BASE}/procurement/suppliers`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       if (res.ok) {
@@ -92,7 +93,7 @@ export default function SubmitBidDialog({ open, onOpenChange, tender, onSuccess 
         <form onSubmit={handleSubmit} className="p-6 space-y-6">
           <div className="space-y-2">
             <Label className="text-[10px] font-bold text-gb-muted uppercase tracking-widest">Fournisseur</Label>
-            <Select value={selectedSupplierId} onValueChange={setSelectedSupplierId}>
+            <Select value={selectedSupplierId} onValueChange={value => setSelectedSupplierId(value ?? "")}> 
               <SelectTrigger className="h-12 bg-gb-app border-gb-border rounded-xl">
                 <SelectValue placeholder={loading ? "Chargement des fournisseurs..." : "Choisir un fournisseur..."} />
               </SelectTrigger>

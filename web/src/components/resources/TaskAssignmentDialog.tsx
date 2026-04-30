@@ -1,4 +1,6 @@
 import React, { useState, useEffect } from "react";
+import { apiFetch } from "../../lib/api";
+const API_BASE = import.meta.env.VITE_API_URL;
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "../ui/dialog";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
@@ -42,7 +44,7 @@ export function TaskAssignmentDialog({ open, onOpenChange, resource, onAssign }:
     setLoadingProjects(true);
     try {
       const token = localStorage.getItem("token");
-      const res = await fetch("/api/projects", {
+      const res = await apiFetch(`${API_BASE}/projects`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       if (res.ok) {
@@ -102,7 +104,7 @@ export function TaskAssignmentDialog({ open, onOpenChange, resource, onAssign }:
             <Label className="text-sm font-bold text-gb-muted uppercase tracking-wider">Sélectionner le Projet</Label>
             <Select 
               value={selectedProjectId} 
-              onValueChange={setSelectedProjectId}
+              onValueChange={value => setSelectedProjectId(value ?? "")}
             >
               <SelectTrigger className="bg-gb-app border-gb-border h-11">
                 <SelectValue placeholder={loadingProjects ? "Chargement des projets..." : "Choisir un projet..."} />
@@ -119,7 +121,7 @@ export function TaskAssignmentDialog({ open, onOpenChange, resource, onAssign }:
             <Label className="text-sm font-bold text-gb-muted uppercase tracking-wider">Sélectionner la Tâche</Label>
             <Select 
               value={selectedTaskId} 
-              onValueChange={setSelectedTaskId}
+              onValueChange={value => setSelectedTaskId(value ?? "")}
               disabled={!selectedProjectId}
             >
               <SelectTrigger className="bg-gb-app border-gb-border h-11">

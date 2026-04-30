@@ -8,11 +8,12 @@ import { Label } from "../ui/label";
 
 interface PermissionTableProps {
   permissions: any[];
+  canWrite?: boolean;
   onCreatePermission: (perm: { code: string; label: string }) => Promise<void>;
   onDeletePermission: (id: number) => Promise<void>;
 }
 
-export function PermissionTable({ permissions, onCreatePermission, onDeletePermission }: PermissionTableProps) {
+export function PermissionTable({ permissions, canWrite = false, onCreatePermission, onDeletePermission }: PermissionTableProps) {
   const [newPerm, setNewPerm] = useState({ code: "", label: "" });
   const [search, setSearch] = useState("");
   const [isAdding, setIsAdding] = useState(false);
@@ -48,9 +49,11 @@ export function PermissionTable({ permissions, onCreatePermission, onDeletePermi
           />
         </div>
 
-        <Button size="sm" onClick={() => setIsAdding(!isAdding)}>
-          {isAdding ? "Annuler" : <><Plus className="w-4 h-4 mr-2" /> Nouvelle</>}
-        </Button>
+        {canWrite && (
+          <Button size="sm" onClick={() => setIsAdding(!isAdding)}>
+            {isAdding ? "Annuler" : <><Plus className="w-4 h-4 mr-2" /> Nouvelle</>}
+          </Button>
+        )}
       </div>
 
       {isAdding && (
@@ -93,12 +96,14 @@ export function PermissionTable({ permissions, onCreatePermission, onDeletePermi
               <Badge variant="secondary" className="font-mono text-[10px] tracking-wider bg-gb-primary/5 text-gb-primary border-gb-primary/10">
                 {p.code}
               </Badge>
-              <button 
-                onClick={() => onDeletePermission(p.id)}
-                className="text-gb-muted opacity-0 group-hover:opacity-100 hover:text-gb-danger transition-all"
-              >
-                <Trash2 className="w-3.5 h-3.5" />
-              </button>
+              {canWrite && (
+                <button 
+                  onClick={() => onDeletePermission(p.id)}
+                  className="text-gb-muted opacity-0 group-hover:opacity-100 hover:text-gb-danger transition-all"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                </button>
+              )}
             </div>
             <div className="mt-2 text-xs text-gb-muted leading-relaxed line-clamp-2" title={p.label}>
               {p.label}

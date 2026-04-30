@@ -45,7 +45,7 @@ const RECENT_DOCS = [
 interface KpiCardProps {
   label: string;
   value: string;
-  icon: React.ReactNode;
+  icon: React.ReactElement;
   trend: string;
   isPositive: boolean;
   color: string;
@@ -58,9 +58,9 @@ const KpiCard = ({ label, value, icon, trend, isPositive, color }: KpiCardProps)
   >
     <div className="flex justify-between items-start mb-4">
       <div className={`p-2 rounded-xl ${color} bg-opacity-10`}>
-        {React.cloneElement(icon as React.ReactElement, { className: color })}
+        {React.cloneElement(icon, { className: color } as any)}
       </div>
-      <div className={`flex items-center gap-1 text-xs font-bold ${isPositive ? "text-emerald-500" : "text-rose-500"}`}>
+      <div className={`flex items-center gap-1 text-xs font-bold ${isPositive ? "text-emerald-500" : "text-rose-500"}`}> 
         {isPositive ? <TrendingUp size={14} /> : <TrendingDown size={14} />}
         {trend}
       </div>

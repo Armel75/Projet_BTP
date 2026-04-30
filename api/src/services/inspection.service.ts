@@ -1,43 +1,67 @@
 import { prisma } from '../config/prisma.js';
 import { TenantContext } from '../config/tenant-context.js';
 
+const INSPECTION_INCLUDE = {
+  createdBy:  { select: { id: true, firstname: true, lastname: true } },
+  inspector:  { select: { id: true, firstname: true, lastname: true } },
+  project:    { select: { id: true, code: true, title: true } },
+  lot:        { select: { id: true, lot_number: true, name: true } },
+  items: {
+    orderBy: { order: 'asc' as const }
+  }
+} as const;
+
 export class InspectionService {
   static async createInspection(data: {
     project_id: number;
+    lot_id?: number;
     title: string;
     type: string;
     status: string;
     scheduled_date?: Date;
+    description?: string;
+    location?: string;
+    reference_norm?: string;
+    inspector_id?: number;
     created_by: number;
-    items?: { description: string; result?: string; comment?: string }[];
+    items?: { description: string; result?: string; comment?: string; order?: number; category?: string }[];
   }) {
     const tenantId = TenantContext.getTenantId();
     if (!tenantId) throw new Error("Tenant session required");
 
     return await prisma.inspection.create({
       data: {
-        project_id: data.project_id,
-        title: data.title,
-        type: data.type,
-        status: data.status,
+        project_id:     data.project_id,
+        lot_id:         data.lot_id,
+        title:          data.title,
+        type:           data.type,
+        status:         data.status,
         scheduled_date: data.scheduled_date,
-        created_by: data.created_by,
-        tenant_id: tenantId,
+        description:    data.description,
+        location:       data.location,
+        reference_norm: data.reference_norm,
+        inspector_id:   data.inspector_id,
+        created_by:     data.created_by,
+        tenant_id:      tenantId,
         items: {
-          create: data.items || []
+          create: (data.items || []).map((item, idx) => ({
+            description: item.description,
+            result:      item.result,
+            comment:     item.comment,
+            order:       item.order ?? idx,
+            category:    item.category
+          }))
         }
       },
-      include: {
-        items: true,
-        createdBy: true,
-        project: true
-      }
+      include: INSPECTION_INCLUDE
     });
   }
 
   static async getInspections(filters: {
     project_id?: number;
     status?: string;
+    type?: string;
+    inspector_id?: number;
     created_by?: number;
   }) {
     const tenantId = TenantContext.getTenantId();
@@ -48,10 +72,7 @@ export class InspectionService {
         ...filters,
         tenant_id: tenantId
       },
-      include: {
-        items: true,
-        createdBy: true
-      },
+      include: INSPECTION_INCLUDE,
       orderBy: { created_at: 'desc' }
     });
   }
@@ -59,22 +80,24 @@ export class InspectionService {
   static async getInspectionById(id: number) {
     return await prisma.inspection.findUnique({
       where: { id },
-      include: {
-        items: true,
-        createdBy: true,
-        project: true
-      }
+      include: INSPECTION_INCLUDE
     });
   }
 
   static async updateInspection(id: number, data: {
     title?: string;
+    type?: string;
     status?: string;
+    scheduled_date?: Date;
     completed_date?: Date;
-    items?: { id?: number; description: string; result?: string; comment?: string }[];
+    description?: string;
+    location?: string;
+    reference_norm?: string;
+    inspector_id?: number | null;
+    lot_id?: number | null;
+    items?: { id?: number; description: string; result?: string; comment?: string; order?: number; category?: string }[];
   }) {
     return await prisma.$transaction(async (tx: any) => {
-      // Logic for items: update existing or create new ones
       if (data.items) {
         for (const item of data.items) {
           if (item.id) {
@@ -82,17 +105,21 @@ export class InspectionService {
               where: { id: item.id },
               data: {
                 description: item.description,
-                result: item.result,
-                comment: item.comment
+                result:      item.result,
+                comment:     item.comment,
+                order:       item.order,
+                category:    item.category
               }
             });
           } else {
             await tx.inspectionItem.create({
               data: {
                 inspection_id: id,
-                description: item.description,
-                result: item.result,
-                comment: item.comment
+                description:   item.description,
+                result:        item.result,
+                comment:       item.comment,
+                order:         item.order ?? 0,
+                category:      item.category
               }
             });
           }
@@ -102,13 +129,18 @@ export class InspectionService {
       return await tx.inspection.update({
         where: { id },
         data: {
-          title: data.title,
-          status: data.status,
-          completed_date: data.completed_date
+          title:          data.title,
+          type:           data.type,
+          status:         data.status,
+          scheduled_date: data.scheduled_date,
+          completed_date: data.completed_date,
+          description:    data.description,
+          location:       data.location,
+          reference_norm: data.reference_norm,
+          inspector_id:   data.inspector_id,
+          lot_id:         data.lot_id
         },
-        include: {
-          items: true
-        }
+        include: INSPECTION_INCLUDE
       });
     });
   }

@@ -52,46 +52,85 @@ export const requireAuth = (req: Request, res: Response, next: NextFunction): vo
 
 export const authenticateToken = requireAuth; // Keep for backward compatibility
 
-// --- RBAC MIDDLEWARES ---
+// --- PERMISSION-BASED MIDDLEWARE ---
+// All authorization is driven exclusively by permissions.
+// Roles are only containers for permissions — never checked by name in code.
 
-export const requireRole = (roleCode: string) => {
-  return async (req: Request, res: Response, next: NextFunction): Promise<void> => {
-    const user = (req as AuthRequest).user;
-    if (!user || !user.id) {
-       res.status(401).json({ error: "Unauthorized" });
-       return;
-    }
-
-    try {
-      const userRoles = await RbacService.getUserRoles(user.id);
-      const hasRole = userRoles.some((ur: any) => ur.role.code === roleCode);
-      if (!hasRole) {
-         res.status(403).json({ error: "Forbidden: Missing role " + roleCode });
-         return;
-      }
-      next();
-    } catch(e) {
-      res.status(500).json({ error: "Server error during role validation" });
-    }
-  };
-};
-
+/**
+ * Require one specific permission (resource:action format).
+ * Resolution order: JWT cache → DB (handles mid-session permission changes).
+ */
 export const requirePermission = (permissionCode: string) => {
   return async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     const user = (req as AuthRequest).user;
     if (!user || !user.id) {
-       res.status(401).json({ error: "Unauthorized" });
-       return;
+      res.status(401).json({ error: "Unauthorized" });
+      return;
+    }
+
+    try {
+      // Fast path: check permissions embedded in JWT
+      if (user.permissions && Array.isArray(user.permissions)) {
+        if (user.permissions.includes(permissionCode)) { next(); return; }
+      }
+      // Authoritative path: check DB (catches permission changes after token issuance)
+      const userPermissions = await RbacService.getUserPermissions(user.id);
+      if (!userPermissions.includes(permissionCode)) {
+        res.status(403).json({ error: `Forbidden: missing permission '${permissionCode}'` });
+        return;
+      }
+      next();
+    } catch (e) {
+      res.status(500).json({ error: "Server error during permission validation" });
+    }
+  };
+};
+
+/**
+ * Require ALL of the listed permissions (AND logic).
+ */
+export const requireAllPermissions = (...permissionCodes: string[]) => {
+  return async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    const user = (req as AuthRequest).user;
+    if (!user || !user.id) {
+      res.status(401).json({ error: "Unauthorized" });
+      return;
     }
 
     try {
       const userPermissions = await RbacService.getUserPermissions(user.id);
-      if (!userPermissions.includes(permissionCode)) {
-         res.status(403).json({ error: "Forbidden: Missing permission " + permissionCode });
-         return;
+      const missing = permissionCodes.filter(p => !userPermissions.includes(p));
+      if (missing.length > 0) {
+        res.status(403).json({ error: `Forbidden: missing permissions [${missing.join(", ")}]` });
+        return;
       }
       next();
-    } catch(e) {
+    } catch (e) {
+      res.status(500).json({ error: "Server error during permission validation" });
+    }
+  };
+};
+
+/**
+ * Require AT LEAST ONE of the listed permissions (OR logic).
+ */
+export const requireAnyPermission = (...permissionCodes: string[]) => {
+  return async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    const user = (req as AuthRequest).user;
+    if (!user || !user.id) {
+      res.status(401).json({ error: "Unauthorized" });
+      return;
+    }
+
+    try {
+      const userPermissions = await RbacService.getUserPermissions(user.id);
+      const hasAny = permissionCodes.some(p => userPermissions.includes(p));
+      if (!hasAny) {
+        res.status(403).json({ error: `Forbidden: requires one of [${permissionCodes.join(", ")}]` });
+        return;
+      }
+      next();
+    } catch (e) {
       res.status(500).json({ error: "Server error during permission validation" });
     }
   };

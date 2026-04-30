@@ -21,6 +21,8 @@ import {
 import { Badge } from "../ui/badge";
 import { format } from "date-fns";
 import { fr } from "date-fns/locale";
+import { apiFetch } from "../../lib/api";
+const API_BASE = import.meta.env.VITE_API_URL;
 
 interface DailyLogDetailDrawerProps {
   open: boolean;
@@ -41,10 +43,7 @@ export default function DailyLogDetailDrawer({ open, onOpenChange, logId }: Dail
   const fetchLog = async () => {
     setLoading(true);
     try {
-      const token = localStorage.getItem("token");
-      const res = await fetch(`/api/daily-logs/${logId}`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
+      const res = await apiFetch(`${API_BASE}/daily-logs/${logId}`);
       if (res.ok) {
         setLog(await res.json());
       }

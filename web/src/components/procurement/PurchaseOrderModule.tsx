@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import { apiFetch, API_BASE } from "../../lib/api";
 import { 
   ShoppingCart, 
   Search, 
@@ -28,7 +29,7 @@ export default function PurchaseOrderModule() {
     setError(null);
     try {
       const token = localStorage.getItem("token");
-      const res = await fetch("/api/procurement/purchase-orders", {
+        const res = await apiFetch(`${API_BASE}/procurement/purchase-orders`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       if (res.ok) {

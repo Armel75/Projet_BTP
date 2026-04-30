@@ -1,4 +1,6 @@
 import React, { useState, useEffect } from "react";
+import { apiFetch } from "../../lib/api";
+const API_BASE = import.meta.env.VITE_API_URL;
 import { 
   ClipboardList, 
   Plus, 
@@ -30,14 +32,12 @@ export default function WeeklyReportModule() {
 
   const fetchProjects = async () => {
     try {
-      const token = localStorage.getItem("token");
-      const res = await fetch("/api/project-management/projects", {
-        headers: { Authorization: `Bearer ${token}` }
-      });
+      const res = await apiFetch(`${API_BASE}/projects?limit=100`);
       if (res.ok) {
         const data = await res.json();
-        setProjects(data);
-        if (data.length > 0 && !selectedProjectId) setSelectedProjectId(data[0].id.toString());
+        const list = data.data ?? data;
+        setProjects(list);
+        if (list.length > 0 && !selectedProjectId) setSelectedProjectId(list[0].id.toString());
       }
     } catch (err) {
       console.error(err);
@@ -48,10 +48,7 @@ export default function WeeklyReportModule() {
     setLoading(true);
     setError(null);
     try {
-      const token = localStorage.getItem("token");
-      const res = await fetch(`/api/weekly-reports/project/${projectId}`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
+      const res = await apiFetch(`${API_BASE}/weekly-reports/project/${projectId}`);
       if (res.ok) {
         setReports(await res.json());
       } else {
@@ -100,7 +97,8 @@ export default function WeeklyReportModule() {
 
         <Button 
           onClick={() => setIsGenerateOpen(true)}
-          className="h-11 px-6 rounded-xl shadow-lg shadow-gb-primary/20 w-full md:w-auto bg-purple-600 hover:bg-purple-700 font-bold"
+          disabled={!selectedProjectId}
+          className="h-11 px-6 rounded-xl shadow-lg shadow-gb-primary/20 w-full md:w-auto bg-purple-600 hover:bg-purple-700 font-bold disabled:opacity-50"
         >
           <Zap size={18} className="mr-2" />
           Générer la Synthèse Hebdo

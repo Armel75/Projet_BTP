@@ -1,4 +1,6 @@
 import React, { useState, useEffect } from "react";
+import { apiFetch } from "../../lib/api";
+const API_BASE = import.meta.env.VITE_API_URL;
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "../ui/dialog";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
@@ -30,7 +32,7 @@ export function ResourceAssignmentDialog({ open, onOpenChange, task, onAssign }:
     setLoading(true);
     try {
       const token = localStorage.getItem("token");
-      const res = await fetch("/api/resources", {
+      const res = await apiFetch(`${API_BASE}/resources`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       if (res.ok) {

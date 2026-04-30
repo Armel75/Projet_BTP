@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import { apiFetch, API_BASE } from "../../lib/api";
 import { 
   Dialog, 
   DialogContent, 
@@ -36,7 +37,7 @@ export default function BidListDialog({ open, onOpenChange, tender, onBidAwarded
     setLoading(true);
     try {
       const token = localStorage.getItem("token");
-      const res = await fetch("/api/procurement/purchase-orders", {
+        const res = await apiFetch(`${API_BASE}/procurement/purchase-orders`, {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
         body: JSON.stringify({ bidId })

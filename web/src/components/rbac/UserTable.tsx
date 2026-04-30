@@ -10,11 +10,12 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from ".
 interface UserTableProps {
   users: any[];
   roles: any[];
+  canAssign?: boolean;
   onAssignRole: (userId: number, roleId: number) => Promise<void>;
   onRemoveRole: (userId: number, roleId: number) => Promise<void>;
 }
 
-export function UserTable({ users, roles, onAssignRole, onRemoveRole }: UserTableProps) {
+export function UserTable({ users, roles, canAssign = false, onAssignRole, onRemoveRole }: UserTableProps) {
   const [selectedUser, setSelectedUser] = useState<any>(null);
   const [roleToAssign, setRoleToAssign] = useState<string>("");
   const [isDialogOpen, setIsDialogOpen] = useState(false);
@@ -75,13 +76,15 @@ export function UserTable({ users, roles, onAssignRole, onRemoveRole }: UserTabl
                           className="bg-gb-primary/10 text-gb-primary border-gb-primary/20 flex items-center gap-1 hover:bg-gb-primary/20 transition-colors"
                         >
                           <Shield className="w-3 h-3" />
-                          {ur.role?.code}
-                          <button 
-                            onClick={() => onRemoveRole(u.id, ur.role_id)}
-                            className="ml-1 hover:text-gb-danger transition-colors text-gb-muted"
-                          >
-                            <Trash2 className="w-3 h-3" />
-                          </button>
+                          {ur.role?.name || ur.role?.code}
+                          {canAssign && (
+                            <button 
+                              onClick={() => onRemoveRole(u.id, ur.role_id)}
+                              className="ml-1 hover:text-gb-danger transition-colors text-gb-muted"
+                            >
+                              <Trash2 className="w-3 h-3" />
+                            </button>
+                          )}
                         </Badge>
                       ))}
                       {(!u.userRoles || u.userRoles.length === 0) && (
@@ -89,17 +92,20 @@ export function UserTable({ users, roles, onAssignRole, onRemoveRole }: UserTabl
                       )}
                     </div>
                   </TableCell>
-                  <TableCell className="text-right">
-                    <Button 
-                      variant="ghost" 
-                      size="sm" 
-                      className="opacity-0 group-hover:opacity-100 flex items-center gap-2"
-                      onClick={() => handleOpenAssign(u)}
-                    >
-                      <UserPlus className="w-4 h-4" />
-                      Assigner
-                    </Button>
-                  </TableCell>
+                  {canAssign && (
+                    <TableCell className="text-right">
+                      <Button 
+                        variant="ghost" 
+                        size="sm" 
+                        className="opacity-0 group-hover:opacity-100 flex items-center gap-2"
+                        onClick={() => handleOpenAssign(u)}
+                      >
+                        <UserPlus className="w-4 h-4" />
+                        Assigner
+                      </Button>
+                    </TableCell>
+                  )}
+                  {!canAssign && <TableCell />}
                 </TableRow>
               ))
             )}
@@ -121,7 +127,7 @@ export function UserTable({ users, roles, onAssignRole, onRemoveRole }: UserTabl
             </div>
             <div className="space-y-2">
               <Label htmlFor="role">Sélectionner un rôle</Label>
-              <Select value={roleToAssign} onValueChange={setRoleToAssign}>
+              <Select value={roleToAssign} onValueChange={(val) => val && setRoleToAssign(val)}>
                 <SelectTrigger id="role" className="bg-gb-app border-gb-border">
                   <SelectValue placeholder="Choisir un rôle..." />
                 </SelectTrigger>

@@ -1,90 +1,216 @@
-import { prisma } from '../config/prisma.js';
+﻿import { prisma } from '../config/prisma.js';
 import { TenantContext } from '../config/tenant-context.js';
+
+const CONTRACT_INCLUDE = {
+  supplier:  { select: { id: true, name: true, email: true, contact_name: true, phone: true } },
+  project:   { select: { id: true, code: true, title: true } },
+  createdBy: { select: { id: true, firstname: true, lastname: true } },
+  approvedBy: { select: { id: true, firstname: true, lastname: true } },
+  lots:      { select: { id: true, lot_number: true, name: true } },
+  line_items: {
+    orderBy: { order_index: 'asc' as const },
+    include: {
+      lot: { select: { id: true, lot_number: true, name: true } },
+    },
+  },
+  change_orders: { orderBy: { created_at: 'desc' as const } },
+  invoices: {
+    include: { payments: true },
+    orderBy: { created_at: 'desc' as const },
+  },
+};
 
 export class ContractService {
   // ==========================
   // CONTRACTS
   // ==========================
 
+  static async list(filters: { project_id?: number; status?: string; type?: string } = {}) {
+    const tenantId = TenantContext.getTenantId();
+    const contracts = await prisma.contract.findMany({
+      where: {
+        ...(tenantId ? { tenant_id: tenantId } : {}),
+        ...(filters.project_id ? { project_id: filters.project_id } : {}),
+        ...(filters.status ? { status: filters.status } : {}),
+        ...(filters.type ? { type: filters.type } : {}),
+      },
+      include: CONTRACT_INCLUDE,
+      orderBy: { created_at: 'desc' },
+    });
+    return contracts.map((c: any) => ContractService.calculateContractTotals(c));
+  }
+
   static async createContract(data: {
     project_id: number;
     supplier_id: number;
     title: string;
-    total_amount: number;
+    reference?: string;
+    description?: string;
+    category?: string;
+    type?: string;
+    amount?: number;
     currency?: string;
-    status: string;
+    status?: string;
     start_date?: Date;
     end_date?: Date;
+    signed_at?: Date;
+    executed_at?: Date;
+    retention_pct?: number;
+    advance_payment_pct?: number;
+    advance_payment_amount?: number;
+    price_revision_index?: string;
+    payment_terms?: number;
+    document_url?: string;
     created_by: number;
   }) {
     const tenantId = TenantContext.getTenantId();
     if (!tenantId) throw new Error("Tenant session required");
-
     return await prisma.contract.create({
       data: {
-        ...data,
+        project_id: data.project_id,
+        supplier_id: data.supplier_id,
+        title: data.title,
+        reference: data.reference || '',
+        description: data.description,
+        category: data.category,
+        type: data.type || 'SUBCONTRACT',
+        amount: data.amount || 0,
+        currency: data.currency || 'EUR',
+        status: data.status || 'DRAFT',
+        start_date: data.start_date,
+        end_date: data.end_date,
+        signed_at: data.signed_at,
+        executed_at: data.executed_at,
+        retention_pct: data.retention_pct,
+        advance_payment_pct: data.advance_payment_pct,
+        advance_payment_amount: data.advance_payment_amount,
+        price_revision_index: data.price_revision_index,
+        payment_terms: data.payment_terms,
+        document_url: data.document_url,
         tenant_id: tenantId,
-        currency: data.currency || 'EUR'
-      }
+        created_by: data.created_by,
+      },
+      include: CONTRACT_INCLUDE,
     });
   }
 
   static async getContractsByProject(project_id: number) {
     const contracts = await prisma.contract.findMany({
       where: { project_id },
-      include: {
-        changeOrders: true,
-        invoices: true,
-        supplier: true
-      }
+      include: CONTRACT_INCLUDE,
     });
-
-    return contracts.map((c: any) => this.calculateContractTotals(c));
+    return contracts.map((c: any) => ContractService.calculateContractTotals(c));
   }
 
   static async getContractById(id: number) {
     const contract = await prisma.contract.findUnique({
       where: { id },
-      include: {
-        changeOrders: true,
-        invoices: {
-          include: {
-            payments: true
-          }
-        },
-        supplier: true,
-        project: true
-      }
+      include: CONTRACT_INCLUDE,
     });
-
     if (!contract) return null;
-    return this.calculateContractTotals(contract);
+    return ContractService.calculateContractTotals(contract);
+  }
+
+  static async updateContract(id: number, data: Record<string, any>) {
+    const updated = await prisma.contract.update({
+      where: { id },
+      data,
+      include: CONTRACT_INCLUDE,
+    });
+    return ContractService.calculateContractTotals(updated);
+  }
+
+  static async deleteContract(id: number) {
+    return await prisma.contract.delete({ where: { id } });
   }
 
   private static calculateContractTotals(contract: any) {
-    const approvedChangeAmount = contract.changeOrders
-      ?.filter((co: any) => co.status === 'APPROVED')
-      .reduce((sum: number, co: any) => sum + Number(co.amount_change), 0) || 0;
+    const baseAmount = Number(contract.amount) || 0;
 
-    const totalContractAmount = Number(contract.total_amount) + approvedChangeAmount;
-    
-    const totalInvoiced = contract.invoices
-      ?.reduce((sum: number, inv: any) => sum + Number(inv.amount), 0) || 0;
+    const approvedChangeAmount = (contract.change_orders || [])
+      .filter((co: any) => co.status === 'APPROVED')
+      .reduce((sum: number, co: any) => sum + Number(co.amount), 0);
 
-    const totalPaid = contract.invoices
-      ?.flatMap((inv: any) => inv.payments || [])
-      .reduce((sum: number, pay: any) => sum + Number(pay.amount), 0) || 0;
+    const revisedTotal = baseAmount + approvedChangeAmount;
+
+    const totalInvoiced = (contract.invoices || [])
+      .reduce((sum: number, inv: any) => sum + Number(inv.amount), 0);
+
+    const totalPaid = (contract.invoices || [])
+      .flatMap((inv: any) => inv.payments || [])
+      .reduce((sum: number, pay: any) => sum + Number(pay.amount), 0);
+
+    const lineItemsTotal = (contract.line_items || [])
+      .reduce((sum: number, li: any) => sum + Number(li.total_price), 0);
 
     return {
       ...contract,
-      base_amount: Number(contract.total_amount), // Original
+      base_amount: baseAmount,
+      line_items_total: lineItemsTotal,
       approved_change_amount: approvedChangeAmount,
-      revised_total_amount: totalContractAmount,
+      revised_total_amount: revisedTotal,
       total_invoiced: totalInvoiced,
       total_paid: totalPaid,
-      remaining_to_invoice: totalContractAmount - totalInvoiced,
-      remaining_to_pay: totalInvoiced - totalPaid
+      remaining_to_invoice: revisedTotal - totalInvoiced,
+      remaining_to_pay: totalInvoiced - totalPaid,
+      billing_progress_pct: revisedTotal > 0 ? Math.min(100, (totalInvoiced / revisedTotal) * 100) : 0,
     };
+  }
+
+  // ==========================
+  // LINE ITEMS
+  // ==========================
+
+  static async createLineItem(contract_id: number, data: {
+    description: string;
+    category?: string;
+    quantity: number;
+    unit: string;
+    unit_price: number;
+    total_price?: number;
+    lot_id?: number;
+    wbs_id?: number;
+    order_index?: number;
+    status?: string;
+    created_by: number;
+  }) {
+    const tenantId = TenantContext.getTenantId();
+    const contract = await prisma.contract.findUnique({ where: { id: contract_id } });
+    if (!contract) throw new Error("Contract not found");
+    return await prisma.contractLineItem.create({
+      data: {
+        contract_id,
+        tenant_id: tenantId!,
+        description: data.description,
+        category: data.category,
+        quantity: data.quantity,
+        unit: data.unit,
+        unit_price: data.unit_price,
+        total_price: data.total_price ?? (data.quantity * data.unit_price),
+        lot_id: data.lot_id ?? null,
+        wbs_id: data.wbs_id ?? null,
+        order_index: data.order_index ?? 0,
+        status: data.status ?? 'PENDING_APPROVAL',
+        created_by: data.created_by,
+      },
+      include: {
+        lot: { select: { id: true, lot_number: true, name: true } },
+      },
+    });
+  }
+
+  static async updateLineItem(id: number, data: Record<string, any>) {
+    return await prisma.contractLineItem.update({
+      where: { id },
+      data,
+      include: {
+        lot: { select: { id: true, lot_number: true, name: true } },
+      },
+    });
+  }
+
+  static async deleteLineItem(id: number) {
+    return await prisma.contractLineItem.delete({ where: { id } });
   }
 
   // ==========================
@@ -95,27 +221,40 @@ export class ContractService {
     contract_id: number;
     title: string;
     description?: string;
-    amount_change: number;
-    status: string;
+    amount: number;
+    reason?: string;
+    impact_days?: number;
+    number?: string;
+    status?: string;
     created_by: number;
   }) {
     const tenantId = TenantContext.getTenantId();
     const contract = await prisma.contract.findUnique({ where: { id: data.contract_id } });
     if (!contract) throw new Error("Contract not found");
-
     return await prisma.changeOrder.create({
       data: {
-        ...data,
+        contract_id: data.contract_id,
         project_id: contract.project_id,
-        tenant_id: tenantId!
-      }
+        tenant_id: tenantId!,
+        title: data.title,
+        description: data.description || '',
+        amount: data.amount,
+        reason: data.reason,
+        impact_days: data.impact_days,
+        number: data.number || `AV-${Date.now()}`,
+        status: data.status || 'PENDING_APPROVAL',
+        created_by: data.created_by,
+      },
     });
   }
 
   static async updateChangeOrderStatus(id: number, status: 'APPROVED' | 'REJECTED', userId: number) {
     return await prisma.changeOrder.update({
       where: { id },
-      data: { status }
+      data: {
+        status,
+        ...(status === 'APPROVED' ? { approved_at: new Date() } : {}),
+      },
     });
   }
 
@@ -125,38 +264,40 @@ export class ContractService {
 
   static async createInvoice(data: {
     contract_id: number;
-    invoice_number: string;
+    number: string;
     amount: number;
+    invoice_date?: Date;
     due_date?: Date;
-    status: string;
+    status?: string;
+    lot_id?: number;
+    retention?: number;
     created_by: number;
   }) {
     const tenantId = TenantContext.getTenantId();
-    
-    // 1. Validate Contract and limits
-    const contract = await this.getContractById(data.contract_id);
+    const contract = await prisma.contract.findUnique({ where: { id: data.contract_id } });
     if (!contract) throw new Error("Contract not found");
-
-    if (data.amount > contract.remaining_to_invoice) {
-        throw new Error(`Invoice amount (${data.amount}) exceeds remaining contract balance (${contract.remaining_to_invoice})`);
-    }
-
     return await prisma.invoice.create({
       data: {
-        ...data,
+        contract_id: data.contract_id,
         project_id: contract.project_id,
-        supplier_id: contract.supplier_id,
-        tenant_id: tenantId!
-      }
+        tenant_id: tenantId!,
+        number: data.number,
+        amount: data.amount,
+        invoice_date: data.invoice_date || new Date(),
+        due_date: data.due_date,
+        status: data.status || 'DRAFT',
+        lot_id: data.lot_id ?? null,
+        retention: data.retention,
+        created_by: data.created_by,
+      },
     });
   }
 
   static async getInvoicesByContract(contract_id: number) {
     return await prisma.invoice.findMany({
       where: { contract_id },
-      include: {
-        payments: true
-      }
+      include: { payments: true },
+      orderBy: { created_at: 'desc' },
     });
   }
 
@@ -173,43 +314,34 @@ export class ContractService {
     created_by: number;
   }) {
     const tenantId = TenantContext.getTenantId();
-
-    // 1. Validate Invoice existence
     const invoice = await prisma.invoice.findUnique({
       where: { id: data.invoice_id },
-      include: { payments: true }
+      include: { payments: true },
     });
-
     if (!invoice) throw new Error("Invoice not found");
 
-    // 2. Validate Payment Limit
     const totalPaidOnInvoice = invoice.payments.reduce((sum: number, p: any) => sum + Number(p.amount), 0);
     const balanceDue = Number(invoice.amount) - totalPaidOnInvoice;
-
     if (data.amount > balanceDue) {
       throw new Error(`Payment amount (${data.amount}) exceeds remaining invoice balance (${balanceDue})`);
     }
 
     const payment = await prisma.payment.create({
       data: {
-        ...data,
-        project_id: invoice.project_id,
-        tenant_id: tenantId!
-      }
+        invoice_id: data.invoice_id,
+        tenant_id: tenantId!,
+        amount: data.amount,
+        date: data.payment_date,
+        method: data.payment_method,
+        created_by: data.created_by,
+      },
     });
 
-    // Check if invoice is now fully paid
-    if (totalPaidOnInvoice + data.amount >= Number(invoice.amount)) {
-        await prisma.invoice.update({
-            where: { id: data.invoice_id },
-            data: { status: 'PAID' }
-        });
-    } else {
-        await prisma.invoice.update({
-            where: { id: data.invoice_id },
-            data: { status: 'PARTIALLY_PAID' }
-        });
-    }
+    const newTotal = totalPaidOnInvoice + data.amount;
+    await prisma.invoice.update({
+      where: { id: data.invoice_id },
+      data: { status: newTotal >= Number(invoice.amount) ? 'PAID' : 'SUBMITTED' },
+    });
 
     return payment;
   }

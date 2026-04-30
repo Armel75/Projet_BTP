@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import { apiFetch, API_BASE } from "../../lib/api";
 import { 
   Users, 
   Plus, 
@@ -27,7 +28,7 @@ export default function SupplierModule() {
     setError(null);
     try {
       const token = localStorage.getItem("token");
-      const res = await fetch("/api/procurement/suppliers", {
+        const res = await apiFetch(`${API_BASE}/procurement/suppliers`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       if (res.ok) {

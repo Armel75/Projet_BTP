@@ -3,6 +3,17 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "tsx server.ts"
+    "dev": "tsx src/server.ts",
+    "build": "tsc"
+  },
+  "devDependencies": {
+    "@types/cookie-parser": "^1.4.10"
+  },
+  "dependencies": {
+    "@types/argon2": "^0.14.1",
+    "@types/helmet": "^0.0.48",
+    "argon2": "^0.44.0",
+    "cookie-parser": "^1.4.7",
+    "helmet": "^8.1.0"
   }
 }

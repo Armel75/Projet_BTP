@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import { apiFetch, API_BASE } from "../lib/api";
 import { ResourceList } from "../components/resources/ResourceList";
 import { ResourceFormDialog } from "../components/resources/ResourceFormDialog";
 import { ResourceDetailDrawer } from "../components/resources/ResourceDetailDrawer";
@@ -28,8 +29,8 @@ export default function ResourcesView() {
     try {
       const token = localStorage.getItem("token");
       const [resData, typeData] = await Promise.all([
-        fetch("/api/resources", { headers: { Authorization: `Bearer ${token}` } }),
-        fetch("/api/resources/types", { headers: { Authorization: `Bearer ${token}` } })
+        apiFetch(`${API_BASE}/resources`, { headers: { Authorization: `Bearer ${token}` } }),
+        apiFetch(`${API_BASE}/resources/types`, { headers: { Authorization: `Bearer ${token}` } })
       ]);
 
       if (!resData.ok || !typeData.ok) throw new Error("Erreur lors de la récupération des ressources");

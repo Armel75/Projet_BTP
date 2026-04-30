@@ -1,4 +1,6 @@
 import React, { useState, useEffect } from "react";
+import { apiFetch } from "../../lib/api";
+const API_BASE = import.meta.env.VITE_API_URL;
 import { 
   CalendarDays, 
   Plus, 
@@ -31,14 +33,12 @@ export default function DailyLogModule() {
 
   const fetchProjects = async () => {
     try {
-      const token = localStorage.getItem("token");
-      const res = await fetch("/api/project-management/projects", {
-        headers: { Authorization: `Bearer ${token}` }
-      });
+      const res = await apiFetch(`${API_BASE}/projects?limit=100`);
       if (res.ok) {
         const data = await res.json();
-        setProjects(data);
-        if (data.length > 0 && !selectedProjectId) setSelectedProjectId(data[0].id.toString());
+        const list = data.data ?? data;
+        setProjects(list);
+        if (list.length > 0 && !selectedProjectId) setSelectedProjectId(list[0].id.toString());
       }
     } catch (err) {
       console.error(err);
@@ -49,10 +49,7 @@ export default function DailyLogModule() {
     setLoading(true);
     setError(null);
     try {
-      const token = localStorage.getItem("token");
-      const res = await fetch(`/api/daily-logs?projectId=${projectId}`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
+      const res = await apiFetch(`${API_BASE}/daily-logs?project_id=${projectId}`);
       if (res.ok) {
         setLogs(await res.json());
       } else {

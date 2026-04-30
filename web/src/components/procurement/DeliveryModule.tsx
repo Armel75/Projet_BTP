@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import { apiFetch, API_BASE } from "../../lib/api";
 import { 
   Truck, 
   PackageCheck, 
@@ -30,7 +31,7 @@ export default function DeliveryModule() {
   const fetchProjects = async () => {
     try {
       const token = localStorage.getItem("token");
-      const res = await fetch("/api/project-management/projects", {
+        const res = await apiFetch(`${API_BASE}/project-management/projects`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       if (res.ok) {

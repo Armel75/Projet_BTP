@@ -8,8 +8,11 @@ export class InspectionController {
       const user = (req as AuthRequest).user;
       const inspection = await InspectionService.createInspection({
         ...req.body,
+        project_id:    Number(req.body.project_id),
+        lot_id:        req.body.lot_id        ? Number(req.body.lot_id)        : undefined,
+        inspector_id:  req.body.inspector_id  ? Number(req.body.inspector_id)  : undefined,
+        scheduled_date: req.body.scheduled_date ? new Date(req.body.scheduled_date) : undefined,
         created_by: user!.id,
-        scheduled_date: req.body.scheduled_date ? new Date(req.body.scheduled_date) : undefined
       });
       res.status(201).json(inspection);
     } catch (error: any) {
@@ -20,9 +23,11 @@ export class InspectionController {
   static async list(req: Request, res: Response) {
     try {
       const filters: any = {};
-      if (req.query.project_id) filters.project_id = Number(req.query.project_id);
-      if (req.query.status) filters.status = req.query.status as string;
-      if (req.query.created_by) filters.created_by = Number(req.query.created_by);
+      if (req.query.project_id)   filters.project_id   = Number(req.query.project_id);
+      if (req.query.status)       filters.status        = req.query.status as string;
+      if (req.query.type)         filters.type          = req.query.type as string;
+      if (req.query.inspector_id) filters.inspector_id  = Number(req.query.inspector_id);
+      if (req.query.created_by)   filters.created_by    = Number(req.query.created_by);
 
       const inspections = await InspectionService.getInspections(filters);
       res.json(inspections);
@@ -45,7 +50,10 @@ export class InspectionController {
     try {
       const inspection = await InspectionService.updateInspection(Number(req.params.id), {
         ...req.body,
-        completed_date: req.body.completed_date ? new Date(req.body.completed_date) : undefined
+        lot_id:         req.body.lot_id        !== undefined ? (req.body.lot_id        ? Number(req.body.lot_id)       : null) : undefined,
+        inspector_id:   req.body.inspector_id  !== undefined ? (req.body.inspector_id  ? Number(req.body.inspector_id) : null) : undefined,
+        scheduled_date: req.body.scheduled_date ? new Date(req.body.scheduled_date) : undefined,
+        completed_date: req.body.completed_date ? new Date(req.body.completed_date) : undefined,
       });
       res.json(inspection);
     } catch (error: any) {

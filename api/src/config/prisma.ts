@@ -110,8 +110,16 @@ export const prisma = new Proxy(realPrisma, {
             return newUser;
           }
         },
-
-        update: async (args: any) => {
+        findMany: async (args?: any) => {
+          const filteredArgs = applyTenantFilter('user', args || {});
+          try {
+            return await target.user.findMany(filteredArgs);
+          } catch (e) {
+            console.log("Using Mock DB for user.findMany due to DB connection error");
+            const tenantId = TenantContext.getTenantId();
+            return inMemoryDb.users.filter((u: any) => !tenantId || u.tenant_id === tenantId);
+          }
+        },        update: async (args: any) => {
           const tenantId = TenantContext.getTenantId();
           if (tenantId) {
               const existing = await target.user.findUnique({ where: args.where }).catch(() => inMemoryDb.users.find(u => u.id === args.where.id));
@@ -156,35 +164,127 @@ export const prisma = new Proxy(realPrisma, {
             },
             create: async (args: any) => {
                 try { return await target.tenant.create(args); } catch(e) { return { id: 1, name: "Default Tenant" }; }
-            }
+            },
+            findUnique: async (args: any) => {
+                try { return await target.tenant.findUnique(args); } catch(e) { return null; }
+            },
+            findMany: async (args?: any) => {
+                try { return await target.tenant.findMany(args); } catch(e) { return []; }
+            },
+            count: async (args?: any) => {
+                try { return await target.tenant.count(args); } catch(e) { return 0; }
+            },
+            update: async (args: any) => {
+                try { return await target.tenant.update(args); } catch(e) { return args?.data ?? null; }
+            },
+            delete: async (args: any) => {
+                try { return await target.tenant.delete(args); } catch(e) { return null; }
+            },
         }
     }
     
     if (prop === 'role') {
         return {
-            findUnique: async(args: any) => { try { return await target.role.findUnique(args); } catch(e) { return { id: 1, code: args?.where?.code || "CHEF_PROJET" }; }},
-            create: async(args: any) => { try { return await target.role.create(args); } catch(e) { return { id: 1, code: args?.data?.code || "CHEF_PROJET" }; }},
-            upsert: async(args: any) => { try { return await target.role.upsert(args); } catch(e) { return { id: 1, code: args?.create?.code || "CHEF_PROJET" }; }}
+            findUnique: async(args: any) => { try { return await target.role.findUnique(args); } catch(e) { return { id: 1, code: args?.where?.code || "CHEF_PROJET", name: args?.where?.code || "CHEF_PROJET" }; }},
+            findFirst: async(args?: any) => { try { return await target.role.findFirst(args); } catch(e) { return null; }},
+            findMany: async(args?: any) => { try { return await target.role.findMany(args); } catch(e) { return []; }},
+            create: async(args: any) => { try { return await target.role.create(args); } catch(e) { return { id: Date.now(), ...args?.data }; }},
+            upsert: async(args: any) => { try { return await target.role.upsert(args); } catch(e) { return { id: 1, code: args?.create?.code || "CHEF_PROJET", name: args?.create?.name || "N/A" }; }},
+            update: async(args: any) => { try { return await target.role.update(args); } catch(e) { return args?.data; }},
+            delete: async(args: any) => { try { return await target.role.delete(args); } catch(e) { return null; }},
         }
     }
     if (prop === 'project') {
         return {
-            findMany: async(args?: any) => { try { return await target.project.findMany(args); } catch(e) { return []; }},
-            upsert: async(args: any) => { try { return await target.project.upsert(args); } catch(e) { return { id: 1, ...args?.create }; }}
+            findMany: async (args?: any) => {
+                const filteredArgs = applyTenantFilter('project', args || {});
+                try { return await target.project.findMany(filteredArgs); } catch(e) { return []; }
+            },
+            findFirst: async (args?: any) => {
+                const filteredArgs = applyTenantFilter('project', args || {});
+                try { return await target.project.findFirst(filteredArgs); } catch(e) { return null; }
+            },
+            findUnique: async (args: any) => {
+                try {
+                    const result = await target.project.findUnique(args);
+                    const tenantId = TenantContext.getTenantId();
+                    if (result && tenantId && result.tenant_id !== tenantId) return null;
+                    return result;
+                } catch(e) { return null; }
+            },
+            count: async (args?: any) => {
+                const filteredArgs = applyTenantFilter('project', args || {});
+                try { return await target.project.count(filteredArgs); } catch(e) { return 0; }
+            },
+            create: async (args: any) => {
+                const dataArgs = applyTenantData('project', args);
+                try { return await target.project.create(dataArgs); } catch(e) { throw e; }
+            },
+            update: async (args: any) => {
+                try { return await target.project.update(args); } catch(e) { throw e; }
+            },
+            delete: async (args: any) => {
+                try { return await target.project.delete(args); } catch(e) { throw e; }
+            },
+            upsert: async (args: any) => {
+                try { return await target.project.upsert(args); } catch(e) { return { id: 1, ...args?.create }; }
+            },
         }
     }
     if (prop === 'userRole') {
         return {
             create: async(args: any) => { try { return await target.userRole.create(args); } catch(e) { return args.data; }},
-            findMany: async(args: any) => { 
+            findFirst: async(args?: any) => { 
+                try { return await target.userRole.findFirst(args); } catch(e) { 
+                    const user = inMemoryDb.users.find(u => u.id === args?.where?.user_id);
+                    return user?.userRoles?.[0] || null;
+                }
+            },
+            findMany: async(args?: any) => { 
                 try { return await target.userRole.findMany(args); } catch(e) { 
                     const user = inMemoryDb.users.find(u => u.id === args?.where?.user_id);
                     return user ? user.userRoles || [] : [];
                 }
-            }
+            },
+            upsert: async(args: any) => { try { return await target.userRole.upsert(args); } catch(e) { return args?.create || args?.update || {}; }},
+            delete: async(args: any) => { try { return await target.userRole.delete(args); } catch(e) { return null; }},
+            deleteMany: async(args: any) => { try { return await target.userRole.deleteMany(args); } catch(e) { return { count: 0 }; }},
         }
     }
     
+    if (prop === 'projectLot') {
+        return {
+            findMany: async (args?: any) => {
+                const filteredArgs = applyTenantFilter('projectLot', args || {});
+                try { return await target.projectLot.findMany(filteredArgs); } catch(e) { return []; }
+            },
+            findFirst: async (args?: any) => {
+                const filteredArgs = applyTenantFilter('projectLot', args || {});
+                try { return await target.projectLot.findFirst(filteredArgs); } catch(e) { return null; }
+            },
+            findUnique: async (args: any) => {
+                try { return await target.projectLot.findUnique(args); } catch(e) { return null; }
+            },
+            count: async (args?: any) => {
+                const filteredArgs = applyTenantFilter('projectLot', args || {});
+                try { return await target.projectLot.count(filteredArgs); } catch(e) { return 0; }
+            },
+            // Write operations: propagate the real Prisma error instead of returning null
+            create: async (args: any) => {
+                return await target.projectLot.create(args);
+            },
+            update: async (args: any) => {
+                return await target.projectLot.update(args);
+            },
+            delete: async (args: any) => {
+                return await target.projectLot.delete(args);
+            },
+            deleteMany: async (args: any) => {
+                return await target.projectLot.deleteMany(args);
+            },
+        };
+    }
+
     // Proxy functions to inject tenant isolation
     const original = target[prop];
     if (original && typeof original === 'object' && !['tenant', 'session'].includes(prop)) {

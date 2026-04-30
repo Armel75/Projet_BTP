@@ -1,73 +1,191 @@
 import { Request, Response } from "express";
 import bcrypt from "bcrypt";
 import { prisma } from '../config/prisma.js';
+import { PERMISSION_CATALOG } from '../config/permissions.js';
+import { ROLE_CATALOG } from '../services/seed-roles.js';
+
+// ROLE_CATALOG est importé depuis src/services/seed-roles.ts
+// Modifier les rôles/permissions dans ce fichier partagé uniquement.
 
 export class SeedController {
   static async runSeed(req: Request, res: Response): Promise<void> {
     try {
-      // 1. Create essential roles
-      const dgRole = await prisma.role.upsert({
-        where: { code: "DG" },
-        update: {},
-        create: { code: "DG", description: "Direction Générale" },
-      });
-      const sgRole = await prisma.role.upsert({
-        where: { code: "SG" },
-        update: {},
-        create: { code: "SG", description: "Secrétariat Général" },
-      });
-      const cpRole = await prisma.role.upsert({
-        where: { code: "CHEF_PROJET" },
-        update: {},
-        create: { code: "CHEF_PROJET", description: "Chef de Projet" },
-      });
-
+      // ── 1. Tenant ─────────────────────────────────────────────────────────
       let tenant = await prisma.tenant.findFirst();
       if (!tenant) {
         tenant = await prisma.tenant.create({ data: { name: "Default Tenant" } });
       }
 
-      // 2. Create users (with a real hashed password for demo : "admin123")
-      const seedPasswordHash = await bcrypt.hash("admin123", 10);
+      // ── 2. Upsert all permissions ─────────────────────────────────────────
+      const permissionMap: Record<string, number> = {};
+      for (const p of PERMISSION_CATALOG) {
+        const perm = await prisma.permission.upsert({
+          where: { code: p.code },
+          update: { label: p.label },
+          create: { code: p.code, label: p.label },
+        });
+        permissionMap[p.code] = perm.id;
+      }
+
+      // ── 3. Upsert all roles and bind permissions ───────────────────────────
+      const roleMap: Record<string, number> = {};
+      for (const r of ROLE_CATALOG) {
+        const role = await prisma.role.upsert({
+          where: { code: r.code },
+          update: { name: r.name, description: r.description },
+          create: { code: r.code, name: r.name, description: r.description },
+        });
+        roleMap[r.code] = role.id;
+
+        // Bind permissions to role (idempotent)
+        for (const permCode of r.permissions) {
+          const permId = permissionMap[permCode];
+          if (!permId) continue;
+          await prisma.rolePermission.upsert({
+            where: { role_id_permission_id: { role_id: role.id, permission_id: permId } },
+            update: {},
+            create: { role_id: role.id, permission_id: permId },
+          });
+        }
+      }
+
+      // ── 4. Seed users ──────────────────────────────────────────────────────
+      // Mot de passe commun à tous les users de seed — configurable via .env
+      const seedPassword = process.env.SEED_USER_PASSWORD ?? "admin123";
+      const seedPasswordHash = await bcrypt.hash(seedPassword, 10);
+
+      const assignRole = async (userId: number, roleCode: string) => {
+        const roleId = roleMap[roleCode];
+        if (!roleId) return;
+        const existing = await prisma.userRole.findFirst({
+          where: { user_id: userId, role_id: roleId, project_id: null },
+        });
+        if (!existing) {
+          await prisma.userRole.create({ data: { user_id: userId, role_id: roleId } });
+        }
+      };
+
+      // ── Gestionnaire Système (accès total) ───────────────────────────────
+      const sysUser = await prisma.user.upsert({
+        where: { email: "admin@btp.erp" },
+        update: { password_hash: seedPasswordHash },
+        create: {
+          firstname: "Admin",
+          lastname: "Système",
+          email: "admin@btp.erp",
+          username: "admin_btp",
+          matricule: "MAT-SYS-001",
+          status: "ACTIVE",
+          tenant_id: tenant.id,
+          password_hash: seedPasswordHash,
+        },
+      });
+      await assignRole(sysUser.id, "GESTIONNAIRE_SYSTEME");
+
+      // ── Direction Générale ────────────────────────────────────────────────
+      const dgUser = await prisma.user.upsert({
+        where: { email: "dg@btp.erp" },
+        update: { password_hash: seedPasswordHash },
+        create: {
+          firstname: "Directeur",
+          lastname: "Général",
+          email: "dg@btp.erp",
+          username: "dg_btp",
+          matricule: "MAT-DG-001",
+          status: "ACTIVE",
+          tenant_id: tenant.id,
+          password_hash: seedPasswordHash,
+        },
+      });
+      await assignRole(dgUser.id, "DG");
+
+      // ── Secrétariat Général ───────────────────────────────────────────────
+      const sgUser = await prisma.user.upsert({
+        where: { email: "sg@btp.erp" },
+        update: { password_hash: seedPasswordHash },
+        create: {
+          firstname: "Secrétaire",
+          lastname: "Général",
+          email: "sg@btp.erp",
+          username: "sg_btp",
+          matricule: "MAT-SG-001",
+          status: "ACTIVE",
+          tenant_id: tenant.id,
+          password_hash: seedPasswordHash,
+        },
+      });
+      await assignRole(sgUser.id, "SG");
+
+      // ── Directeur ─────────────────────────────────────────────────────────
+      const dirUser = await prisma.user.upsert({
+        where: { email: "directeur@btp.erp" },
+        update: { password_hash: seedPasswordHash },
+        create: {
+          firstname: "Directeur",
+          lastname: "Projets",
+          email: "directeur@btp.erp",
+          username: "directeur_btp",
+          matricule: "MAT-DIR-001",
+          status: "ACTIVE",
+          tenant_id: tenant.id,
+          password_hash: seedPasswordHash,
+        },
+      });
+      await assignRole(dirUser.id, "DIRECTEUR");
+
+      // ── Chef de Projet (email configurable via SEED_USER_EMAIL) ──────────
+      const cpEmail = process.env.SEED_USER_EMAIL ?? "projet@btp.erp";
+      const cpUsername = process.env.SEED_USER_USERNAME ?? "projet_admin";
+      const cpMatricule = process.env.SEED_USER_MATRICULE ?? "MAT-CP-001";
       const cpUser = await prisma.user.upsert({
-        where: { email: "projet@btp.erp" },
+        where: { email: cpEmail },
         update: { password_hash: seedPasswordHash },
         create: {
           firstname: "Jean",
           lastname: "Bâtisseur",
-          email: "projet@btp.erp",
-          username: "projet_admin",
-          matricule: "MAT-SEED-123",
+          email: cpEmail,
+          username: cpUsername,
+          matricule: cpMatricule,
           status: "ACTIVE",
           tenant_id: tenant.id,
           password_hash: seedPasswordHash,
-          roles: { create: { role_id: cpRole.id } },
         },
       });
+      await assignRole(cpUser.id, "CHEF_PROJET");
 
-      // 3. Create a project
-      const project = await prisma.project.upsert({
-        where: { project_code: "PRJ-2026-001" },
-        update: {},
+      // ── Conducteur de Travaux ─────────────────────────────────────────────
+      const ctUser = await prisma.user.upsert({
+        where: { email: "conducteur@btp.erp" },
+        update: { password_hash: seedPasswordHash },
         create: {
-          project_code: "PRJ-2026-001",
-          title: "Construction Tour Part-Dieu",
-          description: "Construction d'une tour de 50 étages au centre de Lyon",
-          client_name: "Grand Lyon",
-          status: "IN_VALIDATION",
-          created_by: cpUser.id,
-          metadata: {
-            create: {
-              budget_estimated: 150000000,
-            },
-          },
+          firstname: "Marc",
+          lastname: "Chantier",
+          email: "conducteur@btp.erp",
+          username: "conducteur_btp",
+          matricule: "MAT-CT-001",
+          status: "ACTIVE",
+          tenant_id: tenant.id,
+          password_hash: seedPasswordHash,
         },
       });
+      await assignRole(ctUser.id, "CONDUCTEUR_TRAVAUX");
 
-      res.json({ status: "seeded", project });
+      res.json({
+        status: "seeded",
+        permissions_created: PERMISSION_CATALOG.length,
+        roles_created: ROLE_CATALOG.map(r => ({ code: r.code, permissions: r.permissions.length })),
+        credentials: [
+          { email: "admin@btp.erp",        password: seedPassword, role: "GESTIONNAIRE_SYSTEME" },
+          { email: "dg@btp.erp",           password: seedPassword, role: "DG" },
+          { email: "sg@btp.erp",           password: seedPassword, role: "SG" },
+          { email: "directeur@btp.erp",    password: seedPassword, role: "DIRECTEUR" },
+          { email: cpEmail,                password: seedPassword, role: "CHEF_PROJET" },
+          { email: "conducteur@btp.erp",   password: seedPassword, role: "CONDUCTEUR_TRAVAUX" },
+        ],
+      });
     } catch (error) {
       console.error(error);
-      res.status(500).json({ error: "Seed failed" });
+      res.status(500).json({ error: "Seed failed", details: String(error) });
     }
   }
 }

@@ -10,6 +10,8 @@ import { Label } from "../ui/label";
 interface RoleTableProps {
   roles: any[];
   permissions: any[];
+  canWrite?: boolean;
+  canAssignPermission?: boolean;
   onCreateRole: (role: { code: string; name: string }) => Promise<void>;
   onDeleteRole: (id: number) => Promise<void>;
   onAssignPermission: (roleId: number, permissionId: number) => Promise<void>;
@@ -18,7 +20,9 @@ interface RoleTableProps {
 
 export function RoleTable({ 
   roles, 
-  permissions, 
+  permissions,
+  canWrite = false,
+  canAssignPermission = false,
   onCreateRole, 
   onDeleteRole, 
   onAssignPermission, 
@@ -42,9 +46,11 @@ export function RoleTable({
           <Shield className="w-5 h-5 text-emerald-500" />
           Définition des Rôles
         </h3>
-        <Button size="sm" onClick={() => setIsAdding(!isAdding)} variant={isAdding ? "ghost" : "default"}>
-          {isAdding ? "Annuler" : <><Plus className="w-4 h-4 mr-2" /> Nouveau Rôle</>}
-        </Button>
+        {canWrite && (
+          <Button size="sm" onClick={() => setIsAdding(!isAdding)} variant={isAdding ? "ghost" : "default"}>
+            {isAdding ? "Annuler" : <><Plus className="w-4 h-4 mr-2" /> Nouveau Rôle</>}
+          </Button>
+        )}
       </div>
 
       {isAdding && (
@@ -92,14 +98,16 @@ export function RoleTable({
                   <CardDescription>{role.name}</CardDescription>
                 </div>
               </div>
-              <Button 
-                variant="ghost" 
-                size="icon" 
-                className="text-gb-danger opacity-0 group-hover:opacity-100 transition-opacity"
-                onClick={() => onDeleteRole(role.id)}
-              >
-                <Trash2 className="w-4 h-4" />
-              </Button>
+              {canWrite && (
+                <Button 
+                  variant="ghost" 
+                  size="icon" 
+                  className="text-gb-danger opacity-0 group-hover:opacity-100 transition-opacity"
+                  onClick={() => onDeleteRole(role.id)}
+                >
+                  <Trash2 className="w-4 h-4" />
+                </Button>
+              )}
             </CardHeader>
             <CardContent>
               <div className="mt-2 space-y-3">
@@ -115,26 +123,30 @@ export function RoleTable({
                       className="bg-emerald-500/5 text-emerald-600 border-emerald-500/20 hover:bg-emerald-500/10 transition-colors flex items-center gap-1 py-1"
                     >
                       {rp.permission?.code}
-                      <button 
-                        onClick={() => onRemovePermission(role.id, rp.permission_id)}
-                        className="ml-1 hover:text-gb-danger"
-                      >
-                        <Trash2 className="w-3 h-3" />
-                      </button>
+                      {canAssignPermission && (
+                        <button 
+                          onClick={() => onRemovePermission(role.id, rp.permission_id)}
+                          className="ml-1 hover:text-gb-danger"
+                        >
+                          <Trash2 className="w-3 h-3" />
+                        </button>
+                      )}
                     </Badge>
                   ))}
-                  <div className="flex items-center gap-2 ml-auto">
-                    <Select onValueChange={(val) => onAssignPermission(role.id, parseInt(val))} value="">
-                      <SelectTrigger className="h-8 w-[140px] text-xs bg-gb-app border-gb-border">
-                        <SelectValue placeholder="+ Ajouter" />
-                      </SelectTrigger>
-                      <SelectContent className="bg-gb-surface-solid border-gb-border">
-                        {permissions.map((p) => (
-                          <SelectItem key={p.id} value={p.id.toString()}>{p.code}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
+                  {canAssignPermission && (
+                    <div className="flex items-center gap-2 ml-auto">
+                      <Select onValueChange={(val) => val && onAssignPermission(role.id, parseInt(val))} value="">
+                        <SelectTrigger className="h-8 w-[140px] text-xs bg-gb-app border-gb-border">
+                          <SelectValue placeholder="+ Ajouter" />
+                        </SelectTrigger>
+                        <SelectContent className="bg-gb-surface-solid border-gb-border">
+                          {permissions.map((p) => (
+                            <SelectItem key={p.id} value={p.id.toString()}>{p.code}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  )}
                 </div>
               </div>
             </CardContent>

@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import { apiFetch, API_BASE } from "../lib/api";
 import { Link, useNavigate } from "react-router-dom";
 
 export default function RegisterView() {
@@ -24,7 +25,7 @@ export default function RegisterView() {
     setLoading(true);
 
     try {
-      const res = await fetch("/api/auth/register", {
+      const res = await apiFetch(`${API_BASE}/auth/register`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(formData),

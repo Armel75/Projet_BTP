@@ -1,0 +1,12 @@
+{
+  "name": "dev",
+  "concurrently": {
+    "kill-others": true
+  },
+  "scripts": {
+    "dev": "concurrently \"npm run dev --workspace=api\" \"npm run dev --workspace=web\""
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2"
+  }
+}

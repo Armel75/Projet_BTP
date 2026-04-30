@@ -1,4 +1,5 @@
 import React from "react";
+import { apiFetch, API_BASE } from "../lib/api";
 import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext";
 import { 
@@ -33,7 +34,7 @@ export default function LoginView() {
     setLoading(true);
 
     try {
-      const res = await fetch("/api/auth/login", {
+          const res = await apiFetch(`${API_BASE}/auth/login`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ username: target.username.value, password: target.password.value }),
@@ -151,6 +152,10 @@ export default function LoginView() {
 
       {/* PARTIE DROITE: FORMULAIRE */}
       <div className="flex-1 flex flex-col justify-center items-center p-8 lg:p-20 relative bg-gb-app">
+        {/* SOREPCO centré au-dessus du formulaire */}
+        <div className="w-full flex justify-center mb-8 lg:mb-12">
+          <span className="text-4xl lg:text-5xl font-extrabold tracking-tight drop-shadow-lg uppercase" style={{letterSpacing: '0.04em', color: '#009E49'}}>SOREPCO</span>
+        </div>
         {/* Mobile Header (Hidden on Desktop) */}
         <div className="lg:hidden absolute top-12 left-1/2 -translate-x-1/2 flex flex-col items-center gap-2">
           <div className="w-12 h-12 bg-gb-primary rounded-2xl flex items-center justify-center shadow-xl shadow-gb-primary/20">
@@ -168,7 +173,7 @@ export default function LoginView() {
           <div className="bg-gb-surface-solid border border-gb-border p-10 rounded-[2.5rem] shadow-2xl shadow-black/5">
             <div className="mb-10">
               <h2 className="text-3xl font-black text-gb-text tracking-tight mb-2">Bon retour 👋</h2>
-              <p className="text-gb-muted text-sm font-medium italic">Accédez à votre cockpit de gestion chantier</p>
+              <p className="text-gb-muted text-sm font-medium italic">Accédez à votre plateforme de gestion chantier</p>
             </div>
 
             {error && (
@@ -203,7 +208,7 @@ export default function LoginView() {
                   <label className="text-[10px] uppercase font-black tracking-[0.2em] text-gb-muted">Mot de passe</label>
                   <Link to="/reset-password" onClick={(e) => {
                     // Logic preserved – routing to reset screen
-                  }} className="text-[10px] uppercase font-black tracking-widest text-gb-primary hover:text-gb-primary/80 transition-colors">Perdu ?</Link>
+                  }} className="text-[10px] uppercase font-black tracking-widest text-gb-primary hover:text-gb-primary/80 transition-colors">Mot de passe oublier ?</Link>
                 </div>
                 <div className="relative group">
                   <input 

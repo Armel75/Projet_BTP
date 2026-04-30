@@ -1,4 +1,6 @@
 import React, { useState } from "react";
+import { apiFetch } from "../../lib/api";
+const API_BASE = import.meta.env.VITE_API_URL;
 import { 
   Dialog, 
   DialogContent, 
@@ -30,14 +32,13 @@ export default function GenerateWeeklyReportDialog({ open, onOpenChange, project
       const weekStart = startOfWeek(selectedDate, { weekStartsOn: 1 });
       const weekEnd = endOfWeek(selectedDate, { weekStartsOn: 1 });
 
-      const token = localStorage.getItem("token");
-      const res = await fetch("/api/weekly-reports/generate", {
+      const res = await apiFetch(`${API_BASE}/weekly-reports/generate`, {
         method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          projectId,
-          weekStart: weekStart.toISOString(),
-          weekEnd: weekEnd.toISOString()
+          project_id: projectId,
+          week_start: weekStart.toISOString(),
+          week_end: weekEnd.toISOString()
         })
       });
 

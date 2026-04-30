@@ -1,4 +1,6 @@
 import React, { useState } from "react";
+import { apiFetch } from "../../lib/api";
+const API_BASE = import.meta.env.VITE_API_URL;
 import { 
   Dialog, 
   DialogContent, 
@@ -54,10 +56,9 @@ export default function CreateDailyLogDialog({ open, onOpenChange, projectId, on
     e.preventDefault();
     setSubmitting(true);
     try {
-      const token = localStorage.getItem("token");
-      const res = await fetch("/api/daily-logs", {
+      const res = await apiFetch(`${API_BASE}/daily-logs`, {
         method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           project_id: projectId,
           date: new Date(date).toISOString(),

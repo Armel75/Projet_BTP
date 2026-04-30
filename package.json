@@ -8,10 +8,10 @@
     "api"
   ],
   "scripts": {
-    "dev": "npm --workspace=@btp-erp/api run dev",
+    "dev": "concurrently \"npm run dev --workspace=api\" \"npm run dev --workspace=web\"",
     "dev:web": "npm --workspace=@btp-erp/web run dev",
     "dev:api": "npm --workspace=@btp-erp/api run dev",
-    "build": "npm --workspace=@btp-erp/web run build",
+    "build": "npm --workspace=@btp-erp/web run build && npm --workspace=@btp-erp/api run build",
     "preview": "npm --workspace=@btp-erp/web run preview",
     "clean": "npm --workspace=@btp-erp/web run clean",
     "lint": "npm --workspace=@btp-erp/web run lint && tsc --noEmit --project api/tsconfig.json"
@@ -59,6 +59,7 @@
     "@types/node-cron": "^3.0.11",
     "@types/uuid": "^10.0.0",
     "autoprefixer": "^10.4.21",
+    "concurrently": "^9.2.1",
     "prisma": "^5.22.0",
     "tailwindcss": "^4.1.14",
     "tsx": "^4.21.0",

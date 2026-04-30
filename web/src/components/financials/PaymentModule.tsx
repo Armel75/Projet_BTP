@@ -1,4 +1,6 @@
 import React, { useState, useEffect } from "react";
+import { apiFetch } from "../../lib/api";
+const API_BASE = import.meta.env.VITE_API_URL;
 import { 
   CreditCard, 
   Search, 
@@ -31,7 +33,7 @@ export default function PaymentModule() {
     setLoading(true);
     try {
       const token = localStorage.getItem("token");
-      const res = await fetch("/api/contracts/invoices/all", {
+      const res = await apiFetch(`${API_BASE}/contracts/invoices/all`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       if (res.ok) {

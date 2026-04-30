@@ -2,6 +2,7 @@ import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
 import { prisma } from '../config/prisma.js';
 import { env } from '../config/env.js';
+import { RbacService } from './rbac.service.js';
 
 export class AuthService {
   static async registerUser(data: any, reqIp?: string, reqUserAgent?: string) {
@@ -113,14 +114,17 @@ export class AuthService {
         email: user.email, 
         sessionId: session.id, 
         tenant_id: user.tenant_id,
-        roles: user.userRoles?.map((ur: any) => ur.role?.code) || [] 
+        // Embed resolved permissions (not role names) for fast-path middleware checks.
+        // Permissions are re-verified from DB on sensitive operations.
+        permissions: await RbacService.getUserPermissions(user.id),
       }, 
       env.JWT_SECRET, 
       { expiresIn: '8h' }
     );
 
+    const permissions = await RbacService.getUserPermissions(user.id);
     const { password_hash: _, ...safeUser } = user;
-    return { token, user: safeUser, session };
+    return { token, user: { ...safeUser, permissions }, session };
   }
 
   static async logoutUser(sessionId: string) {
@@ -138,7 +142,8 @@ export class AuthService {
 
     if (!user) throw { status: 404, message: "User not found." };
 
+    const permissions = await RbacService.getUserPermissions(userId);
     const { password_hash: _, ...safeUser } = user;
-    return { user: safeUser };
+    return { user: { ...safeUser, permissions } };
   }
 }

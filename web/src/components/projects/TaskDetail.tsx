@@ -69,7 +69,7 @@ export function TaskDetail({ task, onClose }: TaskDetailProps) {
   };
 
   return (
-    <div className="bg-gb-surface-solid border border-gb-border rounded-xl p-6 shadow-xl space-y-6 max-h-[calc(100vh-100px)] overflow-y-auto">
+    <div className="bg-gb-surface-solid border border-gb-border rounded-xl p-4 sm:p-6 shadow-xl space-y-6 max-h-[calc(100vh-100px)] overflow-y-auto">
       <div className="flex justify-between items-start border-b border-gb-border pb-4">
         <div>
           <h3 className="text-xl font-bold text-gb-text tracking-tight">{task.title}</h3>
@@ -92,7 +92,7 @@ export function TaskDetail({ task, onClose }: TaskDetailProps) {
             <span className="text-sm font-semibold text-gb-text/80">{task.progress}% achevé</span>
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
              <div className="flex items-center space-x-2 text-gb-muted bg-gb-app/50 p-3 rounded-lg border border-gb-border/50">
                 <Clock size={16} />
                 <div className="text-[10px]">

@@ -1,4 +1,6 @@
 import React, { useState, useEffect } from "react";
+import { apiFetch } from "../../lib/api";
+const API_BASE = import.meta.env.VITE_API_URL;
 import { 
   FileEdit, 
   Plus, 
@@ -31,7 +33,7 @@ export default function ChangeOrderModule() {
     setLoading(true);
     try {
       const token = localStorage.getItem("token");
-      const res = await fetch("/api/contracts", {
+      const res = await apiFetch(`${API_BASE}/contracts`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       if (res.ok) {

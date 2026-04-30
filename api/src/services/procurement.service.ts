@@ -1,59 +1,205 @@
 import { prisma } from '../config/prisma.js';
 import { TenantContext } from '../config/tenant-context.js';
 
+const TENDER_INCLUDE = {
+  project:   { select: { id: true, code: true, title: true } },
+  lot:       { select: { id: true, lot_number: true, name: true } },
+  createdBy: { select: { id: true, firstname: true, lastname: true } },
+  awardedSupplier: { select: { id: true, name: true, email: true } },
+  bids: {
+    include: {
+      supplier: { select: { id: true, name: true, email: true, contact_name: true } },
+      createdBy: { select: { id: true, firstname: true, lastname: true } },
+    },
+    orderBy: { total_score: 'desc' as const },
+  },
+};
+
 export class ProcurementService {
   // ==========================
-  // TENDERS & BIDS
+  // TENDERS
   // ==========================
+
+  static async listTenders(filters: {
+    project_id?: number;
+    status?: string;
+    type?: string;
+    category?: string;
+  } = {}) {
+    const tenantId = TenantContext.getTenantId();
+    return await prisma.tender.findMany({
+      where: {
+        ...(tenantId ? { tenant_id: tenantId } : {}),
+        ...(filters.project_id ? { project_id: filters.project_id } : {}),
+        ...(filters.status ? { status: filters.status } : {}),
+        ...(filters.type ? { type: filters.type } : {}),
+        ...(filters.category ? { category: filters.category } : {}),
+      },
+      include: TENDER_INCLUDE,
+      orderBy: { created_at: 'desc' },
+    });
+  }
+
+  static async getTenderById(id: number) {
+    return await prisma.tender.findUnique({
+      where: { id },
+      include: TENDER_INCLUDE,
+    });
+  }
 
   static async createTender(data: {
     project_id: number;
     title: string;
-    status: string;
+    status?: string;
+    reference?: string;
+    description?: string;
+    type?: string;
+    category?: string;
+    currency?: string;
+    budget_estimate?: number;
+    submission_deadline?: Date;
+    opening_date?: Date;
+    lot_id?: number;
     wbs_id?: number;
+    document_url?: string;
+    notes?: string;
     created_by: number;
   }) {
+    const tenantId = TenantContext.getTenantId();
+    if (!tenantId) throw new Error("Tenant session required");
     return await prisma.tender.create({
       data: {
-        ...data,
-      }
+        project_id: data.project_id,
+        title: data.title,
+        status: data.status || 'DRAFT',
+        reference: data.reference,
+        description: data.description,
+        type: data.type || 'OPEN',
+        category: data.category || 'TRAVAUX',
+        currency: data.currency || 'EUR',
+        budget_estimate: data.budget_estimate,
+        submission_deadline: data.submission_deadline,
+        opening_date: data.opening_date,
+        lot_id: data.lot_id ?? null,
+        wbs_id: data.wbs_id ?? null,
+        document_url: data.document_url,
+        notes: data.notes,
+        tenant_id: tenantId,
+        created_by: data.created_by,
+      },
+      include: TENDER_INCLUDE,
     });
   }
 
-  static async getTendersByProject(project_id: number) {
-    return await prisma.tender.findMany({
-      where: { project_id },
-      include: {
-        bids: {
-          include: {
-            supplier: true,
-            createdBy: true
-          }
-        },
-        createdBy: true
-      }
+  static async updateTender(id: number, data: Record<string, any>) {
+    return await prisma.tender.update({
+      where: { id },
+      data,
+      include: TENDER_INCLUDE,
     });
   }
+
+  static async deleteTender(id: number) {
+    return await prisma.tender.delete({ where: { id } });
+  }
+
+  // ==========================
+  // TENDER BIDS
+  // ==========================
 
   static async submitBid(data: {
     tender_id: number;
     supplier_id: number;
     amount: number;
+    notes?: string;
+    document_url?: string;
+    submitted_at?: Date;
+    validity_period?: number;
+    is_compliant?: boolean;
     created_by: number;
   }) {
-    // Check if tender exists and is open
-    const tender = await prisma.tender.findUnique({
-      where: { id: data.tender_id }
-    });
-
+    const tender = await prisma.tender.findUnique({ where: { id: data.tender_id } });
     if (!tender) throw new Error("Tender not found");
     if (tender.status !== 'OPEN' && tender.status !== 'PUBLISHED') {
-      throw new Error("Tender is not accepting bids (Status: " + tender.status + ")");
+      throw new Error("Tender is not accepting bids (status: " + tender.status + ")");
     }
-
     return await prisma.tenderBid.create({
-      data
+      data: {
+        tender_id: data.tender_id,
+        supplier_id: data.supplier_id,
+        amount: data.amount,
+        status: 'SUBMITTED',
+        notes: data.notes,
+        document_url: data.document_url,
+        submitted_at: data.submitted_at || new Date(),
+        validity_period: data.validity_period,
+        is_compliant: data.is_compliant ?? true,
+        created_by: data.created_by,
+      },
+      include: {
+        supplier: { select: { id: true, name: true, email: true, contact_name: true } },
+      },
     });
+  }
+
+  static async updateBid(id: number, data: {
+    amount?: number;
+    status?: string;
+    technical_score?: number;
+    financial_score?: number;
+    total_score?: number;
+    rank?: number;
+    notes?: string;
+    document_url?: string;
+    is_compliant?: boolean;
+    validity_period?: number;
+  }) {
+    return await prisma.tenderBid.update({
+      where: { id },
+      data,
+      include: {
+        supplier: { select: { id: true, name: true, email: true, contact_name: true } },
+      },
+    });
+  }
+
+  static async deleteBid(id: number) {
+    return await prisma.tenderBid.delete({ where: { id } });
+  }
+
+  static async awardTender(tenderId: number, bidId: number, userId: number) {
+    const bid = await prisma.tenderBid.findUnique({
+      where: { id: bidId },
+      include: { tender: true },
+    });
+    if (!bid) throw new Error("Bid not found");
+    if (bid.tender_id !== tenderId) throw new Error("Bid does not belong to this tender");
+
+    // Accept the winning bid
+    await prisma.tenderBid.update({
+      where: { id: bidId },
+      data: { status: 'ACCEPTED', rank: 1 },
+    });
+    // Reject all other bids
+    await prisma.tenderBid.updateMany({
+      where: { tender_id: tenderId, id: { not: bidId } },
+      data: { status: 'REJECTED' },
+    });
+    // Update tender
+    return await prisma.tender.update({
+      where: { id: tenderId },
+      data: {
+        status: 'AWARDED',
+        award_date: new Date(),
+        awarded_supplier_id: bid.supplier_id,
+      },
+      include: TENDER_INCLUDE,
+    });
+  }
+
+  // Legacy alias kept for compatibility
+  static async getTendersByProject(project_id: number) {
+    return this.listTenders({ project_id });
   }
 
   // ==========================

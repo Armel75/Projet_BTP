@@ -5,24 +5,33 @@ import { authenticateToken } from "../middlewares/auth.middleware.js";
 const procurementRouter = Router();
 
 // Tenders
-procurementRouter.get("/tenders", authenticateToken, ProcurementController.getTenders);
-procurementRouter.post("/tenders", authenticateToken, ProcurementController.createTender);
-procurementRouter.post("/tenders/:id/bids", authenticateToken, ProcurementController.submitBid);
+procurementRouter.get("/tenders",                          authenticateToken, ProcurementController.getTenders);
+procurementRouter.post("/tenders",                         authenticateToken, ProcurementController.createTender);
+procurementRouter.get("/tenders/:id",                      authenticateToken, ProcurementController.getTender);
+procurementRouter.put("/tenders/:id",                      authenticateToken, ProcurementController.updateTender);
+procurementRouter.delete("/tenders/:id",                   authenticateToken, ProcurementController.deleteTender);
+procurementRouter.post("/tenders/:id/award",               authenticateToken, ProcurementController.awardTender);
+
+// Bids
+procurementRouter.post("/tenders/:id/bids",                authenticateToken, ProcurementController.submitBid);
+procurementRouter.put("/tenders/:id/bids/:bidId",          authenticateToken, ProcurementController.updateBid);
+procurementRouter.delete("/tenders/:id/bids/:bidId",       authenticateToken, ProcurementController.deleteBid);
 
 // Suppliers
-procurementRouter.get("/suppliers", authenticateToken, ProcurementController.getSuppliers);
-procurementRouter.post("/suppliers", authenticateToken, ProcurementController.createSupplier);
+procurementRouter.get("/suppliers",                        authenticateToken, ProcurementController.getSuppliers);
+procurementRouter.post("/suppliers",                       authenticateToken, ProcurementController.createSupplier);
 
 // Purchase Orders
-procurementRouter.get("/purchase-orders", authenticateToken, ProcurementController.getPurchaseOrders);
-procurementRouter.post("/purchase-orders", authenticateToken, ProcurementController.createPOFromBid);
+procurementRouter.get("/purchase-orders",                  authenticateToken, ProcurementController.getPurchaseOrders);
+procurementRouter.post("/purchase-orders",                 authenticateToken, ProcurementController.createPOFromBid);
 
 // Deliveries
-procurementRouter.get("/deliveries", authenticateToken, ProcurementController.getDeliveries);
-procurementRouter.post("/deliveries", authenticateToken, ProcurementController.createDelivery);
+procurementRouter.get("/deliveries",                       authenticateToken, ProcurementController.getDeliveries);
+procurementRouter.post("/deliveries",                      authenticateToken, ProcurementController.createDelivery);
 
 // Goods Receipts
-procurementRouter.get("/goods-receipts", authenticateToken, ProcurementController.getGoodsReceipts);
-procurementRouter.post("/goods-receipts", authenticateToken, ProcurementController.createGoodsReceipt);
+procurementRouter.get("/goods-receipts",                   authenticateToken, ProcurementController.getGoodsReceipts);
+procurementRouter.post("/goods-receipts",                  authenticateToken, ProcurementController.createGoodsReceipt);
 
 export default procurementRouter;
+
