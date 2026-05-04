@@ -4,6 +4,7 @@ import { Button } from "../ui/button";
 import { Input } from "../ui/input";
 import { Label } from "../ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../ui/select";
+import { getResourceTypeLabel } from "../../lib/resourceTypeLabel";
 
 interface ResourceFormDialogProps {
   open: boolean;
@@ -35,6 +36,10 @@ export function ResourceFormDialog({ open, onOpenChange, onSubmit, initialData, 
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!formData.type_id) {
+      alert("Veuillez sélectionner un type de ressource.");
+      return;
+    }
     setLoading(true);
     try {
       await onSubmit({
@@ -76,14 +81,14 @@ export function ResourceFormDialog({ open, onOpenChange, onSubmit, initialData, 
               <Label htmlFor="type" className="text-sm font-bold text-gb-muted uppercase tracking-wider">Type</Label>
               <Select 
                 value={formData.type_id} 
-                onValueChange={(val) => setFormData({ ...formData, type_id: val })}
+                onValueChange={(val) => setFormData({ ...formData, type_id: val ?? "" })}
               >
                 <SelectTrigger id="type" className="bg-gb-app border-gb-border h-11">
                   <SelectValue placeholder="Choisir..." />
                 </SelectTrigger>
                 <SelectContent className="bg-gb-surface-solid border-gb-border">
                   {types.map((t) => (
-                    <SelectItem key={t.id} value={t.id.toString()}>{t.code}</SelectItem>
+                    <SelectItem key={t.id} value={t.id.toString()}>{getResourceTypeLabel(t.code)}</SelectItem>
                   ))}
                 </SelectContent>
               </Select>

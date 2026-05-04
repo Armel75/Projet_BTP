@@ -33,5 +33,17 @@ procurementRouter.post("/deliveries",                      authenticateToken, Pr
 procurementRouter.get("/goods-receipts",                   authenticateToken, ProcurementController.getGoodsReceipts);
 procurementRouter.post("/goods-receipts",                  authenticateToken, ProcurementController.createGoodsReceipt);
 
+// Warehouses & Inventory
+procurementRouter.get("/warehouses",                       authenticateToken, ProcurementController.getWarehouses);
+procurementRouter.post("/warehouses",                      authenticateToken, ProcurementController.createWarehouse);
+procurementRouter.post("/warehouses/:id/locations",        authenticateToken, ProcurementController.createWarehouseLocation);
+procurementRouter.get("/inventory/balances",               authenticateToken, ProcurementController.getInventoryBalances);
+
+// Sage X3 Sync
+procurementRouter.post("/x3/sync/suppliers",               authenticateToken, ProcurementController.syncX3Suppliers);
+procurementRouter.post("/x3/sync/items",                   authenticateToken, ProcurementController.syncX3Items);
+procurementRouter.post("/x3/sync/purchase-orders",         authenticateToken, ProcurementController.syncX3PurchaseOrders);
+procurementRouter.get("/x3/sync/jobs",                     authenticateToken, ProcurementController.getX3SyncJobs);
+
 export default procurementRouter;
 

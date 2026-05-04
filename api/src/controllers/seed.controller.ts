@@ -4,6 +4,15 @@ import { prisma } from '../config/prisma.js';
 import { PERMISSION_CATALOG } from '../config/permissions.js';
 import { ROLE_CATALOG } from '../services/seed-roles.js';
 
+const DEFAULT_SEED_MATRICULES = {
+  admin: "GS001",
+  dg: "DG001",
+  sg: "SG001",
+  directeur: "DR001",
+  chefProjet: "CP001",
+  conducteurTravaux: "CT001",
+} as const;
+
 // ROLE_CATALOG est importé depuis src/services/seed-roles.ts
 // Modifier les rôles/permissions dans ce fichier partagé uniquement.
 
@@ -68,13 +77,21 @@ export class SeedController {
       // ── Gestionnaire Système (accès total) ───────────────────────────────
       const sysUser = await prisma.user.upsert({
         where: { email: "admin@btp.erp" },
-        update: { password_hash: seedPasswordHash },
+        update: {
+          firstname: "Admin",
+          lastname: "Système",
+          username: "admin_btp",
+          matricule: DEFAULT_SEED_MATRICULES.admin,
+          status: "ACTIVE",
+          tenant_id: tenant.id,
+          password_hash: seedPasswordHash,
+        },
         create: {
           firstname: "Admin",
           lastname: "Système",
           email: "admin@btp.erp",
           username: "admin_btp",
-          matricule: "MAT-SYS-001",
+          matricule: DEFAULT_SEED_MATRICULES.admin,
           status: "ACTIVE",
           tenant_id: tenant.id,
           password_hash: seedPasswordHash,
@@ -85,13 +102,21 @@ export class SeedController {
       // ── Direction Générale ────────────────────────────────────────────────
       const dgUser = await prisma.user.upsert({
         where: { email: "dg@btp.erp" },
-        update: { password_hash: seedPasswordHash },
+        update: {
+          firstname: "Directeur",
+          lastname: "Général",
+          username: "dg_btp",
+          matricule: DEFAULT_SEED_MATRICULES.dg,
+          status: "ACTIVE",
+          tenant_id: tenant.id,
+          password_hash: seedPasswordHash,
+        },
         create: {
           firstname: "Directeur",
           lastname: "Général",
           email: "dg@btp.erp",
           username: "dg_btp",
-          matricule: "MAT-DG-001",
+          matricule: DEFAULT_SEED_MATRICULES.dg,
           status: "ACTIVE",
           tenant_id: tenant.id,
           password_hash: seedPasswordHash,
@@ -102,13 +127,21 @@ export class SeedController {
       // ── Secrétariat Général ───────────────────────────────────────────────
       const sgUser = await prisma.user.upsert({
         where: { email: "sg@btp.erp" },
-        update: { password_hash: seedPasswordHash },
+        update: {
+          firstname: "Secrétaire",
+          lastname: "Général",
+          username: "sg_btp",
+          matricule: DEFAULT_SEED_MATRICULES.sg,
+          status: "ACTIVE",
+          tenant_id: tenant.id,
+          password_hash: seedPasswordHash,
+        },
         create: {
           firstname: "Secrétaire",
           lastname: "Général",
           email: "sg@btp.erp",
           username: "sg_btp",
-          matricule: "MAT-SG-001",
+          matricule: DEFAULT_SEED_MATRICULES.sg,
           status: "ACTIVE",
           tenant_id: tenant.id,
           password_hash: seedPasswordHash,
@@ -119,13 +152,21 @@ export class SeedController {
       // ── Directeur ─────────────────────────────────────────────────────────
       const dirUser = await prisma.user.upsert({
         where: { email: "directeur@btp.erp" },
-        update: { password_hash: seedPasswordHash },
+        update: {
+          firstname: "Directeur",
+          lastname: "Projets",
+          username: "directeur_btp",
+          matricule: DEFAULT_SEED_MATRICULES.directeur,
+          status: "ACTIVE",
+          tenant_id: tenant.id,
+          password_hash: seedPasswordHash,
+        },
         create: {
           firstname: "Directeur",
           lastname: "Projets",
           email: "directeur@btp.erp",
           username: "directeur_btp",
-          matricule: "MAT-DIR-001",
+          matricule: DEFAULT_SEED_MATRICULES.directeur,
           status: "ACTIVE",
           tenant_id: tenant.id,
           password_hash: seedPasswordHash,
@@ -136,10 +177,18 @@ export class SeedController {
       // ── Chef de Projet (email configurable via SEED_USER_EMAIL) ──────────
       const cpEmail = process.env.SEED_USER_EMAIL ?? "projet@btp.erp";
       const cpUsername = process.env.SEED_USER_USERNAME ?? "projet_admin";
-      const cpMatricule = process.env.SEED_USER_MATRICULE ?? "MAT-CP-001";
+      const cpMatricule = process.env.SEED_USER_MATRICULE ?? DEFAULT_SEED_MATRICULES.chefProjet;
       const cpUser = await prisma.user.upsert({
         where: { email: cpEmail },
-        update: { password_hash: seedPasswordHash },
+        update: {
+          firstname: "Jean",
+          lastname: "Bâtisseur",
+          username: cpUsername,
+          matricule: cpMatricule,
+          status: "ACTIVE",
+          tenant_id: tenant.id,
+          password_hash: seedPasswordHash,
+        },
         create: {
           firstname: "Jean",
           lastname: "Bâtisseur",
@@ -156,13 +205,21 @@ export class SeedController {
       // ── Conducteur de Travaux ─────────────────────────────────────────────
       const ctUser = await prisma.user.upsert({
         where: { email: "conducteur@btp.erp" },
-        update: { password_hash: seedPasswordHash },
+        update: {
+          firstname: "Marc",
+          lastname: "Chantier",
+          username: "conducteur_btp",
+          matricule: DEFAULT_SEED_MATRICULES.conducteurTravaux,
+          status: "ACTIVE",
+          tenant_id: tenant.id,
+          password_hash: seedPasswordHash,
+        },
         create: {
           firstname: "Marc",
           lastname: "Chantier",
           email: "conducteur@btp.erp",
           username: "conducteur_btp",
-          matricule: "MAT-CT-001",
+          matricule: DEFAULT_SEED_MATRICULES.conducteurTravaux,
           status: "ACTIVE",
           tenant_id: tenant.id,
           password_hash: seedPasswordHash,

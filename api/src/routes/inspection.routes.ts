@@ -8,6 +8,7 @@ router.use(authenticateToken);
 
 router.post('/', InspectionController.create);
 router.get('/', InspectionController.list);
+router.get('/:id/pdf', InspectionController.generatePdf);
 router.get('/:id', InspectionController.getById);
 router.put('/:id', InspectionController.update);
 router.delete('/:id', InspectionController.delete);

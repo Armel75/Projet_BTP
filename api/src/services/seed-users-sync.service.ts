@@ -4,7 +4,7 @@
  * Comportement :
  *  - Crée le tenant par défaut s'il n'existe pas
  *  - Crée uniquement les rôles manquants et leurs permissions
- *  - Crée uniquement les users manquants (jamais de modification en production)
+ *  - Crée les users seed manquants et resynchronise les users seed existants par email
  *  - Ne supprime JAMAIS un user ou un rôle existant
  *
  * Usage :
@@ -16,6 +16,15 @@ import bcrypt from 'bcrypt';
 import { prisma } from '../config/prisma.js';
 import { PERMISSION_CATALOG } from '../config/permissions.js';
 import { ROLE_CATALOG } from './seed-roles.js';
+
+const DEFAULT_SEED_MATRICULES = {
+  admin: 'GS001',
+  dg: 'DG001',
+  sg: 'SG001',
+  directeur: 'DR001',
+  chefProjet: 'CP001',
+  conducteurTravaux: 'CT001',
+} as const;
 
 export async function syncSeedUsers(): Promise<void> {
   console.log('[seed-users] Début de la synchronisation...');
@@ -72,41 +81,57 @@ export async function syncSeedUsers(): Promise<void> {
     roleCode: string;
   }) => {
     const existing = await prisma.user.findUnique({ where: { email: params.email } });
-    if (existing) return existing;
-
-    const user = await prisma.user.create({
-      data: {
-        firstname: params.firstname,
-        lastname: params.lastname,
-        email: params.email,
-        username: params.username,
-        matricule: params.matricule,
-        status: 'ACTIVE',
-        tenant_id: tenant!.id,
-        password_hash: seedPasswordHash,
-      },
-    });
+    const user = existing
+      ? await prisma.user.update({
+          where: { id: existing.id },
+          data: {
+            firstname: params.firstname,
+            lastname: params.lastname,
+            username: params.username,
+            matricule: params.matricule,
+            status: 'ACTIVE',
+            tenant_id: tenant!.id,
+            password_hash: seedPasswordHash,
+          },
+        })
+      : await prisma.user.create({
+          data: {
+            firstname: params.firstname,
+            lastname: params.lastname,
+            email: params.email,
+            username: params.username,
+            matricule: params.matricule,
+            status: 'ACTIVE',
+            tenant_id: tenant!.id,
+            password_hash: seedPasswordHash,
+          },
+        });
 
     const roleId = roleMap[params.roleCode];
     if (roleId) {
-      await prisma.userRole.create({ data: { user_id: user.id, role_id: roleId } });
+      const existingRole = await prisma.userRole.findFirst({
+        where: { user_id: user.id, role_id: roleId, project_id: null },
+      });
+      if (!existingRole) {
+        await prisma.userRole.create({ data: { user_id: user.id, role_id: roleId } });
+      }
     }
 
-    console.log(`[seed-users] ✅ User créé : ${params.email} (${params.roleCode})`);
+    console.log(`[seed-users] ✅ User synchronisé : ${params.email} (${params.roleCode})`);
     return user;
   };
 
   // ── 5. Users de seed (1 par rôle) ───────────────────────────────────────────
   const cpEmail     = process.env.SEED_USER_EMAIL      ?? 'projet@btp.erp';
   const cpUsername  = process.env.SEED_USER_USERNAME   ?? 'projet_admin';
-  const cpMatricule = process.env.SEED_USER_MATRICULE  ?? 'MAT-CP-001';
+  const cpMatricule = process.env.SEED_USER_MATRICULE  ?? DEFAULT_SEED_MATRICULES.chefProjet;
 
-  await ensureUser({ email: 'admin@btp.erp',      username: 'admin_btp',      matricule: 'MAT-SYS-001', firstname: 'Admin',      lastname: 'Système',  roleCode: 'GESTIONNAIRE_SYSTEME' });
-  await ensureUser({ email: 'dg@btp.erp',         username: 'dg_btp',         matricule: 'MAT-DG-001',  firstname: 'Directeur',  lastname: 'Général',  roleCode: 'DG' });
-  await ensureUser({ email: 'sg@btp.erp',         username: 'sg_btp',         matricule: 'MAT-SG-001',  firstname: 'Secrétaire', lastname: 'Général',  roleCode: 'SG' });
-  await ensureUser({ email: 'directeur@btp.erp',  username: 'directeur_btp',  matricule: 'MAT-DIR-001', firstname: 'Directeur',  lastname: 'Projets',  roleCode: 'DIRECTEUR' });
+  await ensureUser({ email: 'admin@btp.erp',      username: 'admin_btp',      matricule: DEFAULT_SEED_MATRICULES.admin,             firstname: 'Admin',      lastname: 'Système',  roleCode: 'GESTIONNAIRE_SYSTEME' });
+  await ensureUser({ email: 'dg@btp.erp',         username: 'dg_btp',         matricule: DEFAULT_SEED_MATRICULES.dg,                firstname: 'Directeur',  lastname: 'Général',  roleCode: 'DG' });
+  await ensureUser({ email: 'sg@btp.erp',         username: 'sg_btp',         matricule: DEFAULT_SEED_MATRICULES.sg,                firstname: 'Secrétaire', lastname: 'Général',  roleCode: 'SG' });
+  await ensureUser({ email: 'directeur@btp.erp',  username: 'directeur_btp',  matricule: DEFAULT_SEED_MATRICULES.directeur,         firstname: 'Directeur',  lastname: 'Projets',  roleCode: 'DIRECTEUR' });
   await ensureUser({ email: cpEmail,              username: cpUsername,        matricule: cpMatricule,   firstname: 'Jean',       lastname: 'Bâtisseur',roleCode: 'CHEF_PROJET' });
-  await ensureUser({ email: 'conducteur@btp.erp', username: 'conducteur_btp', matricule: 'MAT-CT-001',  firstname: 'Marc',       lastname: 'Chantier', roleCode: 'CONDUCTEUR_TRAVAUX' });
+  await ensureUser({ email: 'conducteur@btp.erp', username: 'conducteur_btp', matricule: DEFAULT_SEED_MATRICULES.conducteurTravaux, firstname: 'Marc',       lastname: 'Chantier', roleCode: 'CONDUCTEUR_TRAVAUX' });
 
   // ── 6. Référentiel TradeCategory (corps d'état BTP) ─────────────────────────
   // Catalogue normatif global — créé uniquement si absent, jamais modifié.
@@ -144,6 +169,28 @@ export async function syncSeedUsers(): Promise<void> {
     console.log(`[seed-users] ✅ TradeCategory : ${tradeSynced} corps d'état créés.`);
   } else {
     console.log('[seed-users] ✔  TradeCategory : tous les corps d\'état déjà présents.');
+  }
+
+  // ── 7. Référentiel ResourceType (paramétrage ressources) ───────────────────
+  const RESOURCE_TYPE_CATALOG = [
+    { code: 'LABOR' },
+    { code: 'EQUIPMENT' },
+    { code: 'SUBCONTRACTOR' },
+  ];
+
+  let resourceTypeSynced = 0;
+  for (const t of RESOURCE_TYPE_CATALOG) {
+    const exists = await prisma.resourceType.findUnique({ where: { code: t.code } });
+    if (!exists) {
+      await prisma.resourceType.create({ data: t });
+      resourceTypeSynced++;
+    }
+  }
+
+  if (resourceTypeSynced > 0) {
+    console.log(`[seed-users] ✅ ResourceType : ${resourceTypeSynced} types créés.`);
+  } else {
+    console.log('[seed-users] ✔  ResourceType : tous les types déjà présents.');
   }
 
   console.log('[seed-users] ✔  Synchronisation terminée.');

@@ -5,6 +5,7 @@ import {
   Receipt, 
   CreditCard,
   Target,
+  ClipboardList,
   ChevronRight
 } from "lucide-react";
 import { motion } from "motion/react";
@@ -12,8 +13,9 @@ import ContractModule from "../components/financials/ContractModule";
 import ChangeOrderModule from "../components/financials/ChangeOrderModule";
 import InvoiceModule from "../components/financials/InvoiceModule";
 import PaymentModule from "../components/financials/PaymentModule";
+import SituationTravauxModule from "../components/financials/SituationTravauxModule";
 
-type FinancialTab = "contracts" | "change-orders" | "invoices" | "payments";
+type FinancialTab = "contracts" | "change-orders" | "situations" | "invoices" | "payments";
 
 export default function FinancialsView() {
   const [activeTab, setActiveTab] = useState<FinancialTab>("contracts");
@@ -21,6 +23,7 @@ export default function FinancialsView() {
   const tabs = [
     { id: "contracts", label: "Contrats", icon: FileSignature, color: "text-blue-500", bg: "bg-blue-500/10" },
     { id: "change-orders", label: "Avenants", icon: FileEdit, color: "text-amber-500", bg: "bg-amber-500/10" },
+    { id: "situations", label: "Situations", icon: ClipboardList, color: "text-cyan-500", bg: "bg-cyan-500/10" },
     { id: "invoices", label: "Facturation", icon: Receipt, color: "text-emerald-500", bg: "bg-emerald-500/10" },
     { id: "payments", label: "Paiements", icon: CreditCard, color: "text-purple-500", bg: "bg-purple-500/10" },
   ];
@@ -38,7 +41,7 @@ export default function FinancialsView() {
       </div>
 
       {/* Tabs Navigation */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
         {tabs.map((tab) => {
           const isActive = activeTab === tab.id;
           const Icon = tab.icon;
@@ -81,6 +84,7 @@ export default function FinancialsView() {
       >
         {activeTab === "contracts" && <ContractModule />}
         {activeTab === "change-orders" && <ChangeOrderModule />}
+        {activeTab === "situations" && <SituationTravauxModule />}
         {activeTab === "invoices" && <InvoiceModule />}
         {activeTab === "payments" && <PaymentModule />}
       </motion.div>

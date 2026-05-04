@@ -2,6 +2,7 @@ import React from "react";
 import { X, Calendar, Clock, Briefcase, User, Info, MoreHorizontal } from "lucide-react";
 import { Badge } from "../ui/badge";
 import { motion, AnimatePresence } from "motion/react";
+import { getResourceTypeLabel } from "../../lib/resourceTypeLabel";
 
 interface ResourceDetailDrawerProps {
   open: boolean;
@@ -49,7 +50,7 @@ export function ResourceDetailDrawer({ open, onClose, resource, onUnassign }: Re
               <div className="grid grid-cols-2 gap-4">
                 <div className="p-4 bg-gb-app border border-gb-border rounded-xl">
                   <p className="text-[10px] font-bold text-gb-muted uppercase tracking-widest mb-1">Type</p>
-                  <p className="font-bold text-gb-primary">{resource.type.code}</p>
+                  <p className="font-bold text-gb-primary">{getResourceTypeLabel(resource.type.code)}</p>
                 </div>
                 <div className="p-4 bg-gb-app border border-gb-border rounded-xl">
                   <p className="text-[10px] font-bold text-gb-muted uppercase tracking-widest mb-1">Coût Horaire</p>

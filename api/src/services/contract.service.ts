@@ -271,6 +271,15 @@ export class ContractService {
     status?: string;
     lot_id?: number;
     retention?: number;
+    payment_status?: string;
+    payment_tracking_status?: string;
+    supplier_invoice_number?: string;
+    tax_amount?: number;
+    tax_rate?: number;
+    invoice_status_code?: string;
+    invoice_line_items?: string;
+    export_format_url?: string;
+    dispute_reason?: string;
     created_by: number;
   }) {
     const tenantId = TenantContext.getTenantId();
@@ -288,15 +297,46 @@ export class ContractService {
         status: data.status || 'DRAFT',
         lot_id: data.lot_id ?? null,
         retention: data.retention,
+        payment_status: data.payment_status,
+        payment_tracking_status: data.payment_tracking_status,
+        supplier_invoice_number: data.supplier_invoice_number,
+        tax_amount: data.tax_amount,
+        tax_rate: data.tax_rate,
+        invoice_status_code: data.invoice_status_code,
+        invoice_line_items: data.invoice_line_items,
+        export_format_url: data.export_format_url,
+        dispute_reason: data.dispute_reason,
         created_by: data.created_by,
       },
     });
   }
 
   static async getInvoicesByContract(contract_id: number) {
+    const tenantId = TenantContext.getTenantId();
+    if (!tenantId) throw new Error('Tenant session required');
+
     return await prisma.invoice.findMany({
-      where: { contract_id },
-      include: { payments: true },
+      where: { contract_id, tenant_id: tenantId },
+      include: {
+        payments: true,
+        contract: { select: { id: true, reference: true, title: true } },
+        project: { select: { id: true, code: true, title: true } },
+      },
+      orderBy: { created_at: 'desc' },
+    });
+  }
+
+  static async getAllInvoices() {
+    const tenantId = TenantContext.getTenantId();
+    if (!tenantId) throw new Error('Tenant session required');
+
+    return await prisma.invoice.findMany({
+      where: { tenant_id: tenantId },
+      include: {
+        payments: true,
+        contract: { select: { id: true, reference: true, title: true } },
+        project: { select: { id: true, code: true, title: true } },
+      },
       orderBy: { created_at: 'desc' },
     });
   }
@@ -340,7 +380,11 @@ export class ContractService {
     const newTotal = totalPaidOnInvoice + data.amount;
     await prisma.invoice.update({
       where: { id: data.invoice_id },
-      data: { status: newTotal >= Number(invoice.amount) ? 'PAID' : 'SUBMITTED' },
+      data: {
+        status: newTotal >= Number(invoice.amount) ? 'PAID' : 'SUBMITTED',
+        payment_status: newTotal >= Number(invoice.amount) ? 'PAID' : 'PARTIAL',
+        payment_tracking_status: newTotal >= Number(invoice.amount) ? 'PAID' : 'PARTIAL',
+      },
     });
 
     return payment;

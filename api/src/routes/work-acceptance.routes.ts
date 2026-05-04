@@ -8,6 +8,7 @@ router.use(authenticateToken);
 
 router.post('/',    WorkAcceptanceController.create);
 router.get('/',     WorkAcceptanceController.list);
+router.get('/:id/pdf', WorkAcceptanceController.generatePdf);
 router.get('/:id',  WorkAcceptanceController.getById);
 router.put('/:id',  WorkAcceptanceController.update);
 router.delete('/:id', WorkAcceptanceController.delete);

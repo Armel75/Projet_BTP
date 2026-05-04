@@ -50,10 +50,10 @@ export default function ResourcesView() {
 
   const handleCreateOrUpdate = async (data: any) => {
     const token = localStorage.getItem("token");
-    const url = editingResource ? `/api/resources/${editingResource.id}` : "/api/resources";
+    const url = editingResource ? `${API_BASE}/resources/${editingResource.id}` : `${API_BASE}/resources`;
     const method = editingResource ? "PUT" : "POST";
 
-    const res = await fetch(url, {
+    const res = await apiFetch(url, {
       method,
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
       body: JSON.stringify(data)
@@ -70,7 +70,7 @@ export default function ResourcesView() {
 
   const handleAssignTask = async (taskId: number, data: any) => {
     const token = localStorage.getItem("token");
-    const res = await fetch(`/api/resources/tasks/${taskId}/assign`, {
+    const res = await apiFetch(`${API_BASE}/resources/tasks/${taskId}/assign`, {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
       body: JSON.stringify(data)
@@ -80,7 +80,7 @@ export default function ResourcesView() {
       await fetchData();
       if (selectedResource) {
         // Refresh selected resource detail
-        const updated = await fetch(`/api/resources/${selectedResource.id}`, { headers: { Authorization: `Bearer ${token}` } });
+        const updated = await apiFetch(`${API_BASE}/resources/${selectedResource.id}`, { headers: { Authorization: `Bearer ${token}` } });
         if (updated.ok) setSelectedResource(await updated.json());
       }
     } else {
@@ -92,7 +92,7 @@ export default function ResourcesView() {
   const handleUnassignTask = async (taskId: number) => {
     if (!selectedResource) return;
     const token = localStorage.getItem("token");
-    const res = await fetch(`/api/resources/tasks/${taskId}/assign/${selectedResource.id}`, {
+    const res = await apiFetch(`${API_BASE}/resources/tasks/${taskId}/assign/${selectedResource.id}`, {
       method: "DELETE",
       headers: { Authorization: `Bearer ${token}` }
     });
@@ -100,7 +100,7 @@ export default function ResourcesView() {
     if (res.ok) {
       await fetchData();
       // Refresh selected resource detail
-      const updated = await fetch(`/api/resources/${selectedResource.id}`, { headers: { Authorization: `Bearer ${token}` } });
+      const updated = await apiFetch(`${API_BASE}/resources/${selectedResource.id}`, { headers: { Authorization: `Bearer ${token}` } });
       if (updated.ok) setSelectedResource(await updated.json());
     }
   };

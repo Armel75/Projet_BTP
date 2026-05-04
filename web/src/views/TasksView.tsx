@@ -5,7 +5,8 @@ import { usePermissions } from "../contexts/AuthContext";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-interface TaskProject { id: number; code: string; title: string; }
+interface TaskProject { id: number; code: string; title: string; phase?: string | null; }
+interface TaskLot { id: number; lot_number: string; name: string; trade_code?: string | null; }
 interface Task {
   id: number;
   title: string;
@@ -15,8 +16,32 @@ interface Task {
   planned_start?: string | null;
   planned_end?: string | null;
   project?: TaskProject;
+  lot?: TaskLot | null;
   wbs?: { id: number; code: string; name: string } | null;
   assignments?: { resource: { id: number; name: string } }[];
+}
+
+const TASK_WORKFLOW_GUARD = {
+  allowedPhases: ["PREPARATION", "EXECUTION"],
+  reason: "Les tâches sont modifiables uniquement pendant les phases Préparation et Exécution.",
+} as const;
+
+const PROJECT_PHASE_LABELS: Record<string, string> = {
+  ETUDE: "Étude",
+  PREPARATION: "Préparation",
+  EXECUTION: "Exécution",
+  RECEPTION: "Réception",
+  CLOTURE: "Clôture",
+};
+
+function isTaskPhaseAllowed(phase?: string | null) {
+  if (!phase) return true;
+  return TASK_WORKFLOW_GUARD.allowedPhases.includes(phase as "PREPARATION" | "EXECUTION");
+}
+
+function getProjectPhaseLabel(phase?: string | null) {
+  if (!phase) return "Non défini";
+  return PROJECT_PHASE_LABELS[phase] ?? phase;
 }
 
 // ─── Kanban config ────────────────────────────────────────────────────────────
@@ -56,9 +81,11 @@ export default function TasksView() {
   const { can } = usePermissions();
 
   const [tasks,    setTasks]    = useState<Task[]>([]);
-  const [projects, setProjects] = useState<TaskProject[]>([]);
+  const [projects, setProjects] = useState<(TaskProject & { phase?: string | null })[]>([]);
   const [loading,  setLoading]  = useState(true);
   const [error,    setError]    = useState<string | null>(null);
+  const [workflowNotice, setWorkflowNotice] = useState<string | null>(null);
+  const [projectLots, setProjectLots] = useState<Record<number, TaskLot[]>>({});
 
   // Filter
   const [filterProject, setFilterProject] = useState<number | "">("");
@@ -68,7 +95,7 @@ export default function TasksView() {
   // Create dialog
   const [showCreate, setShowCreate] = useState(false);
   const [saving, setSaving]         = useState(false);
-  const EMPTY = { title: "", status: "TODO", priority: "MEDIUM", progress: "0", project_id: "", planned_start: "", planned_end: "" };
+  const EMPTY = { title: "", status: "TODO", priority: "MEDIUM", progress: "0", project_id: "", lot_id: "", planned_start: "", planned_end: "" };
   const [form, setForm] = useState(EMPTY);
 
   // ── Fetch ────────────────────────────────────────────────────────────────
@@ -84,7 +111,7 @@ export default function TasksView() {
       else setError("Impossible de charger les tâches.");
       if (pRes.ok) {
         const data = await pRes.json();
-        setProjects((data.data ?? data).map((p: any) => ({ id: p.id, code: p.code, title: p.title })));
+        setProjects((data.data ?? data).map((p: any) => ({ id: p.id, code: p.code, title: p.title, phase: p.phase })));
       }
     } catch { setError("Erreur réseau."); }
     finally { setLoading(false); }
@@ -92,9 +119,28 @@ export default function TasksView() {
 
   useEffect(() => { load(); }, [load]);
 
+  const loadLotsForProject = useCallback(async (projectId: number) => {
+    if (!projectId || projectLots[projectId]) return;
+    try {
+      const res = await apiFetch(`${API_BASE}/projects/${projectId}/lots`);
+      if (!res.ok) return;
+      const data = await res.json();
+      setProjectLots(prev => ({ ...prev, [projectId]: Array.isArray(data) ? data : [] }));
+    } catch {}
+  }, [projectLots]);
+
+  useEffect(() => {
+    if (!showCreate || !form.project_id) return;
+    void loadLotsForProject(Number(form.project_id));
+  }, [showCreate, form.project_id, loadLotsForProject]);
+
   // ── Quick status advance ─────────────────────────────────────────────────
 
   const advanceStatus = async (task: Task) => {
+    if (!isTaskPhaseAllowed(task.project?.phase)) {
+      setWorkflowNotice(TASK_WORKFLOW_GUARD.reason);
+      return;
+    }
     const next = NEXT_STATUS[task.status];
     if (!next) return;
     const payload: Record<string, any> = { status: next };
@@ -107,13 +153,22 @@ export default function TasksView() {
     if (res.ok) {
       const updated = await res.json();
       setTasks(prev => prev.map(t => t.id === updated.id ? updated : t));
+      setWorkflowNotice(null);
+    } else {
+      const err = await res.json().catch(() => ({}));
+      setWorkflowNotice(err.error || "Action bloquée par le workflow projet.");
     }
   };
 
   // ── Create ───────────────────────────────────────────────────────────────
 
   const createTask = async () => {
-    if (!form.title.trim() || !form.project_id) return;
+    if (!form.title.trim() || !form.project_id || !form.lot_id) return;
+    const selectedProject = projects.find((p) => p.id === Number(form.project_id));
+    if (!isTaskPhaseAllowed(selectedProject?.phase)) {
+      setWorkflowNotice(TASK_WORKFLOW_GUARD.reason);
+      return;
+    }
     setSaving(true);
     try {
       const payload: Record<string, any> = {
@@ -122,6 +177,7 @@ export default function TasksView() {
         priority:   form.priority,
         progress:   Number(form.progress),
         project_id: Number(form.project_id),
+        lot_id:     Number(form.lot_id),
       };
       if (form.planned_start) payload.planned_start = form.planned_start;
       if (form.planned_end)   payload.planned_end   = form.planned_end;
@@ -137,10 +193,12 @@ export default function TasksView() {
           await load();
           setForm(EMPTY);
           setShowCreate(false);
+          setWorkflowNotice(null);
         }
       } else {
         const err = await res.json().catch(() => ({}));
         console.error("[createTask]", err);
+        setWorkflowNotice(err.error || "Action bloquée par le workflow projet.");
       }
     } finally { setSaving(false); }
   };
@@ -154,6 +212,9 @@ export default function TasksView() {
   });
 
   const activeFilterCount = [filterProject, filterPriority].filter(Boolean).length;
+  const selectedCreateProject = projects.find((p) => p.id === Number(form.project_id));
+  const selectedProjectLots = form.project_id ? (projectLots[Number(form.project_id)] ?? []) : [];
+  const canCreateForSelectedProject = !selectedCreateProject || isTaskPhaseAllowed(selectedCreateProject.phase);
 
   // ── Render ───────────────────────────────────────────────────────────────
 
@@ -241,6 +302,12 @@ export default function TasksView() {
         </div>
       </div>
 
+      {workflowNotice && (
+        <div className="rounded-lg border border-amber-500/20 bg-amber-500/10 px-4 py-3 text-sm text-amber-700">
+          {workflowNotice}
+        </div>
+      )}
+
       {/* Kanban board */}
       <div className="flex gap-4 overflow-x-auto pb-4">
         {COLUMNS.map(col => {
@@ -304,6 +371,12 @@ export default function TasksView() {
                         </p>
                       )}
 
+                      {task.lot && (
+                        <p className="text-[10px] text-gb-muted mt-1">
+                          Lot {task.lot.lot_number} · {task.lot.name}
+                        </p>
+                      )}
+
                       {/* Dates */}
                       {(task.planned_start || task.planned_end) && (
                         <p className="text-[10px] text-gb-muted mt-1">
@@ -325,7 +398,9 @@ export default function TasksView() {
                       {can("task:update") && nextLabel && (
                         <button
                           onClick={() => advanceStatus(task)}
-                          className="mt-3 w-full flex items-center justify-center gap-1 text-[11px] font-semibold text-gb-muted hover:text-gb-primary border border-transparent hover:border-gb-primary/30 rounded-lg py-1 transition-all opacity-0 group-hover:opacity-100"
+                          disabled={!isTaskPhaseAllowed(task.project?.phase)}
+                          title={!isTaskPhaseAllowed(task.project?.phase) ? TASK_WORKFLOW_GUARD.reason : undefined}
+                          className="mt-3 w-full flex items-center justify-center gap-1 text-[11px] font-semibold text-gb-muted hover:text-gb-primary border border-transparent hover:border-gb-primary/30 rounded-lg py-1 transition-all opacity-0 group-hover:opacity-100 disabled:cursor-not-allowed disabled:opacity-40"
                         >
                           {nextLabel} <ChevronRight size={11} />
                         </button>
@@ -364,12 +439,42 @@ export default function TasksView() {
                 </label>
                 <select
                   value={form.project_id}
-                  onChange={e => setForm(p => ({ ...p, project_id: e.target.value }))}
+                  onChange={e => {
+                    setWorkflowNotice(null);
+                    setForm(p => ({ ...p, project_id: e.target.value, lot_id: "" }));
+                  }}
                   className="w-full bg-gb-app border border-gb-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gb-primary"
                 >
                   <option value="">— Sélectionner un projet —</option>
-                  {projects.map(p => <option key={p.id} value={p.id}>{p.code} — {p.title}</option>)}
+                  {projects.map(p => (
+                    <option key={p.id} value={p.id} disabled={!isTaskPhaseAllowed(p.phase)}>
+                      {p.code} — {p.title} ({getProjectPhaseLabel(p.phase)})
+                    </option>
+                  ))}
                 </select>
+                {selectedCreateProject && !canCreateForSelectedProject && (
+                  <p className="mt-1.5 text-xs text-amber-700">{TASK_WORKFLOW_GUARD.reason}</p>
+                )}
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-gb-text mb-1.5">
+                  Lot <span className="text-gb-danger">*</span>
+                </label>
+                <select
+                  value={form.lot_id}
+                  onChange={e => setForm(p => ({ ...p, lot_id: e.target.value }))}
+                  disabled={!form.project_id || selectedProjectLots.length === 0}
+                  className="w-full bg-gb-app border border-gb-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gb-primary disabled:opacity-50"
+                >
+                  <option value="">— Sélectionner un lot —</option>
+                  {selectedProjectLots.map(lot => (
+                    <option key={lot.id} value={lot.id}>Lot {lot.lot_number} — {lot.name}</option>
+                  ))}
+                </select>
+                {form.project_id && selectedProjectLots.length === 0 && (
+                  <p className="text-[10px] text-gb-muted mt-1">Aucun lot disponible sur ce projet.</p>
+                )}
               </div>
 
               {/* Titre */}
@@ -442,7 +547,7 @@ export default function TasksView() {
               </button>
               <button
                 onClick={createTask}
-                disabled={saving || !form.title.trim() || !form.project_id}
+                disabled={saving || !form.title.trim() || !form.project_id || !form.lot_id || !canCreateForSelectedProject}
                 className="flex items-center gap-1.5 px-4 py-2 bg-gb-primary text-gb-inverse rounded-lg text-sm font-semibold disabled:opacity-50 hover:bg-gb-primary/90 transition-colors"
               >
                 {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus size={15} />}

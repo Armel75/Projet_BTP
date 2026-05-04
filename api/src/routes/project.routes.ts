@@ -15,7 +15,9 @@ projectRouter.get("/tasks",                      requirePermission("task:read"),
 
 // ─── Projects ─────────────────────────────────────────────────────────────────
 projectRouter.get("/",       requirePermission("project:read"),   ProjectController.listProjects);
+projectRouter.get("/export/excel", requirePermission("project:read"), ProjectController.exportProjectsExcel);
 projectRouter.get("/:id",    requirePermission("project:read"),   ProjectController.getProject);
+projectRouter.get("/:projectId/phase-transitions", requirePermission("project:read"), ProjectController.getProjectPhaseTransitions);
 projectRouter.post("/",      requirePermission("project:create"), ProjectController.createProject);
 projectRouter.patch("/:id",  requirePermission("project:update"), ProjectController.updateProject);
 projectRouter.delete("/:id", requirePermission("project:delete"), ProjectController.deleteProject);

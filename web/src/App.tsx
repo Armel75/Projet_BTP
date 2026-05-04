@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { BrowserRouter as Router, Routes, Route, Link, useLocation } from "react-router-dom";
-import { LayoutDashboard, FolderKanban, CheckSquare, Settings, Bell, Search, ShieldCheck, Users, ShoppingCart, ClipboardList, Banknote, LogOut, ShieldAlert, ClipboardCheck, ListTodo, ClipboardSignature } from "lucide-react";
+import { LayoutDashboard, FolderKanban, CheckSquare, Settings, Bell, Search, ShieldCheck, Users, ShoppingCart, ClipboardList, Banknote, LogOut, ShieldAlert, ClipboardCheck, ListTodo, ClipboardSignature, FolderOpen, CalendarDays, HelpCircle } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "./components/ui/avatar";
 import DashboardView from "./views/DashboardView";
 import ProjectsView from "./views/ProjectsView";
@@ -10,6 +10,7 @@ import ProcurementView from "./views/ProcurementView";
 import SettingsView from "./views/SettingsView";
 import RbacAdminView from "./views/RbacAdminView";
 import TenantAdminView from "./views/TenantAdminView";
+import ResourceTypesAdminView from "./views/ResourceTypesAdminView";
 import ResourcesView from "./views/ResourcesView";
 import ReportingView from "./views/ReportingView";
 import FinancialsView from "./views/FinancialsView";
@@ -17,6 +18,9 @@ import IncidentsView from "./views/IncidentsView";
 import InspectionsView from "./views/InspectionsView";
 import PunchListView from "./views/PunchListView";
 import WorkAcceptanceView from "./views/WorkAcceptanceView";
+import DocumentsView from "./views/DocumentsView";
+import MeetingsView from "./views/MeetingsView";
+import RFIsView from "./views/RFIsView";
 import { ThemeProvider } from "./components/ThemeProvider";
 import { ThemeToggle } from "./components/ThemeToggle";
 import { AuthProvider, useAuth } from "./contexts/AuthContext";
@@ -35,9 +39,12 @@ const MAIN_LINKS = [
   { path: "/reporting", icon: <ClipboardList size={20} />, label: "Reporting" },
   { path: "/incidents",    icon: <ShieldAlert size={20} />,    label: "Incidents" },
   { path: "/inspections",  icon: <ClipboardCheck size={20} />, label: "Inspections" },
-  { path: "/punch-list",   icon: <ListTodo size={20} />,           label: "Punch List" },
+  { path: "/punch-list",   icon: <ListTodo size={20} />,           label: "Levée des réserves" },
   { path: "/receptions",   icon: <ClipboardSignature size={20} />, label: "Réceptions" },
   { path: "/finance",      icon: <Banknote size={20} />,           label: "Finance" },
+  { path: "/documents",  icon: <FolderOpen size={20} />,   label: "Documents" },
+  { path: "/meetings",   icon: <CalendarDays size={20} />, label: "Réunions" },
+  { path: "/rfi",        icon: <HelpCircle size={20} />,   label: "RFI" },
 ];
 
 function Sidebar() {
@@ -49,7 +56,7 @@ function Sidebar() {
       <div className="w-10 h-10 bg-gb-primary rounded mb-10 flex items-center justify-center font-bold text-gb-inverse shrink-0 shadow-[0_0_15px_rgba(59,130,246,0.3)]">
         B
       </div>
-      <nav className="flex-1 w-full px-2 flex flex-col items-center">
+      <nav className="flex-1 w-full px-2 flex flex-col items-center overflow-y-auto no-scrollbar min-h-0">
         {MAIN_LINKS.map((link) => {
           const isActive = currentPath === link.path;
           return (
@@ -132,14 +139,28 @@ function Header() {
           B
         </div>
         <h1 className="text-base sm:text-lg font-semibold tracking-tight text-gb-text truncate max-w-[150px] sm:max-w-none">ERP BTP</h1>
-        <span className="px-2 py-0.5 bg-gb-surface-hover rounded text-xs text-gb-muted font-mono uppercase tracking-widest hidden lg:inline-block">v4.0.1</span>
+        <details className="relative hidden lg:block group">
+          <summary className="list-none cursor-pointer px-2 py-0.5 bg-gb-surface-hover rounded text-xs text-gb-muted font-mono uppercase tracking-widest hover:text-gb-text transition-colors">
+            v2.0
+          </summary>
+          <div className="absolute top-8 left-0 z-30 w-72 rounded-xl border border-gb-border bg-gb-surface-solid shadow-xl p-3">
+            <p className="text-[10px] font-black uppercase tracking-wide text-gb-muted">Release Notes</p>
+            <h4 className="text-sm font-black text-gb-text mt-1">Version 4.0.1</h4>
+            <p className="text-[11px] text-gb-muted mt-1">Mise a jour interface et dashboards.</p>
+            <ul className="mt-2 space-y-1 text-xs text-gb-text">
+              <li>Dashboard multi-persona (Operationnel, Management, Direction)</li>
+              <li>Filtres multi-projets et fenetre temporelle</li>
+              <li>Selecteur de theme explicite (Clair, Sombre, Systeme)</li>
+            </ul>
+          </div>
+        </details>
       </div>
 
       <div className="flex items-center space-x-3 sm:space-x-6">
-        <div className="flex items-center space-x-2 text-sm text-gb-muted hidden sm:flex">
+        {/* <div className="flex items-center space-x-2 text-sm text-gb-muted hidden sm:flex">
           <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-          <span>API Online</span>
-        </div>
+          <p>API Online</p>
+        </div> */}
         <ThemeToggle />
         {user && (
           <div className="flex items-center space-x-2 sm:space-x-4">
@@ -186,9 +207,13 @@ function MainLayout() {
             <Route path="/punch-list" element={<ProtectedRoute><PunchListView /></ProtectedRoute>} />
             <Route path="/receptions" element={<ProtectedRoute><WorkAcceptanceView /></ProtectedRoute>} />
             <Route path="/finance" element={<ProtectedRoute><FinancialsView /></ProtectedRoute>} />
+            <Route path="/documents" element={<ProtectedRoute><DocumentsView /></ProtectedRoute>} />
+            <Route path="/meetings"  element={<ProtectedRoute><MeetingsView /></ProtectedRoute>} />
+            <Route path="/rfi"       element={<ProtectedRoute><RFIsView /></ProtectedRoute>} />
             <Route path="/settings" element={<ProtectedRoute><SettingsView /></ProtectedRoute>} />
             <Route path="/settings/rbac" element={<ProtectedRoute><RbacAdminView /></ProtectedRoute>} />
             <Route path="/settings/tenants" element={<ProtectedRoute><TenantAdminView /></ProtectedRoute>} />
+            <Route path="/settings/resource-types" element={<ProtectedRoute><ResourceTypesAdminView /></ProtectedRoute>} />
             <Route path="*" element={<div className="text-gb-muted text-center mt-10">En cours de développement...</div>} />
           </Routes>
         </main>

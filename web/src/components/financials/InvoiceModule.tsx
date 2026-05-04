@@ -51,6 +51,7 @@ export default function InvoiceModule() {
       case "PAID": return <Badge className="bg-emerald-500/10 text-emerald-600 border-emerald-500/20">Payée</Badge>;
       case "APPROVED": return <Badge className="bg-blue-500/10 text-blue-600 border-blue-500/20">Approuvée</Badge>;
       case "SUBMITTED": return <Badge className="bg-amber-500/10 text-amber-600 border-amber-500/20">Envoyée</Badge>;
+      case "PARTIAL": return <Badge className="bg-orange-500/10 text-orange-600 border-orange-500/20">Partielle</Badge>;
       case "DRAFT": return <Badge className="bg-gb-app text-gb-muted border-gb-border">Brouillon</Badge>;
       default: return <Badge variant="outline">{status}</Badge>;
     }
@@ -136,6 +137,9 @@ export default function InvoiceModule() {
                     <td className="p-5">
                       <div className="flex flex-col">
                         <span className="font-black text-gb-text tracking-tight">{inv.number}</span>
+                        {inv.supplier_invoice_number && (
+                          <span className="text-[10px] text-gb-muted">Fournisseur: {inv.supplier_invoice_number}</span>
+                        )}
                         <span className="text-[10px] font-bold text-gb-muted uppercase mt-0.5">
                           {format(new Date(inv.created_at), 'dd MMM yyyy', { locale: fr })}
                         </span>
@@ -151,17 +155,26 @@ export default function InvoiceModule() {
                        <span className="text-sm font-black text-gb-text">
                          {new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'EUR' }).format(inv.amount)}
                        </span>
+                        {inv.tax_amount ? (
+                         <div className="text-[10px] text-gb-muted mt-1">TVA: {new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'EUR' }).format(inv.tax_amount)}</div>
+                        ) : null}
                     </td>
                     <td className="p-5">
-                       <div className="flex items-center gap-2 text-sm font-bold text-gb-muted">
-                          <Clock size={14} className={new Date(inv.due_date) < new Date() && inv.status !== 'PAID' ? "text-gb-danger" : ""} />
-                          <span className={new Date(inv.due_date) < new Date() && inv.status !== 'PAID' ? "text-gb-danger" : ""}>
-                             {inv.due_date ? format(new Date(inv.due_date), 'dd/MM/yyyy') : "-"}
-                          </span>
-                       </div>
+                        {(() => {
+                         const hasDueDate = Boolean(inv.due_date);
+                         const isLate = hasDueDate && new Date(inv.due_date) < new Date() && inv.status !== 'PAID';
+                         return (
+                          <div className="flex items-center gap-2 text-sm font-bold text-gb-muted">
+                            <Clock size={14} className={isLate ? "text-gb-danger" : ""} />
+                            <span className={isLate ? "text-gb-danger" : ""}>
+                              {hasDueDate ? format(new Date(inv.due_date), 'dd/MM/yyyy') : "-"}
+                            </span>
+                          </div>
+                         );
+                        })()}
                     </td>
                     <td className="p-5 text-center">
-                       {getStatusBadge(inv.status)}
+                        {getStatusBadge(inv.payment_tracking_status || inv.payment_status || inv.status)}
                     </td>
                     <td className="p-5 text-right">
                        <button className="w-8 h-8 rounded-lg bg-gb-app border border-gb-border text-gb-muted flex items-center justify-center hover:bg-emerald-600 hover:text-white transition-all group-hover:scale-105">

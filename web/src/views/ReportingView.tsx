@@ -12,13 +12,15 @@ import {
   Users,
   Hammer,
   Truck,
-  FileText
+  FileText,
+  ShieldCheck
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import DailyLogModule from "../components/reporting/DailyLogModule";
 import WeeklyReportModule from "../components/reporting/WeeklyReportModule";
+import ControlReportModule from "../components/reporting/ControlReportModule";
 
-type ReportingTab = "daily" | "weekly";
+type ReportingTab = "daily" | "weekly" | "control";
 
 export default function ReportingView() {
   const [activeTab, setActiveTab] = useState<ReportingTab>("daily");
@@ -26,6 +28,7 @@ export default function ReportingView() {
   const tabs = [
     { id: "daily", label: "Journal de Chantier", icon: CalendarDays, color: "text-blue-500", bg: "bg-blue-500/10" },
     { id: "weekly", label: "Rapports Hebdomadaires", icon: ClipboardList, color: "text-purple-500", bg: "bg-purple-500/10" },
+    { id: "control", label: "Contrôles", icon: ShieldCheck, color: "text-emerald-500", bg: "bg-emerald-500/10" },
   ];
 
   return (
@@ -76,6 +79,7 @@ export default function ReportingView() {
       >
         {activeTab === "daily" && <DailyLogModule />}
         {activeTab === "weekly" && <WeeklyReportModule />}
+        {activeTab === "control" && <ControlReportModule />}
       </motion.div>
     </div>
   );

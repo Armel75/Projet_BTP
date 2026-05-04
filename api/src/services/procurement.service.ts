@@ -16,6 +16,147 @@ const TENDER_INCLUDE = {
 };
 
 export class ProcurementService {
+  private static async postInboundStock(params: {
+    tenantId: number;
+    projectId: number;
+    warehouseId: number;
+    locationId: number;
+    itemId: number;
+    qty: number;
+    unitCost: number;
+    sourceType: string;
+    sourceId: string;
+    createdBy: number;
+  }) {
+    if (params.qty <= 0) return;
+
+    const item = await prisma.inventoryItem.findUnique({ where: { id: params.itemId } });
+    const costMethod = (item?.costing_method || "CMUP").toUpperCase() === "FIFO" ? "FIFO" : "CMUP";
+
+    const balance = await prisma.inventoryBalance.findUnique({
+      where: {
+        tenant_id_project_id_warehouse_id_location_id_item_id: {
+          tenant_id: params.tenantId,
+          project_id: params.projectId,
+          warehouse_id: params.warehouseId,
+          location_id: params.locationId,
+          item_id: params.itemId,
+        },
+      },
+    });
+
+    const previousQty = balance?.qty_on_hand || 0;
+    const newQty = previousQty + params.qty;
+    const previousStockValue = balance?.total_stock_value || 0;
+    const inboundValue = params.qty * params.unitCost;
+    const newStockValue = previousStockValue + inboundValue;
+
+    let averageUnitCost = balance?.average_unit_cost || 0;
+    if (costMethod === "CMUP") {
+      averageUnitCost = newQty > 0 ? newStockValue / newQty : 0;
+    }
+
+    const updatedBalance = await prisma.inventoryBalance.upsert({
+      where: {
+        tenant_id_project_id_warehouse_id_location_id_item_id: {
+          tenant_id: params.tenantId,
+          project_id: params.projectId,
+          warehouse_id: params.warehouseId,
+          location_id: params.locationId,
+          item_id: params.itemId,
+        },
+      },
+      create: {
+        tenant_id: params.tenantId,
+        project_id: params.projectId,
+        warehouse_id: params.warehouseId,
+        location_id: params.locationId,
+        item_id: params.itemId,
+        qty_on_hand: params.qty,
+        qty_available: params.qty,
+        qty_reserved: 0,
+        qty_in_transit: 0,
+        last_unit_cost: params.unitCost,
+        average_unit_cost: costMethod === "CMUP" ? averageUnitCost : params.unitCost,
+        total_stock_value: inboundValue,
+      },
+      update: {
+        qty_on_hand: newQty,
+        qty_available: (balance?.qty_available || 0) + params.qty,
+        last_unit_cost: params.unitCost,
+        average_unit_cost: costMethod === "CMUP" ? averageUnitCost : (balance?.average_unit_cost || params.unitCost),
+        total_stock_value: newStockValue,
+      },
+    });
+
+    if (costMethod === "FIFO") {
+      await prisma.inventoryValuationLayer.create({
+        data: {
+          tenant_id: params.tenantId,
+          project_id: params.projectId,
+          warehouse_id: params.warehouseId,
+          location_id: params.locationId,
+          item_id: params.itemId,
+          source_type: params.sourceType,
+          source_id: params.sourceId,
+          received_qty: params.qty,
+          remaining_qty: params.qty,
+          unit_cost: params.unitCost,
+          received_at: new Date(),
+        },
+      });
+    }
+
+    await prisma.inventoryCostSnapshot.upsert({
+      where: {
+        tenant_id_project_id_warehouse_id_location_id_item_id_cost_method: {
+          tenant_id: params.tenantId,
+          project_id: params.projectId,
+          warehouse_id: params.warehouseId,
+          location_id: params.locationId,
+          item_id: params.itemId,
+          cost_method: costMethod,
+        },
+      },
+      create: {
+        tenant_id: params.tenantId,
+        project_id: params.projectId,
+        warehouse_id: params.warehouseId,
+        location_id: params.locationId,
+        item_id: params.itemId,
+        cost_method: costMethod,
+        current_unit_cost: costMethod === "CMUP" ? averageUnitCost : params.unitCost,
+        total_qty: updatedBalance.qty_on_hand,
+        stock_value: updatedBalance.total_stock_value,
+        calculated_at: new Date(),
+      },
+      update: {
+        current_unit_cost: costMethod === "CMUP" ? averageUnitCost : params.unitCost,
+        total_qty: updatedBalance.qty_on_hand,
+        stock_value: updatedBalance.total_stock_value,
+        calculated_at: new Date(),
+      },
+    });
+
+    await prisma.stockMovement.create({
+      data: {
+        project_id: params.projectId,
+        item_id: params.itemId,
+        warehouse_id: params.warehouseId,
+        location_id: params.locationId,
+        type: "IN",
+        quantity: params.qty,
+        unit_cost: params.unitCost,
+        total_cost: inboundValue,
+        cost_method: costMethod,
+        balance_after: updatedBalance.qty_on_hand,
+        source_type: params.sourceType,
+        source_id: params.sourceId,
+        created_by: params.createdBy,
+      },
+    });
+  }
+
   // ==========================
   // TENDERS
   // ==========================
@@ -262,7 +403,13 @@ export class ProcurementService {
       include: {
         project: true,
         supplier: true,
-        createdBy: true
+        createdBy: true,
+        lines: {
+          include: {
+            item: true,
+          },
+          orderBy: { line_no: 'asc' },
+        }
       }
     });
   }
@@ -314,6 +461,8 @@ export class ProcurementService {
     project_id: number;
     order_id: number;
     delivery_id?: number; // Even if not in schema, we can enforce logic via presence
+    warehouse_id?: number;
+    location_id?: number;
     received_at: Date;
     created_by: number;
     items: Array<{
@@ -321,6 +470,7 @@ export class ProcurementService {
       quantity_ordered: number;
       quantity_received: number;
       quantity_rejected?: number;
+      unit_cost?: number;
     }>
   }) {
     const tenantId = TenantContext.getTenantId();
@@ -345,11 +495,46 @@ export class ProcurementService {
        throw new Error("No pending delivery found for this order. Goods Receipt blocked.");
     }
 
+    let warehouseId = data.warehouse_id;
+    let locationId = data.location_id;
+
+    if (!warehouseId) {
+      const defaultWarehouse = await prisma.warehouse.findFirst({
+        where: {
+          tenant_id: tenantId!,
+          project_id: data.project_id,
+          is_active: true,
+        },
+        orderBy: { id: 'asc' },
+      });
+      warehouseId = defaultWarehouse?.id;
+    }
+
+    if (warehouseId && !locationId) {
+      const defaultLocation = await prisma.warehouseLocation.findFirst({
+        where: {
+          tenant_id: tenantId!,
+          warehouse_id: warehouseId,
+          is_active: true,
+        },
+        orderBy: { id: 'asc' },
+      });
+      locationId = defaultLocation?.id;
+    }
+
+    if (!warehouseId || !locationId) {
+      throw new Error("Warehouse and location are required to post inventory");
+    }
+
     // 3. Create Receipt
     const receipt = await prisma.goodsReceipt.create({
       data: {
         project_id: data.project_id,
         order_id: data.order_id,
+        warehouse_id: warehouseId,
+        location_id: locationId,
+        status: 'POSTED',
+        number: `GR-${new Date().getFullYear()}-${Date.now().toString().slice(-6)}`,
         received_at: data.received_at,
         created_by: data.created_by,
         tenant_id: tenantId!
@@ -366,13 +551,28 @@ export class ProcurementService {
           quantity_ordered: item.quantity_ordered,
           quantity_received: item.quantity_received,
           quantity_rejected: item.quantity_rejected || 0,
+          unit_cost: item.unit_cost || 0,
+          total_cost: (item.quantity_received - (item.quantity_rejected || 0)) * (item.unit_cost || 0),
           tenant_id: tenantId!,
           created_by: data.created_by
         }
       });
 
-      // Optional: Update Inventory/Stock could happen here if requested implicitly,
-      // but the prompt focuses on procurement flow validation.
+      const netQty = item.quantity_received - (item.quantity_rejected || 0);
+      const unitCost = item.unit_cost || 0;
+
+      await this.postInboundStock({
+        tenantId: tenantId!,
+        projectId: data.project_id,
+        warehouseId,
+        locationId,
+        itemId: item.item_id,
+        qty: netQty,
+        unitCost,
+        sourceType: 'GOODS_RECEIPT',
+        sourceId: String(receipt.id),
+        createdBy: data.created_by,
+      });
     }
 
     return await prisma.goodsReceipt.findUnique({
@@ -391,8 +591,85 @@ export class ProcurementService {
     return await prisma.goodsReceipt.findMany({
       where: { order_id },
       include: {
-        items: true
+        items: {
+          include: {
+            item: true,
+          },
+        },
+        warehouse: true,
+        location: true,
       }
+    });
+  }
+
+  static async createWarehouse(data: {
+    project_id?: number;
+    code: string;
+    name: string;
+  }) {
+    const tenantId = TenantContext.getTenantId();
+    if (!tenantId) throw new Error("Tenant session required");
+
+    return prisma.warehouse.create({
+      data: {
+        tenant_id: tenantId,
+        project_id: data.project_id,
+        code: data.code,
+        name: data.name,
+      },
+    });
+  }
+
+  static async listWarehouses(projectId?: number) {
+    const tenantId = TenantContext.getTenantId();
+    if (!tenantId) throw new Error("Tenant session required");
+
+    return prisma.warehouse.findMany({
+      where: {
+        tenant_id: tenantId,
+        ...(projectId ? { project_id: projectId } : {}),
+      },
+      include: {
+        locations: true,
+      },
+      orderBy: { code: 'asc' },
+    });
+  }
+
+  static async createWarehouseLocation(warehouseId: number, data: { code: string; name: string; parent_id?: number; }) {
+    const tenantId = TenantContext.getTenantId();
+    if (!tenantId) throw new Error("Tenant session required");
+
+    return prisma.warehouseLocation.create({
+      data: {
+        tenant_id: tenantId,
+        warehouse_id: warehouseId,
+        code: data.code,
+        name: data.name,
+        parent_id: data.parent_id,
+      },
+    });
+  }
+
+  static async getInventoryBalances(filters: { project_id?: number; warehouse_id?: number; location_id?: number; item_id?: number; }) {
+    const tenantId = TenantContext.getTenantId();
+    if (!tenantId) throw new Error("Tenant session required");
+
+    return prisma.inventoryBalance.findMany({
+      where: {
+        tenant_id: tenantId,
+        ...(filters.project_id ? { project_id: filters.project_id } : {}),
+        ...(filters.warehouse_id ? { warehouse_id: filters.warehouse_id } : {}),
+        ...(filters.location_id ? { location_id: filters.location_id } : {}),
+        ...(filters.item_id ? { item_id: filters.item_id } : {}),
+      },
+      include: {
+        project: { select: { id: true, code: true, title: true } },
+        warehouse: { select: { id: true, code: true, name: true } },
+        location: { select: { id: true, code: true, name: true } },
+        item: { select: { id: true, code: true, name: true, unit: true, costing_method: true } },
+      },
+      orderBy: { updated_at: 'desc' },
     });
   }
 }

@@ -1,4 +1,5 @@
 import { prisma } from '../config/prisma.js';
+import { Prisma } from '@prisma/client';
 
 // ─── Input Types ───────────────────────────────────────────────────────────────
 
@@ -12,6 +13,24 @@ export interface CreateProjectInput {
   budget_initial: number;
   currency: string;
   location: string;
+  client_name?: string | null;
+  client_contact_name?: string | null;
+  client_phone?: string | null;
+  street_address?: string | null;
+  postal_code?: string | null;
+  city?: string | null;
+  country?: string | null;
+  latitude?: number | null;
+  longitude?: number | null;
+  budget_approved?: number | null;
+  budget_committed?: number | null;
+  contingency_budget?: number | null;
+  permit_number?: string | null;
+  permit_type?: string | null;
+  risk_classification?: string | null;
+  building_type?: string | null;
+  erp_project_id?: string | null;
+  is_archived?: boolean;
   /** Document principal — créé atomiquement avec le projet */
   doc_name: string;
   doc_category?: string;
@@ -21,17 +40,36 @@ export interface CreateProjectInput {
 export interface UpdateProjectInput {
   title?: string;
   status?: string;
+  phase?: string;
   start_date?: string | null;
   end_date?: string | null;
   budget_initial?: number;
   currency?: string;
   location?: string;
+  client_name?: string | null;
+  client_contact_name?: string | null;
+  client_phone?: string | null;
+  street_address?: string | null;
+  postal_code?: string | null;
+  city?: string | null;
+  country?: string | null;
+  latitude?: number | null;
+  longitude?: number | null;
+  budget_approved?: number | null;
+  budget_committed?: number | null;
+  contingency_budget?: number | null;
+  permit_number?: string | null;
+  permit_type?: string | null;
+  risk_classification?: string | null;
+  building_type?: string | null;
+  erp_project_id?: string | null;
+  is_archived?: boolean;
 }
 
 export interface CreateLotInput {
   project_id:       number;
   name:             string;
-  lot_number:       string;   // Numéro officiel du lot : "01", "02", "A"...
+  lot_number?:      string;   // Numéro officiel du lot : auto si non fourni
   trade_code:       string;   // FK → TradeCategory.code
   description?:     string | null;
   tenant_id:        number;
@@ -54,6 +92,7 @@ export interface CreateWBSNodeInput {
 
 export interface CreateTaskInput {
   project_id: number;
+  lot_id: number;
   wbs_id?: number | null;
   title: string;
   status: string;
@@ -78,9 +117,11 @@ export interface CreateBudgetLineInput {
 // ─── Includes / Selects ────────────────────────────────────────────────────────
 
 const PROJECT_LIST_SELECT = {
-  id: true, code: true, title: true, status: true,
+  id: true, code: true, title: true, status: true, phase: true,
   location: true, start_date: true, end_date: true,
   budget_initial: true, currency: true, tenant_id: true,
+  client_name: true, city: true, country: true,
+  building_type: true, permit_type: true,
   created_by: true, document_id: true,
   createdBy: { select: { id: true, firstname: true, lastname: true } },
   document:  { select: { id: true, name: true, category: true } },
@@ -90,6 +131,8 @@ const PROJECT_LIST_SELECT = {
 const PROJECT_DETAIL_INCLUDE = {
   createdBy: { select: { id: true, firstname: true, lastname: true } },
   document:  { select: { id: true, name: true, category: true, description: true } },
+  projectManager: { select: { id: true, firstname: true, lastname: true } },
+  hseResponsible: { select: { id: true, firstname: true, lastname: true } },
   lots:        { orderBy: { id: 'asc' as const } },
   budgetLines: {
     include: { supplier: { select: { id: true, name: true } } },
@@ -100,9 +143,156 @@ const PROJECT_DETAIL_INCLUDE = {
   },
 } as const;
 
+const PROJECT_PHASE_GUARDS = {
+  wbs: {
+    allowedPhases: ['ETUDE', 'PREPARATION'],
+    reason: 'Le WBS est modifiable uniquement pendant les phases Étude et Préparation.',
+  },
+  lots: {
+    allowedPhases: ['ETUDE', 'PREPARATION'],
+    reason: 'Les lots sont modifiables uniquement pendant les phases Étude et Préparation.',
+  },
+  budget: {
+    allowedPhases: ['PREPARATION', 'EXECUTION'],
+    reason: 'Les lignes budgétaires sont modifiables uniquement pendant les phases Préparation et Exécution.',
+  },
+  tasks: {
+    allowedPhases: ['PREPARATION', 'EXECUTION'],
+    reason: 'Les tâches sont modifiables uniquement pendant les phases Préparation et Exécution.',
+  },
+  dependencies: {
+    allowedPhases: ['PREPARATION', 'EXECUTION'],
+    reason: 'Les dépendances de tâches sont modifiables uniquement pendant les phases Préparation et Exécution.',
+  },
+} as const;
+
+const PROJECT_PHASE_SEQUENCE = ['ETUDE', 'PREPARATION', 'EXECUTION', 'RECEPTION', 'CLOTURE'] as const;
+
+type WorkflowRequirement = {
+  code: string;
+  label: string;
+  satisfied: boolean;
+};
+
 // ─── ProjectManagementService ─────────────────────────────────────────────────
 
 export class ProjectManagementService {
+
+  private static async generateNextLotNumber(project_id: number, tenant_id: number) {
+    const lots: Array<{ lot_number: string }> = await prisma.projectLot.findMany({
+      where: { project_id, tenant_id },
+      select: { lot_number: true },
+    });
+
+    const existing = new Set(lots.map((l: { lot_number: string }) => l.lot_number));
+    const numericNumbers = lots
+      .map((l: { lot_number: string }) => {
+        const value = String(l.lot_number ?? '').trim();
+        if (!/^\d+$/.test(value)) return null;
+        return Number.parseInt(value, 10);
+      })
+      .filter((n: number | null): n is number => n !== null && Number.isFinite(n));
+
+    let next = numericNumbers.length > 0 ? Math.max(...numericNumbers) + 1 : 1;
+    let candidate = String(next).padStart(2, '0');
+
+    while (existing.has(candidate)) {
+      next += 1;
+      candidate = String(next).padStart(2, '0');
+    }
+
+    return candidate;
+  }
+
+  private static assertProjectPhaseAllowed(
+    phase: string | null | undefined,
+    allowedPhases: readonly string[],
+    reason: string,
+  ) {
+    if (!phase) return;
+    if (!allowedPhases.includes(phase)) {
+      throw new Error(reason);
+    }
+  }
+
+  private static async buildProjectWorkflowSummary(project: {
+    id: number;
+    tenant_id: number;
+    phase?: string | null;
+    document_id?: number | null;
+    _count?: { lots?: number | null; tasks?: number | null } | null;
+  }) {
+    const [lotCount, taskCount, wbsCount, budgetLineCount, completedTaskCount, workAcceptanceCount] = await Promise.all([
+      prisma.projectLot.count({ where: { project_id: project.id, tenant_id: project.tenant_id } }),
+      prisma.task.count({ where: { project_id: project.id, tenant_id: project.tenant_id } }),
+      prisma.wBSNode.count({ where: { project_id: project.id, tenant_id: project.tenant_id } }),
+      prisma.budgetLine.count({ where: { project_id: project.id, tenant_id: project.tenant_id } }),
+      prisma.task.count({
+        where: {
+          project_id: project.id,
+          tenant_id: project.tenant_id,
+          status: { in: ['DONE', 'COMPLETED'] },
+        },
+      }),
+      prisma.workAcceptance.count({ where: { project_id: project.id, tenant_id: project.tenant_id } }),
+    ]);
+
+    const currentPhase = project.phase ?? 'PREPARATION';
+    const currentPhaseIndex = PROJECT_PHASE_SEQUENCE.indexOf(currentPhase as (typeof PROJECT_PHASE_SEQUENCE)[number]);
+    const nextPhase = currentPhaseIndex >= 0 && currentPhaseIndex < PROJECT_PHASE_SEQUENCE.length - 1
+      ? PROJECT_PHASE_SEQUENCE[currentPhaseIndex + 1]
+      : null;
+
+    let requirements: WorkflowRequirement[] = [];
+    if (currentPhase === 'ETUDE') {
+      requirements = [
+        { code: 'main-document', label: 'Document principal créé', satisfied: Boolean(project.document_id) },
+        { code: 'lots', label: 'Au moins un lot structuré', satisfied: lotCount > 0 },
+        { code: 'wbs', label: 'Au moins un nœud WBS structurant', satisfied: wbsCount > 0 },
+      ];
+    } else if (currentPhase === 'PREPARATION') {
+      requirements = [
+        { code: 'lots', label: 'Au moins un lot structuré', satisfied: lotCount > 0 },
+        { code: 'tasks', label: 'Au moins une tâche planifiée', satisfied: taskCount > 0 },
+        // Règle temporairement désactivée: on ne bloque plus l'avancement tant que le cadrage des lignes budgétaires n'est pas finalisé.
+        // { code: 'budget-lines', label: 'Au moins une ligne budgétaire définie', satisfied: budgetLineCount > 0 },
+      ];
+    } else if (currentPhase === 'EXECUTION') {
+      requirements = [
+        { code: 'tasks-exist', label: 'Des tâches d’exécution existent', satisfied: taskCount > 0 },
+        { code: 'tasks-completed', label: 'Toutes les tâches sont terminées', satisfied: taskCount > 0 && completedTaskCount === taskCount },
+      ];
+    } else if (currentPhase === 'RECEPTION') {
+      requirements = [
+        { code: 'work-acceptance', label: 'Au moins une réception est enregistrée', satisfied: workAcceptanceCount > 0 },
+      ];
+    }
+
+    const completedRequirements = requirements.filter((item) => item.satisfied).length;
+    const canAdvance = Boolean(nextPhase) && requirements.every((item) => item.satisfied);
+    const blockingRequirements = requirements.filter((item) => !item.satisfied).map((item) => item.label);
+
+    return {
+      currentPhase,
+      nextPhase,
+      canAdvance,
+      phaseSequence: [...PROJECT_PHASE_SEQUENCE],
+      progress: {
+        completed: completedRequirements,
+        total: requirements.length,
+      },
+      requirements,
+      blockingRequirements,
+      metrics: {
+        lots: lotCount,
+        wbs: wbsCount,
+        tasks: taskCount,
+        completedTasks: completedTaskCount,
+        budgetLines: budgetLineCount,
+        workAcceptances: workAcceptanceCount,
+      },
+    };
+  }
 
   // ═══════════════════════════════════════════════════════════════════════════
   // PROJECTS
@@ -124,9 +314,38 @@ export class ProjectManagementService {
   }
 
   static async getProjectById(id: number, tenant_id?: number) {
-    return prisma.project.findFirst({
+    const project = await prisma.project.findFirst({
       where:   { id, ...(tenant_id ? { tenant_id } : {}) },
       include: PROJECT_DETAIL_INCLUDE as any,
+    });
+    if (!project) return null;
+
+    const workflow = await this.buildProjectWorkflowSummary({
+      id: project.id,
+      tenant_id: project.tenant_id,
+      phase: project.phase,
+      document_id: project.document_id,
+      _count: project._count,
+    });
+
+    return { ...project, workflow };
+  }
+
+  static async getProjectPhaseTransitions(project_id: number, tenant_id?: number) {
+    const project = await prisma.project.findFirst({
+      where: { id: project_id, ...(tenant_id ? { tenant_id } : {}) },
+      select: { id: true },
+    });
+    if (!project) throw new Error('Projet introuvable.');
+
+    return prisma.projectPhaseTransition.findMany({
+      where: { project_id, ...(tenant_id ? { tenant_id } : {}) },
+      include: {
+        changedBy: {
+          select: { id: true, firstname: true, lastname: true, email: true },
+        },
+      },
+      orderBy: [{ changed_at: 'desc' }, { id: 'desc' }],
     });
   }
 
@@ -170,6 +389,12 @@ export class ProjectManagementService {
     const {
       title, status, tenant_id, created_by,
       start_date, end_date, budget_initial, currency, location,
+      client_name, client_contact_name, client_phone,
+      street_address, postal_code, city, country,
+      latitude, longitude,
+      budget_approved, budget_committed, contingency_budget,
+      permit_number, permit_type, risk_classification,
+      building_type, erp_project_id, is_archived,
       doc_name, doc_category = 'PLAN', doc_description = null,
     } = data;
 
@@ -207,6 +432,24 @@ export class ProjectManagementService {
               budget_initial: Number(budget_initial),
               currency,
               location,
+              client_name: client_name ?? null,
+              client_contact_name: client_contact_name ?? null,
+              client_phone: client_phone ?? null,
+              street_address: street_address ?? null,
+              postal_code: postal_code ?? null,
+              city: city ?? null,
+              country: country ?? undefined,
+              latitude: latitude ?? null,
+              longitude: longitude ?? null,
+              budget_approved: budget_approved ?? null,
+              budget_committed: budget_committed ?? null,
+              contingency_budget: contingency_budget ?? null,
+              permit_number: permit_number ?? null,
+              permit_type: permit_type ?? null,
+              risk_classification: risk_classification ?? null,
+              building_type: building_type ?? null,
+              erp_project_id: erp_project_id ?? null,
+              is_archived: is_archived ?? false,
             },
           });
 
@@ -240,22 +483,73 @@ export class ProjectManagementService {
     throw new Error('[createProject] Impossible de générer un code projet unique après plusieurs tentatives.');
   }
 
-  static async updateProject(id: number, data: UpdateProjectInput, tenant_id?: number) {
+  static async updateProject(id: number, data: UpdateProjectInput, tenant_id?: number, changed_by?: number) {
     const project = await prisma.project.findFirst({ where: { id, ...(tenant_id ? { tenant_id } : {}) } });
     if (!project) throw new Error('Projet introuvable.');
 
-    return prisma.project.update({
-      where: { id },
-      data: {
-        ...(data.title          !== undefined && { title: data.title }),
-        ...(data.status         !== undefined && { status: data.status }),
-        ...(data.location       !== undefined && { location: data.location }),
-        ...(data.currency       !== undefined && { currency: data.currency }),
-        ...(data.budget_initial !== undefined && { budget_initial: Number(data.budget_initial) }),
-        ...(data.start_date     !== undefined && { start_date: data.start_date ? new Date(data.start_date) : null }),
-        ...(data.end_date       !== undefined && { end_date: data.end_date ? new Date(data.end_date) : null }),
-      },
-      include: PROJECT_DETAIL_INCLUDE as any,
+    if (data.phase !== undefined && data.phase !== project.phase) {
+      const workflow = await this.buildProjectWorkflowSummary({
+        id: project.id,
+        tenant_id: project.tenant_id,
+        phase: project.phase,
+        document_id: project.document_id,
+      });
+
+      if (!workflow.nextPhase || data.phase !== workflow.nextPhase) {
+        throw new Error(`Transition de phase invalide. Prochaine étape autorisée : ${workflow.nextPhase ?? 'aucune'}.`);
+      }
+      if (!workflow.canAdvance) {
+        throw new Error(`Transition de phase bloquée : ${workflow.blockingRequirements.join(', ') || 'prérequis non satisfaits.'}`);
+      }
+    }
+
+    return (prisma as any).$transaction(async (tx: any) => {
+      const updated = await tx.project.update({
+        where: { id },
+        data: {
+          ...(data.title          !== undefined && { title: data.title }),
+          ...(data.status         !== undefined && { status: data.status }),
+          ...(data.phase          !== undefined && { phase: data.phase }),
+          ...(data.location       !== undefined && { location: data.location }),
+          ...(data.currency       !== undefined && { currency: data.currency }),
+          ...(data.budget_initial !== undefined && { budget_initial: Number(data.budget_initial) }),
+          ...(data.start_date     !== undefined && { start_date: data.start_date ? new Date(data.start_date) : null }),
+          ...(data.end_date       !== undefined && { end_date: data.end_date ? new Date(data.end_date) : null }),
+          ...(data.client_name           !== undefined && { client_name: data.client_name }),
+          ...(data.client_contact_name   !== undefined && { client_contact_name: data.client_contact_name }),
+          ...(data.client_phone          !== undefined && { client_phone: data.client_phone }),
+          ...(data.street_address        !== undefined && { street_address: data.street_address }),
+          ...(data.postal_code           !== undefined && { postal_code: data.postal_code }),
+          ...(data.city                  !== undefined && { city: data.city }),
+          ...(data.country               !== undefined && { country: data.country }),
+          ...(data.latitude              !== undefined && { latitude: data.latitude }),
+          ...(data.longitude             !== undefined && { longitude: data.longitude }),
+          ...(data.budget_approved       !== undefined && { budget_approved: data.budget_approved }),
+          ...(data.budget_committed      !== undefined && { budget_committed: data.budget_committed }),
+          ...(data.contingency_budget    !== undefined && { contingency_budget: data.contingency_budget }),
+          ...(data.permit_number         !== undefined && { permit_number: data.permit_number }),
+          ...(data.permit_type           !== undefined && { permit_type: data.permit_type }),
+          ...(data.risk_classification   !== undefined && { risk_classification: data.risk_classification }),
+          ...(data.building_type         !== undefined && { building_type: data.building_type }),
+          ...(data.erp_project_id        !== undefined && { erp_project_id: data.erp_project_id }),
+          ...(data.is_archived           !== undefined && { is_archived: data.is_archived }),
+        },
+        include: PROJECT_DETAIL_INCLUDE as any,
+      });
+
+      if (data.phase !== undefined && updated.phase !== project.phase) {
+        await tx.projectPhaseTransition.create({
+          data: {
+            project_id: id,
+            tenant_id: project.tenant_id,
+            from_phase: project.phase,
+            to_phase: updated.phase,
+            changed_by: changed_by ?? null,
+          },
+        });
+      }
+
+      return updated;
     });
   }
 
@@ -282,15 +576,43 @@ export class ProjectManagementService {
   static async createProjectLot(data: CreateLotInput) {
     const project = await prisma.project.findFirst({ where: { id: data.project_id, tenant_id: data.tenant_id } });
     if (!project) throw new Error('Projet introuvable ou accès refusé.');
-    const lot = await prisma.projectLot.create({ data });
-    if (!lot) throw new Error('Échec de la création du lot (réponse inattendue du serveur).');
-    return lot;
+    this.assertProjectPhaseAllowed(project.phase, PROJECT_PHASE_GUARDS.lots.allowedPhases, PROJECT_PHASE_GUARDS.lots.reason);
+
+    const preparedData: CreateLotInput = {
+      ...data,
+      lot_number: data.lot_number?.trim() || undefined,
+    };
+
+    const hasExplicitLotNumber = Boolean(preparedData.lot_number);
+
+    for (let attempt = 1; attempt <= 3; attempt += 1) {
+      if (!preparedData.lot_number) {
+        preparedData.lot_number = await this.generateNextLotNumber(data.project_id, data.tenant_id);
+      }
+
+      try {
+        const lot = await prisma.projectLot.create({ data: preparedData as any });
+        if (!lot) throw new Error('Échec de la création du lot (réponse inattendue du serveur).');
+        return lot;
+      } catch (error: any) {
+        const isUniqueError = error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002';
+        if (!isUniqueError) throw error;
+
+        if (hasExplicitLotNumber) {
+          throw new Error(`Le numéro de lot "${preparedData.lot_number}" existe déjà dans ce projet.`);
+        }
+
+        // En création automatique, on retente avec le prochain numéro.
+        preparedData.lot_number = undefined;
+      }
+    }
+
+    throw new Error('Impossible d’attribuer automatiquement un numéro de lot. Veuillez réessayer.');
   }
 
   static async updateProjectLot(id: number, data: {
     name?:             string;
     description?:      string | null;
-    lot_number?:       string;
     trade_code?:       string;
     status?:           string;
     budget_allocated?: number;
@@ -301,8 +623,12 @@ export class ProjectManagementService {
     contractor_id?:    number | null;
     contract_id?:      number | null;
   }, tenant_id: number) {
-    const lot = await prisma.projectLot.findFirst({ where: { id, tenant_id } });
+    const lot = await prisma.projectLot.findFirst({
+      where: { id, tenant_id },
+      include: { project: { select: { phase: true } } },
+    });
     if (!lot) throw new Error('Lot introuvable.');
+    this.assertProjectPhaseAllowed(lot.project?.phase, PROJECT_PHASE_GUARDS.lots.allowedPhases, PROJECT_PHASE_GUARDS.lots.reason);
     return prisma.projectLot.update({ where: { id }, data });
   }
 
@@ -310,8 +636,28 @@ export class ProjectManagementService {
     return prisma.projectLot.findMany({ where: { project_id }, orderBy: { id: 'asc' } });
   }
 
-  static async deleteProjectLot(id: number) {
-    return prisma.projectLot.delete({ where: { id } });
+  static async deleteProjectLot(id: number, tenant_id: number) {
+    const lot = await prisma.projectLot.findFirst({
+      where: { id, tenant_id },
+      include: {
+        project: { select: { phase: true } },
+        _count: { select: { tasks: true } },
+      },
+    });
+    if (!lot) throw new Error('Lot introuvable.');
+    this.assertProjectPhaseAllowed(lot.project?.phase, PROJECT_PHASE_GUARDS.lots.allowedPhases, PROJECT_PHASE_GUARDS.lots.reason);
+    if ((lot as any)._count?.tasks > 0) {
+      throw new Error('Impossible de supprimer un lot contenant des tâches. Supprimez ou déplacez les tâches d’abord.');
+    }
+
+    try {
+      return await prisma.projectLot.delete({ where: { id } });
+    } catch (error: any) {
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2003') {
+        throw new Error('Impossible de supprimer ce lot car il est référencé par d’autres données (contrat, facture, réception, contrôle, etc.).');
+      }
+      throw error;
+    }
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -321,6 +667,7 @@ export class ProjectManagementService {
   static async createWBSNode(data: CreateWBSNodeInput) {
     const project = await prisma.project.findFirst({ where: { id: data.project_id, tenant_id: data.tenant_id } });
     if (!project) throw new Error('Projet introuvable.');
+    this.assertProjectPhaseAllowed(project.phase, PROJECT_PHASE_GUARDS.wbs.allowedPhases, PROJECT_PHASE_GUARDS.wbs.reason);
 
     let level = 0;
     if (data.parent_id) {
@@ -336,17 +683,22 @@ export class ProjectManagementService {
   }
 
   static async updateWBSNode(id: number, data: { name?: string; code?: string }, tenant_id: number) {
-    const node = await prisma.wBSNode.findFirst({ where: { id, tenant_id } });
+    const node = await prisma.wBSNode.findFirst({
+      where: { id, tenant_id },
+      include: { project: { select: { phase: true } } },
+    });
     if (!node) throw new Error('Nœud WBS introuvable.');
+    this.assertProjectPhaseAllowed(node.project?.phase, PROJECT_PHASE_GUARDS.wbs.allowedPhases, PROJECT_PHASE_GUARDS.wbs.reason);
     return prisma.wBSNode.update({ where: { id }, data });
   }
 
   static async deleteWBSNode(id: number, tenant_id: number) {
     const node = await prisma.wBSNode.findFirst({
       where:  { id, tenant_id },
-      select: { id: true, _count: { select: { children: true, tasks: true } } },
+      select: { id: true, project: { select: { phase: true } }, _count: { select: { children: true, tasks: true } } },
     }) as any;
     if (!node) throw new Error('Nœud WBS introuvable.');
+    this.assertProjectPhaseAllowed(node.project?.phase, PROJECT_PHASE_GUARDS.wbs.allowedPhases, PROJECT_PHASE_GUARDS.wbs.reason);
     if (node._count.children > 0) throw new Error('Impossible de supprimer un nœud WBS avec des enfants.');
     if (node._count.tasks    > 0) throw new Error('Impossible de supprimer un nœud WBS avec des tâches associées.');
     return prisma.wBSNode.delete({ where: { id } });
@@ -380,6 +732,12 @@ export class ProjectManagementService {
   static async createTask(data: CreateTaskInput) {
     const project = await prisma.project.findFirst({ where: { id: data.project_id, tenant_id: data.tenant_id } });
     if (!project) throw new Error('Projet introuvable.');
+    this.assertProjectPhaseAllowed(project.phase, PROJECT_PHASE_GUARDS.tasks.allowedPhases, PROJECT_PHASE_GUARDS.tasks.reason);
+
+    const lot = await prisma.projectLot.findFirst({
+      where: { id: data.lot_id, project_id: data.project_id, tenant_id: data.tenant_id },
+    });
+    if (!lot) throw new Error('Lot introuvable dans ce projet.');
 
     if (data.wbs_id) {
       const wbs = await prisma.wBSNode.findFirst({ where: { id: data.wbs_id, project_id: data.project_id } });
@@ -392,11 +750,34 @@ export class ProjectManagementService {
         planned_start: data.planned_start ? new Date(data.planned_start) : null,
         planned_end:   data.planned_end   ? new Date(data.planned_end)   : null,
       },
-      include: { wbs: true, assignments: { include: { resource: true } } },
+      include: {
+        wbs: true,
+        lot: { select: { id: true, lot_number: true, name: true, trade_code: true } },
+        assignments: { include: { resource: true } },
+      },
     });
   }
 
-  static async updateTask(id: number, data: Partial<CreateTaskInput>) {
+  static async updateTask(id: number, data: Partial<CreateTaskInput>, tenant_id: number) {
+    const task = await prisma.task.findFirst({
+      where: { id, tenant_id },
+      include: { project: { select: { id: true, phase: true } } },
+    });
+    if (!task) throw new Error('Tâche introuvable.');
+    this.assertProjectPhaseAllowed(task.project?.phase, PROJECT_PHASE_GUARDS.tasks.allowedPhases, PROJECT_PHASE_GUARDS.tasks.reason);
+
+    if (data.lot_id !== undefined) {
+      const lot = await prisma.projectLot.findFirst({
+        where: { id: data.lot_id, project_id: task.project.id, tenant_id },
+      });
+      if (!lot) throw new Error('Lot introuvable dans ce projet.');
+    }
+
+    if (data.wbs_id) {
+      const wbs = await prisma.wBSNode.findFirst({ where: { id: data.wbs_id, project_id: task.project.id } });
+      if (!wbs) throw new Error('Nœud WBS introuvable dans ce projet.');
+    }
+
     if (data.status && !['TODO', 'PLANNING'].includes(data.status)) {
       const canStart = await this.canStartTask(id);
       if (!canStart) throw new Error('Dépendances non satisfaites : impossible de changer le statut.');
@@ -408,16 +789,21 @@ export class ProjectManagementService {
         planned_start: data.planned_start !== undefined ? (data.planned_start ? new Date(data.planned_start) : null) : undefined,
         planned_end:   data.planned_end   !== undefined ? (data.planned_end   ? new Date(data.planned_end)   : null) : undefined,
       },
-      include: { wbs: true, assignments: { include: { resource: true } } },
+      include: {
+        wbs: true,
+        lot: { select: { id: true, lot_number: true, name: true, trade_code: true } },
+        assignments: { include: { resource: true } },
+      },
     });
   }
 
   static async deleteTask(id: number, tenant_id: number) {
     const task = await prisma.task.findFirst({
       where:  { id, tenant_id },
-      select: { id: true, _count: { select: { assignments: true } } },
+      select: { id: true, project: { select: { phase: true } }, _count: { select: { assignments: true } } },
     }) as any;
     if (!task) throw new Error('Tâche introuvable.');
+    this.assertProjectPhaseAllowed(task.project?.phase, PROJECT_PHASE_GUARDS.tasks.allowedPhases, PROJECT_PHASE_GUARDS.tasks.reason);
     if (task._count.assignments > 0) throw new Error('Impossible de supprimer une tâche avec des affectations.');
     return prisma.task.delete({ where: { id } });
   }
@@ -427,6 +813,7 @@ export class ProjectManagementService {
       where:   { project_id },
       include: {
         wbs:         { select: { id: true, code: true, name: true } },
+        lot:         { select: { id: true, lot_number: true, name: true, trade_code: true } },
         assignments: { include: { resource: { select: { id: true, name: true, type: { select: { code: true } } } } } },
         dependencies: { include: { dependsOn: { select: { id: true, title: true, status: true } } } },
       },
@@ -438,8 +825,9 @@ export class ProjectManagementService {
     return prisma.task.findMany({
       where:   { tenant_id },
       include: {
-        project:     { select: { id: true, code: true, title: true } },
+        project:     { select: { id: true, code: true, title: true, phase: true } },
         wbs:         { select: { id: true, code: true, name: true } },
+        lot:         { select: { id: true, lot_number: true, name: true, trade_code: true } },
         assignments: { include: { resource: { select: { id: true, name: true } } } },
       },
       orderBy: [{ status: 'asc' }, { planned_start: 'asc' }],
@@ -453,6 +841,7 @@ export class ProjectManagementService {
   static async createBudgetLine(data: CreateBudgetLineInput) {
     const project = await prisma.project.findFirst({ where: { id: data.project_id, tenant_id: data.tenant_id } });
     if (!project) throw new Error('Projet introuvable.');
+    this.assertProjectPhaseAllowed(project.phase, PROJECT_PHASE_GUARDS.budget.allowedPhases, PROJECT_PHASE_GUARDS.budget.reason);
 
     if (data.wbs_id) {
       const wbs = await prisma.wBSNode.findFirst({ where: { id: data.wbs_id, project_id: data.project_id } });
@@ -474,8 +863,12 @@ export class ProjectManagementService {
   }
 
   static async updateBudgetLine(id: number, data: Partial<CreateBudgetLineInput>, tenant_id: number) {
-    const line = await prisma.budgetLine.findFirst({ where: { id, tenant_id } });
+    const line = await prisma.budgetLine.findFirst({
+      where: { id, tenant_id },
+      include: { project: { select: { phase: true } } },
+    });
     if (!line) throw new Error('Ligne budgétaire introuvable.');
+    this.assertProjectPhaseAllowed(line.project?.phase, PROJECT_PHASE_GUARDS.budget.allowedPhases, PROJECT_PHASE_GUARDS.budget.reason);
     return prisma.budgetLine.update({
       where:   { id },
       data,
@@ -487,8 +880,12 @@ export class ProjectManagementService {
   }
 
   static async deleteBudgetLine(id: number, tenant_id: number) {
-    const line = await prisma.budgetLine.findFirst({ where: { id, tenant_id } });
+    const line = await prisma.budgetLine.findFirst({
+      where: { id, tenant_id },
+      include: { project: { select: { phase: true } } },
+    });
     if (!line) throw new Error('Ligne budgétaire introuvable.');
+    this.assertProjectPhaseAllowed(line.project?.phase, PROJECT_PHASE_GUARDS.budget.allowedPhases, PROJECT_PHASE_GUARDS.budget.reason);
     return prisma.budgetLine.delete({ where: { id } });
   }
 
@@ -507,8 +904,16 @@ export class ProjectManagementService {
   // TASK DEPENDENCIES
   // ═══════════════════════════════════════════════════════════════════════════
 
-  static async createTaskDependency(task_id: number, depends_on_id: number) {
+  static async createTaskDependency(task_id: number, depends_on_id: number, tenant_id: number) {
     if (task_id === depends_on_id) throw new Error("Une tâche ne peut pas dépendre d'elle-même.");
+
+    const [task, dependsOn] = await Promise.all([
+      prisma.task.findFirst({ where: { id: task_id, tenant_id }, include: { project: { select: { phase: true } } } }),
+      prisma.task.findFirst({ where: { id: depends_on_id, tenant_id }, include: { project: { select: { phase: true } } } }),
+    ]);
+    if (!task || !dependsOn) throw new Error('Tâche introuvable.');
+    this.assertProjectPhaseAllowed(task.project?.phase, PROJECT_PHASE_GUARDS.dependencies.allowedPhases, PROJECT_PHASE_GUARDS.dependencies.reason);
+
     const hasCycle = await this.checkCycle(task_id, depends_on_id);
     if (hasCycle) throw new Error('Dépendance cyclique détectée.');
     return prisma.taskDependency.create({ data: { task_id, depends_on_id } });

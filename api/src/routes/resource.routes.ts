@@ -8,6 +8,8 @@ const resourceRouter = Router();
 resourceRouter.get("/", authenticateToken, ResourceController.getResources);
 resourceRouter.post("/", authenticateToken, ResourceController.createResource);
 resourceRouter.get("/types", authenticateToken, ResourceController.getResourceTypes);
+resourceRouter.post("/types", authenticateToken, ResourceController.createResourceType);
+resourceRouter.delete("/types/:id", authenticateToken, ResourceController.deleteResourceType);
 resourceRouter.get("/:id", authenticateToken, ResourceController.getResource);
 resourceRouter.put("/:id", authenticateToken, ResourceController.updateResource);
 resourceRouter.delete("/:id", authenticateToken, ResourceController.deleteResource);

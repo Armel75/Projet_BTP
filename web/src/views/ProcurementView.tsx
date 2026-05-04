@@ -4,17 +4,19 @@ import {
   FileText, 
   Users, 
   Truck, 
-  PackageCheck, 
-  ArrowRightLeft,
+  Package,
+  Database,
   ChevronRight
 } from "lucide-react";
-import { motion, AnimatePresence } from "motion/react";
+import { motion } from "motion/react";
 import TenderModule from "../components/procurement/TenderModule";
 import SupplierModule from "../components/procurement/SupplierModule";
 import PurchaseOrderModule from "../components/procurement/PurchaseOrderModule";
 import DeliveryModule from "../components/procurement/DeliveryModule";
+import InventoryModule from "../components/procurement/InventoryModule";
+import X3SyncPanel from "../components/procurement/X3SyncPanel";
 
-type ProcurementTab = "tenders" | "suppliers" | "orders" | "deliveries";
+type ProcurementTab = "tenders" | "suppliers" | "orders" | "deliveries" | "inventory" | "x3sync";
 
 export default function ProcurementView() {
   const [activeTab, setActiveTab] = useState<ProcurementTab>("tenders");
@@ -24,6 +26,8 @@ export default function ProcurementView() {
     { id: "suppliers", label: "Fournisseurs", icon: Users, color: "text-amber-500", bg: "bg-amber-500/10" },
     { id: "orders", label: "Commandes", icon: ShoppingCart, color: "text-emerald-500", bg: "bg-emerald-500/10" },
     { id: "deliveries", label: "Livraisons & Réceptions", icon: Truck, color: "text-purple-500", bg: "bg-purple-500/10" },
+    { id: "inventory", label: "Stocks & Inventaire", icon: Package, color: "text-teal-500", bg: "bg-teal-500/10" },
+    { id: "x3sync", label: "Synchro SAGE X3", icon: Database, color: "text-violet-500", bg: "bg-violet-500/10" },
   ];
 
   return (
@@ -39,7 +43,7 @@ export default function ProcurementView() {
       </div>
 
       {/* Tabs / Navigation Sub-header */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
         {tabs.map((tab) => {
           const isActive = activeTab === tab.id;
           const Icon = tab.icon;
@@ -84,6 +88,8 @@ export default function ProcurementView() {
         {activeTab === "suppliers" && <SupplierModule />}
         {activeTab === "orders" && <PurchaseOrderModule />}
         {activeTab === "deliveries" && <DeliveryModule />}
+        {activeTab === "inventory" && <InventoryModule />}
+        {activeTab === "x3sync" && <X3SyncPanel />}
       </motion.div>
     </div>
   );

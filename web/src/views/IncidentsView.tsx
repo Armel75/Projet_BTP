@@ -3,7 +3,8 @@ import {
   ShieldAlert, Plus, Filter, X, Loader2, AlertCircle,
   ChevronDown, TrendingUp, Clock, CheckCircle2, XCircle,
   MapPin, User, Calendar, Wrench, DollarSign, AlertTriangle,
-  Eye, Pencil, Trash2, BarChart3, Activity, ArrowUpRight
+  Eye, Pencil, Trash2, BarChart3, Activity, ArrowUpRight,
+  FileDown, Sheet
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { apiFetch, API_BASE } from "../lib/api";
@@ -35,7 +36,30 @@ interface Incident {
   assignedTo?: { id: number; firstname: string; lastname: string } | null;
 }
 
-interface Project { id: number; code: string; title: string; }
+interface Project { id: number; code: string; title: string; phase?: string | null; }
+
+const INCIDENT_WORKFLOW_GUARD = {
+  allowedPhases: ["PREPARATION", "EXECUTION"],
+  reason: "Les incidents sont modifiables uniquement pendant les phases Preparation et Execution.",
+} as const;
+
+const PROJECT_PHASE_LABELS: Record<string, string> = {
+  ETUDE: "Etude",
+  PREPARATION: "Preparation",
+  EXECUTION: "Execution",
+  RECEPTION: "Reception",
+  CLOTURE: "Cloture",
+};
+
+function isIncidentPhaseAllowed(phase?: string | null) {
+  if (!phase) return true;
+  return INCIDENT_WORKFLOW_GUARD.allowedPhases.includes(phase as "PREPARATION" | "EXECUTION");
+}
+
+function getProjectPhaseLabel(phase?: string | null) {
+  if (!phase) return "Non defini";
+  return PROJECT_PHASE_LABELS[phase] ?? phase;
+}
 
 // ─── Config ──────────────────────────────────────────────────────────────────
 
@@ -124,10 +148,56 @@ function KpiCard({ label, value, sub, icon: Icon, accent }: {
   );
 }
 
+// ─── Export helpers ────────────────────────────────────────────────────────────
+
+async function downloadIncidentPdf(incident: Incident) {
+  try {
+    const res = await apiFetch(`${API_BASE}/incidents/${incident.id}/pdf`);
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      alert(err.error || 'Impossible de générer le PDF.');
+      return;
+    }
+    const blob = await res.blob();
+    const url  = window.URL.createObjectURL(blob);
+    const a    = document.createElement('a');
+    a.href     = url;
+    a.download = `INC-${String(incident.id).padStart(4, '0')}.pdf`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    window.URL.revokeObjectURL(url);
+  } catch {
+    alert('Impossible de générer le PDF.');
+  }
+}
+
+async function downloadIncidentExcel(incident: Incident) {
+  try {
+    const res = await apiFetch(`${API_BASE}/incidents/${incident.id}/excel`);
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      alert(err.error || "Impossible d'exporter le fichier Excel.");
+      return;
+    }
+    const blob = await res.blob();
+    const url  = window.URL.createObjectURL(blob);
+    const a    = document.createElement('a');
+    a.href     = url;
+    a.download = `INC-${String(incident.id).padStart(4, '0')}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    window.URL.revokeObjectURL(url);
+  } catch {
+    alert("Impossible d'exporter le fichier Excel.");
+  }
+}
+
 // ─── Incident Detail Drawer ───────────────────────────────────────────────────
 
 function IncidentDetailDrawer({
-  incident, onClose, onStatusChange, onDelete, canEdit, canDelete
+  incident, onClose, onStatusChange, onDelete, canEdit, canDelete, canMutate, workflowBlockMessage
 }: {
   incident: Incident;
   onClose: () => void;
@@ -135,6 +205,8 @@ function IncidentDetailDrawer({
   onDelete: (id: number) => void;
   canEdit: boolean;
   canDelete: boolean;
+  canMutate: boolean;
+  workflowBlockMessage?: string | null;
 }) {
   const type = getTypeMeta(incident.type);
   const severity = getSeverityMeta(incident.severity);
@@ -289,24 +361,53 @@ function IncidentDetailDrawer({
         </div>
 
         {/* Footer actions */}
-        <div className="p-6 border-t border-gb-border bg-gb-surface-solid/50 shrink-0 flex items-center gap-3">
-          {canEdit && next && (
+        <div className="p-6 border-t border-gb-border bg-gb-surface-solid/50 shrink-0 space-y-3">
+          {/* Export buttons */}
+          <div className="flex items-center gap-2">
             <button
-              onClick={() => onStatusChange(incident.id, next)}
-              className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-gb-primary text-gb-inverse font-bold text-sm hover:bg-gb-primary/90 transition-colors"
+              onClick={() => downloadIncidentPdf(incident)}
+              className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl border border-gb-border text-gb-text font-bold text-sm hover:bg-gb-surface-hover transition-colors"
             >
-              <ArrowUpRight size={15} />
-              {next === "IN_PROGRESS" ? "Prendre en charge" : next === "RESOLVED" ? "Marquer résolu" : "Clôturer"}
+              <FileDown size={15} className="text-red-500" />
+              Télécharger Fiche PDF
             </button>
-          )}
-          {canDelete && (
             <button
-              onClick={() => { if (window.confirm("Supprimer cet incident ?")) onDelete(incident.id); }}
-              className="p-2.5 rounded-xl border border-gb-danger/30 text-gb-danger hover:bg-gb-danger/10 transition-colors"
+              onClick={() => downloadIncidentExcel(incident)}
+              className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl border border-gb-border text-gb-text font-bold text-sm hover:bg-gb-surface-hover transition-colors"
             >
-              <Trash2 size={16} />
+              <Sheet size={15} className="text-emerald-500" />
+              Exporter Excel / CSV
             </button>
-          )}
+          </div>
+
+          {/* Workflow + delete */}
+          <div className="flex items-center gap-3">
+            {!canMutate && workflowBlockMessage && (
+              <div className="flex-1 flex items-center gap-2 text-xs font-semibold text-amber-500 bg-amber-500/10 border border-amber-500/20 rounded-xl px-3 py-2">
+                <AlertCircle size={14} />
+                {workflowBlockMessage}
+              </div>
+            )}
+            {canEdit && next && (
+              <button
+                onClick={() => onStatusChange(incident.id, next)}
+                disabled={!canMutate}
+                className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-gb-primary text-gb-inverse font-bold text-sm hover:bg-gb-primary/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <ArrowUpRight size={15} />
+                {next === "IN_PROGRESS" ? "Prendre en charge" : next === "RESOLVED" ? "Marquer résolu" : "Clôturer"}
+              </button>
+            )}
+            {canDelete && (
+              <button
+                onClick={() => { if (window.confirm("Supprimer cet incident ?")) onDelete(incident.id); }}
+                disabled={!canMutate}
+                className="p-2.5 rounded-xl border border-gb-danger/30 text-gb-danger hover:bg-gb-danger/10 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <Trash2 size={16} />
+              </button>
+            )}
+          </div>
         </div>
       </motion.aside>
     </motion.div>
@@ -353,10 +454,17 @@ function IncidentFormDialog({
   }, [open, incident]);
 
   const set = (k: string, v: string) => setForm(f => ({ ...f, [k]: v }));
+  const selectedProject = projects.find((p) => p.id === Number(form.project_id));
+  const canMutateSelectedProject = !selectedProject || isIncidentPhaseAllowed(selectedProject.phase);
+  const selectedProjectPhaseLabel = getProjectPhaseLabel(selectedProject?.phase);
 
   const save = async () => {
     if (!form.description.trim() || !form.project_id) {
       setError("Description et projet sont obligatoires.");
+      return;
+    }
+    if (!canMutateSelectedProject) {
+      setError(`${INCIDENT_WORKFLOW_GUARD.reason} Phase actuelle: ${selectedProjectPhaseLabel}.`);
       return;
     }
     setSaving(true);
@@ -445,10 +553,21 @@ function IncidentFormDialog({
               <label className={labelCls}>Projet <span className="text-red-400">*</span></label>
               <select className={inputCls} value={form.project_id} onChange={e => set("project_id", e.target.value)}>
                 <option value="">— Sélectionner un projet —</option>
-                {projects.map(p => <option key={p.id} value={p.id}>{p.code} — {p.title}</option>)}
+                {projects.map(p => (
+                  <option key={p.id} value={p.id} disabled={!isIncidentPhaseAllowed(p.phase)}>
+                    {p.code} — {p.title}{!isIncidentPhaseAllowed(p.phase) ? ` (${getProjectPhaseLabel(p.phase)})` : ""}
+                  </option>
+                ))}
               </select>
             </div>
           </div>
+
+          {selectedProject && !canMutateSelectedProject && (
+            <div className="flex items-center gap-2 text-sm text-amber-500 bg-amber-500/10 border border-amber-500/20 rounded-xl px-4 py-3">
+              <AlertCircle size={15} />
+              {INCIDENT_WORKFLOW_GUARD.reason} Phase actuelle: {selectedProjectPhaseLabel}.
+            </div>
+          )}
 
           {/* Type + Sévérité + Statut */}
           <div className="grid grid-cols-3 gap-4">
@@ -528,7 +647,7 @@ function IncidentFormDialog({
           </button>
           <button
             onClick={save}
-            disabled={saving}
+            disabled={saving || !canMutateSelectedProject}
             className="flex items-center gap-2 px-6 py-2.5 rounded-xl bg-gb-primary text-gb-inverse font-bold text-sm hover:bg-gb-primary/90 transition-colors disabled:opacity-50"
           >
             {saving ? <Loader2 size={15} className="animate-spin" /> : <ShieldAlert size={15} />}
@@ -629,6 +748,7 @@ export default function IncidentsView() {
   const [projects,  setProjects]    = useState<Project[]>([]);
   const [loading,   setLoading]     = useState(true);
   const [error,     setError]       = useState<string | null>(null);
+  const [workflowNotice, setWorkflowNotice] = useState<string | null>(null);
 
   // Filters
   const [filterProject,  setFilterProject]  = useState("");
@@ -672,6 +792,14 @@ export default function IncidentsView() {
   // ── Actions ──────────────────────────────────────────────────────────────
 
   const handleStatusChange = async (id: number, status: string) => {
+    const current = incidents.find((i) => i.id === id);
+    const projectPhase = current?.project?.id
+      ? projects.find((p) => p.id === current.project?.id)?.phase
+      : null;
+    if (!isIncidentPhaseAllowed(projectPhase)) {
+      setWorkflowNotice(`${INCIDENT_WORKFLOW_GUARD.reason} Phase actuelle: ${getProjectPhaseLabel(projectPhase)}.`);
+      return;
+    }
     const res = await apiFetch(`${API_BASE}/incidents/${id}`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
@@ -681,14 +809,24 @@ export default function IncidentsView() {
       const updated = await res.json();
       setIncidents(prev => prev.map(i => i.id === id ? updated : i));
       setSelected(updated);
+      setWorkflowNotice(null);
     }
   };
 
   const handleDelete = async (id: number) => {
+    const current = incidents.find((i) => i.id === id);
+    const projectPhase = current?.project?.id
+      ? projects.find((p) => p.id === current.project?.id)?.phase
+      : null;
+    if (!isIncidentPhaseAllowed(projectPhase)) {
+      setWorkflowNotice(`${INCIDENT_WORKFLOW_GUARD.reason} Phase actuelle: ${getProjectPhaseLabel(projectPhase)}.`);
+      return;
+    }
     const res = await apiFetch(`${API_BASE}/incidents/${id}`, { method: "DELETE" });
     if (res.ok || res.status === 204) {
       setIncidents(prev => prev.filter(i => i.id !== id));
       setSelected(null);
+      setWorkflowNotice(null);
     }
   };
 
@@ -760,6 +898,13 @@ export default function IncidentsView() {
               );
             })}
           </div>
+        </div>
+      )}
+
+      {workflowNotice && (
+        <div className="flex items-center gap-2 text-sm text-amber-500 bg-amber-500/10 border border-amber-500/20 rounded-xl px-4 py-3">
+          <AlertCircle size={15} />
+          {workflowNotice}
         </div>
       )}
 
@@ -921,6 +1066,10 @@ export default function IncidentsView() {
             onDelete={handleDelete}
             canEdit={can("incident:update")}
             canDelete={can("incident:delete")}
+            canMutate={isIncidentPhaseAllowed(projects.find((p) => p.id === selected.project?.id)?.phase)}
+            workflowBlockMessage={selected.project?.id
+              ? `${INCIDENT_WORKFLOW_GUARD.reason} Phase actuelle: ${getProjectPhaseLabel(projects.find((p) => p.id === selected.project?.id)?.phase)}.`
+              : INCIDENT_WORKFLOW_GUARD.reason}
           />
         )}
       </AnimatePresence>

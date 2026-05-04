@@ -1,6 +1,7 @@
 import { Request, Response } from "express";
 import { ProcurementService } from "../services/procurement.service.js";
 import { AuthRequest } from "../middlewares/auth.middleware.js";
+import { ProcurementX3SyncService } from "../services/procurement-x3-sync.service.js";
 
 export class ProcurementController {
   // ==========================
@@ -241,7 +242,18 @@ export class ProcurementController {
       const receipt = await ProcurementService.createGoodsReceipt({
         ...req.body,
         created_by: userId,
-        received_at: new Date(req.body.received_at || Date.now())
+        warehouse_id: req.body.warehouse_id ? Number(req.body.warehouse_id) : undefined,
+        location_id: req.body.location_id ? Number(req.body.location_id) : undefined,
+        received_at: new Date(req.body.received_at || Date.now()),
+        items: Array.isArray(req.body.items)
+          ? req.body.items.map((item: any) => ({
+              item_id: Number(item.item_id),
+              quantity_ordered: Number(item.quantity_ordered),
+              quantity_received: Number(item.quantity_received),
+              quantity_rejected: item.quantity_rejected !== undefined ? Number(item.quantity_rejected) : 0,
+              unit_cost: item.unit_cost !== undefined ? Number(item.unit_cost) : 0,
+            }))
+          : [],
       });
       res.status(201).json(receipt);
     } catch (error: any) {
@@ -260,6 +272,114 @@ export class ProcurementController {
       res.json(receipts);
     } catch (error) {
       res.status(500).json({ error: "Failed to fetch goods receipts" });
+    }
+  }
+
+  static async createWarehouse(req: Request, res: Response): Promise<void> {
+    try {
+      const b = req.body;
+      const warehouse = await ProcurementService.createWarehouse({
+        project_id: b.project_id ? Number(b.project_id) : undefined,
+        code: String(b.code || "").trim(),
+        name: String(b.name || "").trim(),
+      });
+      res.status(201).json(warehouse);
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  }
+
+  static async getWarehouses(req: Request, res: Response): Promise<void> {
+    try {
+      const projectId = req.query.projectId ? Number(req.query.projectId) : undefined;
+      const warehouses = await ProcurementService.listWarehouses(projectId);
+      res.json(warehouses);
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  }
+
+  static async createWarehouseLocation(req: Request, res: Response): Promise<void> {
+    try {
+      const warehouseId = Number(req.params.id);
+      const b = req.body;
+      const location = await ProcurementService.createWarehouseLocation(warehouseId, {
+        code: String(b.code || "").trim(),
+        name: String(b.name || "").trim(),
+        parent_id: b.parent_id ? Number(b.parent_id) : undefined,
+      });
+      res.status(201).json(location);
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  }
+
+  static async getInventoryBalances(req: Request, res: Response): Promise<void> {
+    try {
+      const balances = await ProcurementService.getInventoryBalances({
+        project_id: req.query.projectId ? Number(req.query.projectId) : undefined,
+        warehouse_id: req.query.warehouseId ? Number(req.query.warehouseId) : undefined,
+        location_id: req.query.locationId ? Number(req.query.locationId) : undefined,
+        item_id: req.query.itemId ? Number(req.query.itemId) : undefined,
+      });
+      res.json(balances);
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  }
+
+  static async syncX3Suppliers(req: Request, res: Response): Promise<void> {
+    try {
+      const userId = (req as AuthRequest).user?.id;
+      const result = await ProcurementX3SyncService.syncSuppliersFromX3({
+        createdBy: userId,
+        batchSize: req.body.batchSize ? Number(req.body.batchSize) : undefined,
+        maxBatches: req.body.maxBatches ? Number(req.body.maxBatches) : undefined,
+      });
+      res.json(result);
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  }
+
+  static async syncX3Items(req: Request, res: Response): Promise<void> {
+    try {
+      const userId = (req as AuthRequest).user?.id;
+      const result = await ProcurementX3SyncService.syncItemsFromX3({
+        createdBy: userId,
+        batchSize: req.body.batchSize ? Number(req.body.batchSize) : undefined,
+        maxBatches: req.body.maxBatches ? Number(req.body.maxBatches) : undefined,
+      });
+      res.json(result);
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  }
+
+  static async syncX3PurchaseOrders(req: Request, res: Response): Promise<void> {
+    try {
+      const userId = (req as AuthRequest).user?.id;
+      const result = await ProcurementX3SyncService.syncPurchaseOrdersFromX3({
+        createdBy: userId,
+        batchSize: req.body.batchSize ? Number(req.body.batchSize) : undefined,
+        maxBatches: req.body.maxBatches ? Number(req.body.maxBatches) : undefined,
+      });
+      res.json(result);
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  }
+
+  static async getX3SyncJobs(req: Request, res: Response): Promise<void> {
+    try {
+      const jobs = await ProcurementX3SyncService.getSyncJobs({
+        entityName: req.query.entityName ? String(req.query.entityName) : undefined,
+        status: req.query.status ? String(req.query.status) : undefined,
+        limit: req.query.limit ? Number(req.query.limit) : undefined,
+      });
+      res.json(jobs);
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
     }
   }
 }

@@ -1,19 +1,60 @@
 import React from "react";
-import { Moon, Sun } from "lucide-react";
+import { Monitor, Moon, Sun } from "lucide-react";
 import { useTheme } from "./ThemeProvider";
 
 export function ThemeToggle() {
   const { theme, setTheme } = useTheme();
 
   return (
-    <button
-      onClick={() => setTheme(theme === "light" ? "dark" : "light")}
-      className="p-2 rounded-md hover:bg-gb-surface-hover text-gb-muted transition-colors"
-      title="Toggle theme"
-    >
-      <Sun className="h-[1.2rem] w-[1.2rem] rotate-0 scale-100 transition-all dark:-rotate-90 dark:scale-0" />
-      <Moon className="absolute h-[1.2rem] w-[1.2rem] rotate-90 scale-0 transition-all dark:rotate-0 dark:scale-100" />
-      <span className="sr-only">Toggle theme</span>
-    </button>
+    <div className="flex items-center gap-2 rounded-xl border border-gb-border bg-gb-surface-solid px-2 py-1.5">
+      <div className="hidden sm:flex items-center gap-1.5 text-gb-muted">
+        <Monitor className="h-4 w-4" />
+        <span className="text-[11px] font-bold uppercase tracking-wide">Apparence</span>
+      </div>
+
+      <div className="flex items-center gap-1">
+        <button
+          type="button"
+          onClick={() => setTheme("light")}
+          title="Thème clair"
+          className={`inline-flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-semibold transition-colors ${
+            theme === "light"
+              ? "bg-gb-primary text-gb-inverse"
+              : "text-gb-muted hover:bg-gb-surface-hover hover:text-gb-text"
+          }`}
+        >
+          <Sun className="h-3.5 w-3.5" />
+          <span className="hidden md:inline">Clair</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setTheme("dark")}
+          title="Thème sombre"
+          className={`inline-flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-semibold transition-colors ${
+            theme === "dark"
+              ? "bg-gb-primary text-gb-inverse"
+              : "text-gb-muted hover:bg-gb-surface-hover hover:text-gb-text"
+          }`}
+        >
+          <Moon className="h-3.5 w-3.5" />
+          <span className="hidden md:inline">Sombre</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setTheme("system")}
+          title="Thème système"
+          className={`inline-flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-semibold transition-colors ${
+            theme === "system"
+              ? "bg-gb-primary text-gb-inverse"
+              : "text-gb-muted hover:bg-gb-surface-hover hover:text-gb-text"
+          }`}
+        >
+          <Monitor className="h-3.5 w-3.5" />
+          <span className="hidden md:inline">Système</span>
+        </button>
+      </div>
+    </div>
   );
 }

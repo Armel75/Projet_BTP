@@ -28,6 +28,9 @@ export class ResourceController {
   static async createResource(req: Request, res: Response): Promise<void> {
     try {
       const resource = await ResourceService.createResource(req.body);
+      if (!resource) {
+        throw new Error("Echec de persistance de la ressource.");
+      }
       res.status(201).json(resource);
     } catch (error: any) {
       res.status(400).json({ error: error.message });
@@ -58,6 +61,24 @@ export class ResourceController {
       res.json(types);
     } catch (error) {
       res.status(500).json({ error: "Failed to fetch resource types" });
+    }
+  }
+
+  static async createResourceType(req: Request, res: Response): Promise<void> {
+    try {
+      const type = await ResourceService.createResourceType(req.body?.code);
+      res.status(201).json(type);
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  }
+
+  static async deleteResourceType(req: Request, res: Response): Promise<void> {
+    try {
+      await ResourceService.deleteResourceType(Number(req.params.id));
+      res.status(204).send();
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
     }
   }
 

@@ -18,12 +18,66 @@ const MULTI_TENANT_MODELS = [
   'user', 'resource', 'project', 'projectLot', 'wBSNode', 'task', 'taskAssignment',
   'supplier', 'tender', 'purchaseOrder', 'delivery', 'inventoryItem', 'materialConsumption',
   'contract', 'contractLineItem', 'changeOrder', 'rFI', 'submittal', 'budgetLine',
-  'invoice', 'payment', 'controlReport', 'workAcceptance', 'incident', 'document',
+    'invoice', 'payment', 'situationTravaux', 'controlReport', 'workAcceptance', 'incident', 'document',
   'documentVersion', 'photo', 'documentExchange', 'workflowDefinition', 'workflowStep',
   'workflowTransition', 'workflowInstance', 'workflowAction', 'auditLog', 'dailyLog',
   'inspection', 'punchItem', 'meeting', 'costTransaction', 'weeklyReport', 'role', 'userRole',
-  'goodsReceipt', 'goodsReceiptItem'
+    'goodsReceipt', 'goodsReceiptItem', 'warehouse', 'warehouseLocation', 'inventoryBalance',
+    'inventoryValuationLayer', 'inventoryCostSnapshot', 'purchaseOrderLine', 'x3SyncState', 'x3SyncJob'
 ];
+
+function validateSituationTravauxPayload(payload: any, existing?: any) {
+    const merged = existing ? { ...existing, ...payload } : { ...payload };
+
+    const hasContract = merged.contract_id !== null && merged.contract_id !== undefined;
+    const hasPurchaseOrder = merged.purchase_order_id !== null && merged.purchase_order_id !== undefined;
+    if (!hasContract && !hasPurchaseOrder) {
+        throw new Error("SituationTravaux invalid: either contract_id or purchase_order_id is required.");
+    }
+
+    if (merged.period_start && merged.period_end) {
+        const start = new Date(merged.period_start);
+        const end = new Date(merged.period_end);
+        if (!Number.isNaN(start.getTime()) && !Number.isNaN(end.getTime()) && end < start) {
+            throw new Error("SituationTravaux invalid: period_end must be greater than or equal to period_start.");
+        }
+    }
+
+    if (merged.reception_pct !== null && merged.reception_pct !== undefined) {
+        const receptionPct = Number(merged.reception_pct);
+        if (Number.isNaN(receptionPct) || receptionPct < 0 || receptionPct > 100) {
+            throw new Error("SituationTravaux invalid: reception_pct must be between 0 and 100.");
+        }
+    }
+
+    const amountFields = [
+        'amount_global',
+        'amount_proposed',
+        'amount_accorded',
+        'cumul_paid_before',
+        'amount_paid_current',
+        'balance_to_pay',
+        'remaining_to_receive',
+    ];
+
+    for (const field of amountFields) {
+        if (merged[field] !== null && merged[field] !== undefined) {
+            const value = Number(merged[field]);
+            if (Number.isNaN(value) || value < 0) {
+                throw new Error(`SituationTravaux invalid: ${field} must be a non-negative number.`);
+            }
+        }
+    }
+
+    if (merged.status === 'APPROVED') {
+        if (merged.approved_by === null || merged.approved_by === undefined) {
+            throw new Error("SituationTravaux invalid: approved_by is required when status is APPROVED.");
+        }
+        if (!merged.approved_at) {
+            payload.approved_at = new Date();
+        }
+    }
+}
 
 /**
  * Automatically injects tenant_id filter if present in context
@@ -216,6 +270,16 @@ export const prisma = new Proxy(realPrisma, {
                 const filteredArgs = applyTenantFilter('project', args || {});
                 try { return await target.project.count(filteredArgs); } catch(e) { return 0; }
             },
+            aggregate: async (args?: any) => {
+                const filteredArgs = applyTenantFilter('project', args || {});
+                try { return await target.project.aggregate(filteredArgs); } catch(e) {
+                    return { _sum: { budget_approved: null, budget_spent: null, budget_committed: null }, _count: { id: 0 } };
+                }
+            },
+            groupBy: async (args: any) => {
+                const filteredArgs = applyTenantFilter('project', args || {});
+                try { return await target.project.groupBy(filteredArgs); } catch(e) { return []; }
+            },
             create: async (args: any) => {
                 const dataArgs = applyTenantData('project', args);
                 try { return await target.project.create(dataArgs); } catch(e) { throw e; }
@@ -285,6 +349,50 @@ export const prisma = new Proxy(realPrisma, {
         };
     }
 
+    if (prop === 'resourceType') {
+        return {
+            findMany: async (args?: any) => {
+                try { return await target.resourceType.findMany(args); } catch(e) { return []; }
+            },
+            findUnique: async (args: any) => {
+                try { return await target.resourceType.findUnique(args); } catch(e) { return null; }
+            },
+            create: async (args: any) => {
+                return await target.resourceType.create(args);
+            },
+            upsert: async (args: any) => {
+                return await target.resourceType.upsert(args);
+            },
+        };
+    }
+
+    if (prop === 'resource') {
+        return {
+            findMany: async (args?: any) => {
+                const filteredArgs = applyTenantFilter('resource', args || {});
+                try { return await target.resource.findMany(filteredArgs); } catch(e) { return []; }
+            },
+            findUnique: async (args: any) => {
+                try {
+                    const result = await target.resource.findUnique(args);
+                    const tenantId = TenantContext.getTenantId();
+                    if (result && tenantId && result.tenant_id !== tenantId) return null;
+                    return result;
+                } catch(e) { return null; }
+            },
+            create: async (args: any) => {
+                const dataArgs = applyTenantData('resource', args);
+                return await target.resource.create(dataArgs);
+            },
+            update: async (args: any) => {
+                return await target.resource.update(args);
+            },
+            delete: async (args: any) => {
+                return await target.resource.delete(args);
+            },
+        };
+    }
+
     // Proxy functions to inject tenant isolation
     const original = target[prop];
     if (original && typeof original === 'object' && !['tenant', 'session'].includes(prop)) {
@@ -322,6 +430,33 @@ export const prisma = new Proxy(realPrisma, {
                                 return null;
                             }
                             return result;
+                        }
+
+                        if (prop === 'situationTravaux') {
+                            if (subProp === 'create' && finalArgs.data) {
+                                validateSituationTravauxPayload(finalArgs.data);
+                            }
+
+                            if (subProp === 'update' && finalArgs.data) {
+                                const existingSituation = await (subTarget as any)
+                                    .findUnique({ where: finalArgs.where })
+                                    .catch(() => null);
+                                validateSituationTravauxPayload(finalArgs.data, existingSituation);
+                            }
+
+                            if (subProp === 'upsert') {
+                                const existingSituation = await (subTarget as any)
+                                    .findUnique({ where: finalArgs.where })
+                                    .catch(() => null);
+
+                                if (existingSituation) {
+                                    if (finalArgs.update) {
+                                        validateSituationTravauxPayload(finalArgs.update, existingSituation);
+                                    }
+                                } else if (finalArgs.create) {
+                                    validateSituationTravauxPayload(finalArgs.create);
+                                }
+                            }
                         }
 
                         try { return await subOriginal.apply(subTarget, [finalArgs]); } catch(e) { 

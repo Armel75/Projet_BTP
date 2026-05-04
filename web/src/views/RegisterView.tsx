@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import { apiFetch, API_BASE } from "../lib/api";
 import { Link, useNavigate } from "react-router-dom";
+  const MATRICULE_REGEX = /^[A-Z]{2}[0-9]+$/;
 
 export default function RegisterView() {
   const [formData, setFormData] = useState({
@@ -10,19 +11,39 @@ export default function RegisterView() {
     username: "",
     matricule: "",
     password: "",
+      confirmPassword: "",
   });
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setFormData({ ...formData, [e.target.name]: e.target.value });
+      const nextValue = e.target.name === 'matricule' ? e.target.value.toUpperCase() : e.target.value;
+      setFormData({ ...formData, [e.target.name]: nextValue });
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
     setLoading(true);
+
+      if (!MATRICULE_REGEX.test(formData.matricule.trim())) {
+        setError('Le matricule est invalide. Format attendu: 2 lettres majuscules suivies de chiffres (ex: DL1748).');
+        setLoading(false);
+        return;
+      }
+
+      if (formData.password.length < 8) {
+        setError('Le mot de passe doit contenir au moins 8 caracteres.');
+        setLoading(false);
+        return;
+      }
+
+      if (formData.password !== formData.confirmPassword) {
+        setError('Le mot de passe et sa confirmation ne correspondent pas.');
+        setLoading(false);
+        return;
+      }
 
     try {
       const res = await apiFetch(`${API_BASE}/auth/register`, {
@@ -74,6 +95,9 @@ export default function RegisterView() {
             <div>
               <label className="block text-sm font-medium text-gb-text mb-1">Matricule</label>
               <input type="text" name="matricule" value={formData.matricule} onChange={handleChange} className="w-full px-3 py-2 bg-gb-app border border-gb-border rounded text-gb-text focus:outline-none focus:border-gb-primary" required />
+                <p className="text-xs text-muted-foreground">
+                  Format: 2 lettres majuscules suivies de chiffres (sans espaces ni caracteres speciaux).
+                </p>
             </div>
             <div>
               <label className="block text-sm font-medium text-gb-text mb-1">Nom d'utilisateur</label>
@@ -88,6 +112,21 @@ export default function RegisterView() {
             <label className="block text-sm font-medium text-gb-text mb-1">Mot de passe</label>
             <input type="password" name="password" value={formData.password} onChange={handleChange} className="w-full px-3 py-2 bg-gb-app border border-gb-border rounded text-gb-text focus:outline-none focus:border-gb-primary" required />
           </div>
+            <div className="space-y-2">
+              <label htmlFor="confirmPassword">Confirmer le mot de passe</label>
+              <div className="relative">
+                <input
+                  id="confirmPassword"
+                  name="confirmPassword"
+                  type="password"
+                  placeholder="Confirmer le mot de passe"
+                  value={formData.confirmPassword}
+                  onChange={handleChange}
+                  className="w-full px-3 py-2 bg-gb-app border border-gb-border rounded text-gb-text focus:outline-none focus:border-gb-primary"
+                  required
+                />
+              </div>
+            </div>
           <button type="submit" disabled={loading} className="w-full bg-gb-primary text-gb-inverse py-2 rounded font-medium hover:bg-gb-primary/90 transition-colors disabled:opacity-50">
             {loading ? "Inscription..." : "S'inscrire"}
           </button>

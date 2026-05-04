@@ -15,4 +15,10 @@ financeRouter.get("/budget-lines/:id/transactions", authenticateToken, FinanceCo
 financeRouter.get("/transactions", authenticateToken, FinanceController.getTransactions);
 financeRouter.post("/transactions", authenticateToken, FinanceController.createTransaction);
 
+// Situations Travaux
+financeRouter.get("/situations-travaux", authenticateToken, FinanceController.getSituationsTravaux);
+financeRouter.get("/situations-travaux/:id", authenticateToken, FinanceController.getSituationTravaux);
+financeRouter.post("/situations-travaux", authenticateToken, FinanceController.createSituationTravaux);
+financeRouter.put("/situations-travaux/:id", authenticateToken, FinanceController.updateSituationTravaux);
+
 export default financeRouter;

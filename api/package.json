@@ -14,6 +14,7 @@
     "@types/helmet": "^0.0.48",
     "argon2": "^0.44.0",
     "cookie-parser": "^1.4.7",
-    "helmet": "^8.1.0"
+    "helmet": "^8.1.0",
+    "puppeteer": "^24.9.0"
   }
 }

@@ -35,8 +35,11 @@ export const PERMISSIONS = {
   'purchase-order': ['create', 'read', 'update', 'delete', 'approve'],
   delivery:         ['create', 'read', 'update'],
   inventory:        ['create', 'read', 'update', 'delete'],
+  warehouse:        ['create', 'read', 'update', 'delete'],
+  'warehouse-location': ['create', 'read', 'update', 'delete'],
   stock:            ['read', 'update'],
   'goods-receipt':  ['create', 'read'],
+  'erp-sync':       ['read', 'manage'],
 
   // ── CONTRACTS & ENGINEERING ────────────────────────────────────────────────
   // Modèles : Contract, ContractLineItem, ChangeOrder, RFI, Submittal
@@ -54,7 +57,7 @@ export const PERMISSIONS = {
   // ── REPORTING ──────────────────────────────────────────────────────────────
   // Modèles : WeeklyReport, ControlReport, WorkAcceptance
   report:           ['create', 'read', 'update', 'validate'],
-  'control-report': ['create', 'read'],
+  'control-report': ['create', 'read', 'update', 'approve'],
   'work-acceptance':['create', 'read', 'approve'],
 
   // ── SITE OPERATIONS ────────────────────────────────────────────────────────
@@ -115,8 +118,11 @@ const RESOURCE_LABELS: Record<string, string> = {
   'purchase-order':  'bon de commande',
   delivery:          'livraison',
   inventory:         "article d'inventaire",
+  warehouse:         'magasin',
+  'warehouse-location': 'emplacement de magasin',
   stock:             'stock projet',
   'goods-receipt':   'bon de réception',
+  'erp-sync':        'synchronisation ERP',
   contract:          'contrat',
   'change-order':    'avenant',
   rfi:               'RFI',

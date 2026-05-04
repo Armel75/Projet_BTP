@@ -33,7 +33,30 @@ interface PunchItem {
   assignedTo?: { id: number; firstname: string; lastname: string } | null;
 }
 
-interface Project { id: number; code: string; title: string; }
+interface Project { id: number; code: string; title: string; phase?: string | null; }
+
+const PUNCH_WORKFLOW_GUARD = {
+  allowedPhases: ["PREPARATION", "EXECUTION"],
+  reason: "Les reserves sont modifiables uniquement pendant les phases Preparation et Execution.",
+} as const;
+
+const PROJECT_PHASE_LABELS: Record<string, string> = {
+  ETUDE: "Etude",
+  PREPARATION: "Preparation",
+  EXECUTION: "Execution",
+  RECEPTION: "Reception",
+  CLOTURE: "Cloture",
+};
+
+function isPunchPhaseAllowed(phase?: string | null) {
+  if (!phase) return true;
+  return PUNCH_WORKFLOW_GUARD.allowedPhases.includes(phase as "PREPARATION" | "EXECUTION");
+}
+
+function getProjectPhaseLabel(phase?: string | null) {
+  if (!phase) return "Non defini";
+  return PROJECT_PHASE_LABELS[phase] ?? phase;
+}
 
 // ─── Config ───────────────────────────────────────────────────────────────────
 
@@ -199,7 +222,7 @@ function CategoryBar({ items, onFilter, activeFilter }: {
 // ─── Punch Item Detail Drawer ─────────────────────────────────────────────────
 
 function PunchItemDetailDrawer({
-  item, onClose, onStatusChange, onDelete, onEdit, canEdit, canDelete
+  item, onClose, onStatusChange, onDelete, onEdit, canEdit, canDelete, canMutate, workflowBlockMessage
 }: {
   item: PunchItem;
   onClose: () => void;
@@ -208,11 +231,13 @@ function PunchItemDetailDrawer({
   onEdit: (item: PunchItem) => void;
   canEdit: boolean;
   canDelete: boolean;
+  canMutate: boolean;
+  workflowBlockMessage?: string | null;
 }) {
   const cat      = getCategoryMeta(item.category);
   const priority = getPriorityMeta(item.priority);
   const status   = getStatusMeta(item.status);
-  const catIcon  = cat.icon;
+  const CatIcon  = cat.icon;
   const nextStep = NEXT_STATUS[item.status];
   const overdue  = isDueSoon(item.due_date) && item.status !== "CLOSED" && item.status !== "VERIFIED";
 
@@ -263,7 +288,7 @@ function PunchItemDetailDrawer({
           )}
           <div className="flex items-start justify-between gap-3 mb-3">
             <div className="flex items-center gap-2 flex-wrap">
-              <catIcon size={20} className={cat.color} />
+              <CatIcon size={20} className={cat.color} />
               <span className={`text-xs font-bold uppercase tracking-widest ${cat.color}`}>{cat.label}</span>
               <span className="text-gb-muted/30">·</span>
               <span className="text-xs font-mono text-gb-muted">#{item.id}</span>
@@ -385,10 +410,17 @@ function PunchItemDetailDrawer({
 
         {/* Footer actions */}
         <div className="p-6 border-t border-gb-border bg-gb-surface-solid/50 shrink-0 flex items-center gap-3">
+          {!canMutate && workflowBlockMessage && (
+            <div className="flex-1 flex items-center gap-2 text-xs font-semibold text-amber-500 bg-amber-500/10 border border-amber-500/20 rounded-xl px-3 py-2">
+              <AlertCircle size={14} />
+              {workflowBlockMessage}
+            </div>
+          )}
           {canEdit && nextStep && (
             <button
               onClick={() => onStatusChange(item.id, nextStep.next)}
-              className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-gb-primary text-gb-inverse font-bold text-sm hover:bg-gb-primary/90 transition-colors"
+              disabled={!canMutate}
+              className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-gb-primary text-gb-inverse font-bold text-sm hover:bg-gb-primary/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <ArrowUpRight size={15} />
               {nextStep.label}
@@ -397,7 +429,8 @@ function PunchItemDetailDrawer({
           {canEdit && item.status === "SUBMITTED" && (
             <button
               onClick={() => onStatusChange(item.id, "REJECTED")}
-              className="flex items-center gap-2 px-4 py-2.5 rounded-xl border border-red-500/30 text-red-500 font-bold text-sm hover:bg-red-500/10 transition-colors"
+              disabled={!canMutate}
+              className="flex items-center gap-2 px-4 py-2.5 rounded-xl border border-red-500/30 text-red-500 font-bold text-sm hover:bg-red-500/10 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <XCircle size={15} />
               Rejeter
@@ -406,7 +439,8 @@ function PunchItemDetailDrawer({
           {canDelete && (
             <button
               onClick={() => { if (window.confirm("Supprimer cette réserve ?")) onDelete(item.id); }}
-              className="p-2.5 rounded-xl border border-gb-danger/30 text-gb-danger hover:bg-gb-danger/10 transition-colors"
+              disabled={!canMutate}
+              className="p-2.5 rounded-xl border border-gb-danger/30 text-gb-danger hover:bg-gb-danger/10 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <Trash2 size={16} />
             </button>
@@ -453,10 +487,17 @@ function PunchItemFormDialog({
   }, [open, item]);
 
   const set = (k: string, v: string) => setForm(f => ({ ...f, [k]: v }));
+  const selectedProject = projects.find((p) => p.id === Number(form.project_id));
+  const canMutateSelectedProject = !selectedProject || isPunchPhaseAllowed(selectedProject.phase);
+  const selectedProjectPhaseLabel = getProjectPhaseLabel(selectedProject?.phase);
 
   const save = async () => {
     if (!form.title.trim() || !form.description.trim() || !form.project_id) {
       setError("Titre, description et projet sont obligatoires.");
+      return;
+    }
+    if (!canMutateSelectedProject) {
+      setError(`${PUNCH_WORKFLOW_GUARD.reason} Phase actuelle: ${selectedProjectPhaseLabel}.`);
       return;
     }
     setSaving(true);
@@ -525,7 +566,7 @@ function PunchItemFormDialog({
               <h3 className="text-base font-black text-gb-text">
                 {item ? "Modifier la réserve" : "Saisir une réserve"}
               </h3>
-              <p className="text-xs text-gb-muted">Punch list — levée de réserves chantier</p>
+              <p className="text-xs text-gb-muted">Levée des réserves — gestion chantier</p>
             </div>
           </div>
           <button onClick={onClose} className="p-1.5 rounded-lg text-gb-muted hover:bg-gb-surface-hover transition-colors">
@@ -551,10 +592,21 @@ function PunchItemFormDialog({
               <label className={labelCls}>Projet <span className="text-red-400">*</span></label>
               <select className={inputCls} value={form.project_id} onChange={e => set("project_id", e.target.value)}>
                 <option value="">— Sélectionner un projet —</option>
-                {projects.map(p => <option key={p.id} value={p.id}>{p.code} — {p.title}</option>)}
+                {projects.map(p => (
+                  <option key={p.id} value={p.id} disabled={!isPunchPhaseAllowed(p.phase)}>
+                    {p.code} — {p.title}{!isPunchPhaseAllowed(p.phase) ? ` (${getProjectPhaseLabel(p.phase)})` : ""}
+                  </option>
+                ))}
               </select>
             </div>
           </div>
+
+          {selectedProject && !canMutateSelectedProject && (
+            <div className="flex items-center gap-2 text-sm text-amber-500 bg-amber-500/10 border border-amber-500/20 rounded-xl px-4 py-3">
+              <AlertCircle size={15} />
+              {PUNCH_WORKFLOW_GUARD.reason} Phase actuelle: {selectedProjectPhaseLabel}.
+            </div>
+          )}
 
           {/* Catégorie + Priorité + Statut */}
           <div className="grid grid-cols-3 gap-4">
@@ -629,7 +681,7 @@ function PunchItemFormDialog({
           </button>
           <button
             onClick={save}
-            disabled={saving}
+            disabled={saving || !canMutateSelectedProject}
             className="flex items-center gap-2 px-6 py-2.5 rounded-xl bg-gb-primary text-gb-inverse font-bold text-sm hover:bg-gb-primary/90 transition-colors disabled:opacity-50"
           >
             {saving ? <Loader2 size={15} className="animate-spin" /> : <ListTodo size={15} />}
@@ -733,6 +785,7 @@ export default function PunchListView() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [workflowNotice, setWorkflowNotice] = useState<string | null>(null);
 
   const [filterProject,  setFilterProject]  = useState("");
   const [filterStatus,   setFilterStatus]   = useState("");
@@ -777,6 +830,14 @@ export default function PunchListView() {
   useEffect(() => { loadProjects(); }, [loadProjects]);
 
   const handleStatusChange = async (id: number, status: string) => {
+    const current = items.find((i) => i.id === id);
+    const projectPhase = current?.project?.id
+      ? projects.find((p) => p.id === current.project?.id)?.phase
+      : null;
+    if (!isPunchPhaseAllowed(projectPhase)) {
+      setWorkflowNotice(`${PUNCH_WORKFLOW_GUARD.reason} Phase actuelle: ${getProjectPhaseLabel(projectPhase)}.`);
+      return;
+    }
     try {
       const res = await apiFetch(`${API_BASE}/punch-items/${id}`, {
         method: "PUT",
@@ -787,14 +848,24 @@ export default function PunchListView() {
       const updated = await res.json();
       setItems(prev => prev.map(i => i.id === id ? updated : i));
       if (selected?.id === id) setSelected(updated);
+      setWorkflowNotice(null);
     } catch {}
   };
 
   const handleDelete = async (id: number) => {
+    const current = items.find((i) => i.id === id);
+    const projectPhase = current?.project?.id
+      ? projects.find((p) => p.id === current.project?.id)?.phase
+      : null;
+    if (!isPunchPhaseAllowed(projectPhase)) {
+      setWorkflowNotice(`${PUNCH_WORKFLOW_GUARD.reason} Phase actuelle: ${getProjectPhaseLabel(projectPhase)}.`);
+      return;
+    }
     try {
       await apiFetch(`${API_BASE}/punch-items/${id}`, { method: "DELETE" });
       setItems(prev => prev.filter(i => i.id !== id));
       setSelected(null);
+      setWorkflowNotice(null);
     } catch {}
   };
 
@@ -818,7 +889,7 @@ export default function PunchListView() {
         <div>
           <h1 className="text-2xl font-black tracking-tight text-gb-text flex items-center gap-2.5">
             <ListTodo size={24} className="text-amber-500" />
-            Punch List
+            Levée des réserves
           </h1>
           <p className="text-sm text-gb-muted mt-0.5">Gestion des réserves et levées de réserves — réception des travaux</p>
         </div>
@@ -857,6 +928,13 @@ export default function PunchListView() {
           </motion.div>
         )}
       </AnimatePresence>
+
+      {workflowNotice && (
+        <div className="flex items-center gap-2 text-sm text-amber-500 bg-amber-500/10 border border-amber-500/20 rounded-xl px-4 py-3">
+          <AlertCircle size={15} />
+          {workflowNotice}
+        </div>
+      )}
 
       {/* Category distribution */}
       {!loading && items.length > 0 && (
@@ -981,6 +1059,10 @@ export default function PunchListView() {
             onEdit={openEdit}
             canEdit={canEdit}
             canDelete={canDelete}
+            canMutate={isPunchPhaseAllowed(projects.find((p) => p.id === selected.project?.id)?.phase)}
+            workflowBlockMessage={selected.project?.id
+              ? `${PUNCH_WORKFLOW_GUARD.reason} Phase actuelle: ${getProjectPhaseLabel(projects.find((p) => p.id === selected.project?.id)?.phase)}.`
+              : PUNCH_WORKFLOW_GUARD.reason}
           />
         )}
       </AnimatePresence>

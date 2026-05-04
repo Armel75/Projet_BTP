@@ -4,7 +4,7 @@ import {
   CheckCircle2, XCircle, Clock, Calendar, MapPin, User,
   BookOpen, Eye, Pencil, Trash2, ArrowUpRight, ChevronRight,
   BarChart2, Activity, ListChecks, AlertTriangle, CheckCheck,
-  Tag
+  Tag, FileDown
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { apiFetch, API_BASE } from "../lib/api";
@@ -30,10 +30,16 @@ interface Inspection {
   type: string;   // DAILY | HOLD_POINT | WITNESS_POINT | FINAL
   status: string; // SCHEDULED | IN_PROGRESS | PASSED | FAILED
   scheduled_date?: string;
+  date_scheduled?: string;
   completed_date?: string;
   description?: string;
   location?: string;
   reference_norm?: string;
+  checklist_template_id?: number;
+  inspection_result?: string;
+  evidence_photos_required?: boolean;
+  approval_workflow_status?: string;
+  rework_required?: boolean;
   created_at: string;
   updated_at: string;
   project?: { id: number; code: string; title: string };
@@ -43,7 +49,36 @@ interface Inspection {
   items: InspectionItem[];
 }
 
-interface Project { id: number; code: string; title: string; }
+interface Project { id: number; code: string; title: string; phase?: string | null; }
+interface UserOption {
+  id: number;
+  firstname?: string;
+  lastname?: string;
+  email?: string;
+}
+
+const INSPECTION_WORKFLOW_GUARD = {
+  allowedPhases: ["PREPARATION", "EXECUTION"],
+  reason: "Les inspections sont modifiables uniquement pendant les phases Preparation et Execution.",
+} as const;
+
+const PROJECT_PHASE_LABELS: Record<string, string> = {
+  ETUDE: "Etude",
+  PREPARATION: "Preparation",
+  EXECUTION: "Execution",
+  RECEPTION: "Reception",
+  CLOTURE: "Cloture",
+};
+
+function isInspectionPhaseAllowed(phase?: string | null) {
+  if (!phase) return true;
+  return INSPECTION_WORKFLOW_GUARD.allowedPhases.includes(phase as "PREPARATION" | "EXECUTION");
+}
+
+function getProjectPhaseLabel(phase?: string | null) {
+  if (!phase) return "Non defini";
+  return PROJECT_PHASE_LABELS[phase] ?? phase;
+}
 
 // ─── Config ──────────────────────────────────────────────────────────────────
 
@@ -67,10 +102,27 @@ const ITEM_RESULTS: { value: string; label: string; color: string; bg: string; d
   { value: "N/A",  label: "Sans objet",  color: "text-slate-400",   bg: "bg-slate-400/10 border-slate-400/30",     dot: "bg-slate-400" },
 ];
 
+const WORKFLOW_STATUSES: { value: string; label: string }[] = [
+  { value: "DRAFT", label: "Brouillon" },
+  { value: "IN_REVIEW", label: "En revision" },
+  { value: "APPROVED", label: "Approuve" },
+  { value: "REJECTED", label: "Rejete" },
+  { value: "ARCHIVED", label: "Archive" },
+];
+
+const INSPECTION_RESULTS: { value: string; label: string }[] = [
+  { value: "PASSED", label: "Conforme" },
+  { value: "FAILED", label: "Non conforme" },
+  { value: "WITH_RESERVES", label: "Avec reserves" },
+];
+
 const EMPTY_FORM = {
   title: "", description: "", location: "", reference_norm: "",
   type: "DAILY", status: "SCHEDULED", project_id: "",
-  scheduled_date: "", inspector_id: "",
+  scheduled_date: "", date_scheduled: "", inspector_id: "",
+  checklist_template_id: "", inspection_result: "",
+  evidence_photos_required: "false", approval_workflow_status: "",
+  rework_required: "false",
 };
 
 const EMPTY_ITEM = { description: "", category: "", result: "", comment: "", order: 0 };
@@ -80,6 +132,8 @@ const EMPTY_ITEM = { description: "", category: "", result: "", comment: "", ord
 function getTypeMeta(v: string) { return TYPES.find(t => t.value === v) ?? TYPES[0]; }
 function getStatusMeta(v: string) { return STATUSES.find(s => s.value === v) ?? STATUSES[0]; }
 function getItemResultMeta(v?: string) { return ITEM_RESULTS.find(r => r.value === v) ?? null; }
+function getWorkflowStatusLabel(v?: string) { return WORKFLOW_STATUSES.find(s => s.value === v)?.label ?? v ?? "-"; }
+function getInspectionResultLabel(v?: string) { return INSPECTION_RESULTS.find(r => r.value === v)?.label ?? v ?? "-"; }
 
 function computeScore(items: InspectionItem[]) {
   const rated = items.filter(i => i.result === "PASS" || i.result === "FAIL");
@@ -116,6 +170,29 @@ function ScorePill({ score }: { score: number }) {
       {score}%
     </span>
   );
+}
+
+async function downloadInspectionPdf(inspection: Inspection) {
+  try {
+    const res = await apiFetch(`${API_BASE}/inspections/${inspection.id}/pdf`);
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      alert(err.error || "Impossible de générer le rapport PDF d'inspection.");
+      return;
+    }
+
+    const blob = await res.blob();
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `INSP-${String(inspection.id).padStart(4, "0")}.pdf`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    window.URL.revokeObjectURL(url);
+  } catch {
+    alert("Impossible de générer le rapport PDF d'inspection.");
+  }
 }
 
 // ─── KPI Card ─────────────────────────────────────────────────────────────────
@@ -317,15 +394,18 @@ function ChecklistPanel({
 // ─── Inspection Detail Drawer ─────────────────────────────────────────────────
 
 function InspectionDetailDrawer({
-  inspection, onClose, onStatusChange, onDelete, onItemUpdate, canEdit, canDelete
+  inspection, onClose, onEdit, onStatusChange, onDelete, onItemUpdate, canEdit, canDelete, canMutate, workflowBlockMessage
 }: {
   inspection: Inspection;
   onClose: () => void;
+  onEdit: (inspection: Inspection) => void;
   onStatusChange: (id: number, status: string) => void;
   onDelete: (id: number) => void;
   onItemUpdate: (inspectionId: number, itemId: number, result: string, comment: string) => void;
   canEdit: boolean;
   canDelete: boolean;
+  canMutate: boolean;
+  workflowBlockMessage?: string | null;
 }) {
   const type   = getTypeMeta(inspection.type);
   const status = getStatusMeta(inspection.status);
@@ -425,6 +505,33 @@ function InspectionDetailDrawer({
                 <p className="text-sm font-semibold text-gb-text font-mono">{inspection.reference_norm}</p>
               </div>
             )}
+            {inspection.date_scheduled && (
+              <div className="bg-gb-surface-solid border border-gb-border rounded-xl p-3">
+                <p className="text-[10px] font-bold text-gb-muted uppercase tracking-widest mb-1 flex items-center gap-1"><Calendar size={10} /> Date métier</p>
+                <p className="text-sm font-semibold text-gb-text">{format(new Date(inspection.date_scheduled), "d MMM yyyy", { locale: fr })}</p>
+              </div>
+            )}
+            {inspection.approval_workflow_status && (
+              <div className="bg-gb-surface-solid border border-gb-border rounded-xl p-3">
+                <p className="text-[10px] font-bold text-gb-muted uppercase tracking-widest mb-1">Workflow</p>
+                <p className="text-sm font-semibold text-gb-text">{inspection.approval_workflow_status}</p>
+              </div>
+            )}
+            {inspection.inspection_result && (
+              <div className="bg-gb-surface-solid border border-gb-border rounded-xl p-3">
+                <p className="text-[10px] font-bold text-gb-muted uppercase tracking-widest mb-1">Résultat global</p>
+                <p className="text-sm font-semibold text-gb-text">{inspection.inspection_result}</p>
+              </div>
+            )}
+            {(inspection.evidence_photos_required || inspection.rework_required) && (
+              <div className="col-span-2 bg-gb-surface-solid border border-gb-border rounded-xl p-3">
+                <p className="text-[10px] font-bold text-gb-muted uppercase tracking-widest mb-1">Indicateurs</p>
+                <p className="text-sm font-semibold text-gb-text">
+                  {inspection.evidence_photos_required ? "Preuves photo requises" : "Preuves photo non requises"}
+                  {inspection.rework_required ? " · Reprise requise" : ""}
+                </p>
+              </div>
+            )}
           </div>
 
           {inspection.description && (
@@ -437,11 +544,17 @@ function InspectionDetailDrawer({
           <Section title={`Points de contrôle (${inspection.items.length})`}>
             <ChecklistPanel
               items={inspection.items}
-              canEdit={canEdit}
+              canEdit={canEdit && canMutate}
               onItemUpdate={(itemId, result, comment) =>
                 onItemUpdate(inspection.id, itemId, result, comment)
               }
             />
+            {!canMutate && workflowBlockMessage && (
+              <div className="mt-3 flex items-center gap-2 text-xs font-semibold text-amber-500 bg-amber-500/10 border border-amber-500/20 rounded-xl px-3 py-2">
+                <AlertCircle size={14} />
+                {workflowBlockMessage}
+              </div>
+            )}
           </Section>
 
           <Section title="Méta">
@@ -454,33 +567,59 @@ function InspectionDetailDrawer({
         </div>
 
         {/* Footer */}
-        <div className="p-6 border-t border-gb-border bg-gb-surface-solid/50 shrink-0 flex items-center gap-3">
-          {canEdit && next && (
+        <div className="p-6 border-t border-gb-border bg-gb-surface-solid/50 shrink-0 space-y-3">
+          {/* Row 1 : actions principales */}
+          <div className="flex items-center gap-3 flex-wrap">
+            {canEdit && (
+              <button
+                onClick={() => { onClose(); onEdit(inspection); }}
+                className="flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl border border-gb-primary/30 text-gb-primary font-bold text-sm hover:bg-gb-primary/10 transition-colors"
+              >
+                <Pencil size={15} />
+                Modifier
+              </button>
+            )}
+            {canEdit && next && (
+              <button
+                onClick={() => onStatusChange(inspection.id, next)}
+                disabled={!canMutate}
+                className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-gb-primary text-gb-inverse font-bold text-sm hover:bg-gb-primary/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <ArrowUpRight size={15} />
+                {next === "IN_PROGRESS" ? "Démarrer l'inspection" : "Valider (PASSED)"}
+              </button>
+            )}
+            {canEdit && inspection.status === "IN_PROGRESS" && (
+              <button
+                onClick={() => onStatusChange(inspection.id, "FAILED")}
+                disabled={!canMutate}
+                className="flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl border border-red-500/30 text-red-500 font-bold text-sm hover:bg-red-500/10 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <XCircle size={15} />
+                Échouée
+              </button>
+            )}
+            {canDelete && (
+              <button
+                onClick={() => { if (window.confirm("Supprimer cette inspection ?")) onDelete(inspection.id); }}
+                disabled={!canMutate}
+                className="p-2.5 rounded-xl border border-gb-danger/30 text-gb-danger hover:bg-gb-danger/10 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <Trash2 size={16} />
+              </button>
+            )}
+          </div>
+          {/* Row 2 : PDF */}
+          <div className="flex">
             <button
-              onClick={() => onStatusChange(inspection.id, next)}
-              className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-gb-primary text-gb-inverse font-bold text-sm hover:bg-gb-primary/90 transition-colors"
+              onClick={() => downloadInspectionPdf(inspection)}
+              className="flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl border border-gb-border text-gb-text font-bold text-sm hover:bg-gb-surface-hover transition-colors w-full"
             >
-              <ArrowUpRight size={15} />
-              {next === "IN_PROGRESS" ? "Démarrer l'inspection" : "Valider (PASSED)"}
+              <FileDown size={15} className="text-red-500" />
+              Télécharger le rapport PDF d'inspection
             </button>
-          )}
-          {canEdit && inspection.status === "IN_PROGRESS" && (
-            <button
-              onClick={() => onStatusChange(inspection.id, "FAILED")}
-              className="flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl border border-red-500/30 text-red-500 font-bold text-sm hover:bg-red-500/10 transition-colors"
-            >
-              <XCircle size={15} />
-              Échouée
-            </button>
-          )}
-          {canDelete && (
-            <button
-              onClick={() => { if (window.confirm("Supprimer cette inspection ?")) onDelete(inspection.id); }}
-              className="p-2.5 rounded-xl border border-gb-danger/30 text-gb-danger hover:bg-gb-danger/10 transition-colors"
-            >
-              <Trash2 size={16} />
-            </button>
-          )}
+          </div>
+
         </div>
       </motion.aside>
     </motion.div>
@@ -509,8 +648,46 @@ function InspectionFormDialog({
 }) {
   const [form, setForm] = useState({ ...EMPTY_FORM });
   const [items, setItems] = useState<ItemDraft[]>([]);
+  const [users, setUsers] = useState<UserOption[]>([]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+
+    const loadUsers = async () => {
+      const endpoints = [
+        `${API_BASE}/resources/users?limit=200`,
+        `${API_BASE}/rbac/users`,
+      ];
+
+      for (const endpoint of endpoints) {
+        try {
+          const res = await apiFetch(endpoint);
+          if (!res.ok) continue;
+          const data = await res.json();
+          const list = Array.isArray(data) ? data : (Array.isArray(data?.data) ? data.data : []);
+          if (!cancelled) {
+            setUsers(list);
+          }
+          return;
+        } catch {
+          // Ignore and try the next endpoint.
+        }
+      }
+
+      if (!cancelled) {
+        setUsers([]);
+      }
+    };
+
+    loadUsers();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [open]);
 
   useEffect(() => {
     if (open) {
@@ -524,7 +701,13 @@ function InspectionFormDialog({
           status:         inspection.status,
           project_id:     String(inspection.project?.id ?? ""),
           scheduled_date: inspection.scheduled_date ? inspection.scheduled_date.slice(0, 10) : "",
+          date_scheduled: inspection.date_scheduled ? inspection.date_scheduled.slice(0, 10) : "",
           inspector_id:   String(inspection.inspector?.id ?? ""),
+          checklist_template_id: inspection.checklist_template_id ? String(inspection.checklist_template_id) : "",
+          inspection_result: inspection.inspection_result ?? "",
+          evidence_photos_required: inspection.evidence_photos_required ? "true" : "false",
+          approval_workflow_status: inspection.approval_workflow_status ?? "",
+          rework_required: inspection.rework_required ? "true" : "false",
         });
         setItems(inspection.items.map(i => ({
           id:          i.id,
@@ -543,6 +726,9 @@ function InspectionFormDialog({
   }, [open, inspection]);
 
   const set = (k: string, v: string) => setForm(f => ({ ...f, [k]: v }));
+  const selectedProject = projects.find((p) => p.id === Number(form.project_id));
+  const canMutateSelectedProject = !selectedProject || isInspectionPhaseAllowed(selectedProject.phase);
+  const selectedProjectPhaseLabel = getProjectPhaseLabel(selectedProject?.phase);
 
   const addItem = () => {
     setItems(prev => [...prev, { ...EMPTY_ITEM, order: prev.length }]);
@@ -561,6 +747,10 @@ function InspectionFormDialog({
       setError("Titre et projet sont obligatoires.");
       return;
     }
+    if (!canMutateSelectedProject) {
+      setError(`${INSPECTION_WORKFLOW_GUARD.reason} Phase actuelle: ${selectedProjectPhaseLabel}.`);
+      return;
+    }
     setSaving(true);
     setError(null);
     try {
@@ -573,7 +763,13 @@ function InspectionFormDialog({
         status:         form.status,
         project_id:     Number(form.project_id),
         scheduled_date: form.scheduled_date || undefined,
+        date_scheduled: form.date_scheduled || undefined,
         inspector_id:   form.inspector_id ? Number(form.inspector_id) : undefined,
+        checklist_template_id: form.checklist_template_id ? Number(form.checklist_template_id) : undefined,
+        inspection_result: form.inspection_result || undefined,
+        evidence_photos_required: form.evidence_photos_required === "true",
+        approval_workflow_status: form.approval_workflow_status || undefined,
+        rework_required: form.rework_required === "true",
         items: items
           .filter(i => i.description.trim())
           .map((i, idx) => ({
@@ -617,7 +813,6 @@ function InspectionFormDialog({
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
       className="fixed inset-0 z-50 flex items-center justify-center p-4"
-      onClick={onClose}
     >
       <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" />
       <motion.div
@@ -645,7 +840,6 @@ function InspectionFormDialog({
             <X size={18} />
           </button>
         </div>
-
         {/* Dialog body */}
         <div className="overflow-y-auto flex-1 p-6 space-y-5">
 
@@ -659,10 +853,21 @@ function InspectionFormDialog({
               <label className={labelCls}>Projet <span className="text-red-400">*</span></label>
               <select className={inputCls} value={form.project_id} onChange={e => set("project_id", e.target.value)}>
                 <option value="">— Sélectionner un projet —</option>
-                {projects.map(p => <option key={p.id} value={p.id}>{p.code} — {p.title}</option>)}
+                {projects.map(p => (
+                  <option key={p.id} value={p.id} disabled={!isInspectionPhaseAllowed(p.phase)}>
+                    {p.code} — {p.title}{!isInspectionPhaseAllowed(p.phase) ? ` (${getProjectPhaseLabel(p.phase)})` : ""}
+                  </option>
+                ))}
               </select>
             </div>
           </div>
+
+          {selectedProject && !canMutateSelectedProject && (
+            <div className="flex items-center gap-2 text-sm text-amber-500 bg-amber-500/10 border border-amber-500/20 rounded-xl px-4 py-3">
+              <AlertCircle size={15} />
+              {INSPECTION_WORKFLOW_GUARD.reason} Phase actuelle: {selectedProjectPhaseLabel}.
+            </div>
+          )}
 
           {/* Type + Statut + Date */}
           <div className="grid grid-cols-3 gap-4">
@@ -681,6 +886,68 @@ function InspectionFormDialog({
             <div>
               <label className={labelCls}>Date planifiée</label>
               <input type="date" className={inputCls} value={form.scheduled_date} onChange={e => set("scheduled_date", e.target.value)} />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-3 gap-4">
+            <div>
+              <label className={labelCls}>Date métier planifiée</label>
+              <input type="date" className={inputCls} value={form.date_scheduled} onChange={e => set("date_scheduled", e.target.value)} />
+            </div>
+            <div>
+              <label className={labelCls}>Responsable</label>
+              <select className={inputCls} value={form.inspector_id} onChange={e => set("inspector_id", e.target.value)}>
+                <option value="">— Non assigné —</option>
+                {form.inspector_id && !users.some(u => String(u.id) === form.inspector_id) && (
+                  <option value={form.inspector_id}>Utilisateur #{form.inspector_id}</option>
+                )}
+                {users.map((u) => (
+                  <option key={u.id} value={u.id}>
+                    {`${u.firstname ?? ""} ${u.lastname ?? ""}`.trim() || u.email || `Utilisateur ${u.id}`}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className={labelCls}>Statut workflow</label>
+              <select className={inputCls} value={form.approval_workflow_status} onChange={e => set("approval_workflow_status", e.target.value)}>
+                <option value="">— Non défini —</option>
+                {form.approval_workflow_status && !WORKFLOW_STATUSES.some(s => s.value === form.approval_workflow_status) && (
+                  <option value={form.approval_workflow_status}>{form.approval_workflow_status}</option>
+                )}
+                {WORKFLOW_STATUSES.map((s) => (
+                  <option key={s.value} value={s.value}>{s.label}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-3 gap-4">
+            <div>
+              <label className={labelCls}>Résultat inspection</label>
+              <select className={inputCls} value={form.inspection_result} onChange={e => set("inspection_result", e.target.value)}>
+                <option value="">— Non défini —</option>
+                {form.inspection_result && !INSPECTION_RESULTS.some(r => r.value === form.inspection_result) && (
+                  <option value={form.inspection_result}>{form.inspection_result}</option>
+                )}
+                {INSPECTION_RESULTS.map((r) => (
+                  <option key={r.value} value={r.value}>{r.label}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className={labelCls}>Preuves photo requises</label>
+              <select className={inputCls} value={form.evidence_photos_required} onChange={e => set("evidence_photos_required", e.target.value)}>
+                <option value="false">Non</option>
+                <option value="true">Oui</option>
+              </select>
+            </div>
+            <div>
+              <label className={labelCls}>Reprise requise</label>
+              <select className={inputCls} value={form.rework_required} onChange={e => set("rework_required", e.target.value)}>
+                <option value="false">Non</option>
+                <option value="true">Oui</option>
+              </select>
             </div>
           </div>
 
@@ -791,7 +1058,7 @@ function InspectionFormDialog({
             </button>
             <button
               onClick={save}
-              disabled={saving}
+              disabled={saving || !canMutateSelectedProject}
               className="flex items-center gap-2 px-6 py-2.5 rounded-xl bg-gb-primary text-gb-inverse font-bold text-sm hover:bg-gb-primary/90 transition-colors disabled:opacity-50"
             >
               {saving ? <Loader2 size={15} className="animate-spin" /> : <ClipboardCheck size={15} />}
@@ -914,6 +1181,7 @@ export default function InspectionsView() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [workflowNotice, setWorkflowNotice] = useState<string | null>(null);
 
   const [filterProject, setFilterProject] = useState("");
   const [filterStatus,  setFilterStatus]  = useState("");
@@ -956,6 +1224,14 @@ export default function InspectionsView() {
   useEffect(() => { loadProjects(); }, [loadProjects]);
 
   const handleStatusChange = async (id: number, status: string) => {
+    const current = inspections.find((i) => i.id === id);
+    const projectPhase = current?.project?.id
+      ? projects.find((p) => p.id === current.project?.id)?.phase
+      : null;
+    if (!isInspectionPhaseAllowed(projectPhase)) {
+      setWorkflowNotice(`${INSPECTION_WORKFLOW_GUARD.reason} Phase actuelle: ${getProjectPhaseLabel(projectPhase)}.`);
+      return;
+    }
     try {
       const res = await apiFetch(`${API_BASE}/inspections/${id}`, {
         method: "PUT",
@@ -966,18 +1242,36 @@ export default function InspectionsView() {
       const updated = await res.json();
       setInspections(prev => prev.map(i => i.id === id ? updated : i));
       if (selected?.id === id) setSelected(updated);
+      setWorkflowNotice(null);
     } catch {}
   };
 
   const handleDelete = async (id: number) => {
+    const current = inspections.find((i) => i.id === id);
+    const projectPhase = current?.project?.id
+      ? projects.find((p) => p.id === current.project?.id)?.phase
+      : null;
+    if (!isInspectionPhaseAllowed(projectPhase)) {
+      setWorkflowNotice(`${INSPECTION_WORKFLOW_GUARD.reason} Phase actuelle: ${getProjectPhaseLabel(projectPhase)}.`);
+      return;
+    }
     try {
       await apiFetch(`${API_BASE}/inspections/${id}`, { method: "DELETE" });
       setInspections(prev => prev.filter(i => i.id !== id));
       setSelected(null);
+      setWorkflowNotice(null);
     } catch {}
   };
 
   const handleItemUpdate = async (inspectionId: number, itemId: number, result: string, comment: string) => {
+    const current = inspections.find((i) => i.id === inspectionId);
+    const projectPhase = current?.project?.id
+      ? projects.find((p) => p.id === current.project?.id)?.phase
+      : null;
+    if (!isInspectionPhaseAllowed(projectPhase)) {
+      setWorkflowNotice(`${INSPECTION_WORKFLOW_GUARD.reason} Phase actuelle: ${getProjectPhaseLabel(projectPhase)}.`);
+      return;
+    }
     try {
       const inspection = inspections.find(i => i.id === inspectionId);
       if (!inspection) return;
@@ -993,6 +1287,7 @@ export default function InspectionsView() {
       const updated = await res.json();
       setInspections(prev => prev.map(i => i.id === inspectionId ? updated : i));
       if (selected?.id === inspectionId) setSelected(updated);
+      setWorkflowNotice(null);
     } catch {}
   };
 
@@ -1061,6 +1356,13 @@ export default function InspectionsView() {
           </motion.div>
         )}
       </AnimatePresence>
+
+      {workflowNotice && (
+        <div className="flex items-center gap-2 text-sm text-amber-500 bg-amber-500/10 border border-amber-500/20 rounded-xl px-4 py-3">
+          <AlertCircle size={15} />
+          {workflowNotice}
+        </div>
+      )}
 
       {/* ─── Filters ──────────────────────────────────────────────────────── */}
       <div className="flex items-center gap-3 flex-wrap">
@@ -1171,11 +1473,16 @@ export default function InspectionsView() {
           <InspectionDetailDrawer
             inspection={selected}
             onClose={() => setSelected(null)}
+            onEdit={(insp) => { setSelected(null); openEdit(insp); }}
             onStatusChange={handleStatusChange}
             onDelete={handleDelete}
             onItemUpdate={handleItemUpdate}
             canEdit={canEdit}
             canDelete={canDelete}
+            canMutate={isInspectionPhaseAllowed(projects.find((p) => p.id === selected.project?.id)?.phase)}
+            workflowBlockMessage={selected.project?.id
+              ? `${INSPECTION_WORKFLOW_GUARD.reason} Phase actuelle: ${getProjectPhaseLabel(projects.find((p) => p.id === selected.project?.id)?.phase)}.`
+              : INSPECTION_WORKFLOW_GUARD.reason}
           />
         )}
       </AnimatePresence>

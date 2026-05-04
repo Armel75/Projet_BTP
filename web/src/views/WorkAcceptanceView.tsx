@@ -4,7 +4,7 @@ import {
   XCircle, Clock, Calendar, User, FileText, ChevronRight,
   BarChart3, ArrowUpRight, Pencil, Trash2, AlertTriangle,
   Building2, ShieldCheck, Ban, RefreshCcw, CheckCheck,
-  Banknote, CalendarCheck, CalendarClock, Users, Link2
+  Banknote, CalendarCheck, CalendarClock, Users, Link2, Download
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { apiFetch, API_BASE } from "../lib/api";
@@ -238,6 +238,28 @@ function AttendeesTable({ raw }: { raw?: string }) {
 }
 
 // ─── Detail Drawer ────────────────────────────────────────────────────────────
+
+async function handleGeneratePdf(wa: WorkAcceptance) {
+  try {
+    const res = await apiFetch(`${API_BASE}/work-acceptances/${wa.id}/pdf`);
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      alert(err.error || 'Impossible de générer le PDF.');
+      return;
+    }
+    const blob = await res.blob();
+    const url  = window.URL.createObjectURL(blob);
+    const a    = document.createElement('a');
+    a.href     = url;
+    a.download = `${(wa.reference || `PV-${wa.id}`).replace(/[^a-zA-Z0-9-_]/g, '_')}.pdf`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    window.URL.revokeObjectURL(url);
+  } catch {
+    alert('Impossible de générer le PDF.');
+  }
+}
 
 function WorkAcceptanceDetailDrawer({
   wa, onClose, onStatusChange, onDelete, onEdit, canEdit, canDelete
@@ -478,6 +500,13 @@ function WorkAcceptanceDetailDrawer({
               </button>
             </>
           )}
+          <button
+            onClick={() => handleGeneratePdf(wa)}
+            className="flex items-center gap-2 px-4 py-2.5 rounded-xl border border-gb-border text-gb-muted hover:text-gb-text hover:bg-gb-surface-hover transition-colors text-sm font-semibold"
+          >
+            <Download size={15} /> Générer PDF
+          </button>
+
           {canDelete && (
             <button
               onClick={() => { if (window.confirm("Supprimer ce PV de réception ?")) onDelete(wa.id); }}

@@ -2,5 +2,15 @@ export const env = {
   JWT_SECRET: process.env.JWT_SECRET || "fallback_secret_key_dev_only",
   DATABASE_URL: process.env.DATABASE_URL,
   PORT: process.env.PORT,
-  NODE_ENV: process.env.NODE_ENV
+  NODE_ENV: process.env.NODE_ENV,
+  SAGE_X3_SERVER: process.env.SAGE_X3_SERVER,
+  SAGE_X3_DATABASE: process.env.SAGE_X3_DATABASE,
+  SAGE_X3_USER: process.env.SAGE_X3_USER,
+  SAGE_X3_PASSWORD: process.env.SAGE_X3_PASSWORD,
+  SAGE_X3_ENCRYPT: process.env.SAGE_X3_ENCRYPT,
+  SAGE_X3_TRUST_SERVER_CERTIFICATE: process.env.SAGE_X3_TRUST_SERVER_CERTIFICATE,
+  SAGE_X3_VIEW_SUPPLIERS: process.env.SAGE_X3_VIEW_SUPPLIERS,
+  SAGE_X3_VIEW_ITEMS: process.env.SAGE_X3_VIEW_ITEMS,
+  SAGE_X3_VIEW_PO_HEADERS: process.env.SAGE_X3_VIEW_PO_HEADERS,
+  SAGE_X3_VIEW_PO_LINES: process.env.SAGE_X3_VIEW_PO_LINES
 };

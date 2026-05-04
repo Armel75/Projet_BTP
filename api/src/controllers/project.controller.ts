@@ -19,6 +19,18 @@ function toDateTime(v: any): string | null {
   return `${s}T00:00:00.000Z`;
 }
 
+function csvCell(value: unknown): string {
+  if (value === null || value === undefined) return '""';
+  return `"${String(value).replace(/"/g, '""')}"`;
+}
+
+function formatDateFr(input?: string | Date | null): string {
+  if (!input) return '';
+  const d = new Date(input);
+  if (Number.isNaN(d.getTime())) return '';
+  return d.toLocaleDateString('fr-FR');
+}
+
 // ─── ProjectController ─────────────────────────────────────────────────────────
 
 export class ProjectController {
@@ -38,6 +50,54 @@ export class ProjectController {
     }
   }
 
+  static async exportProjectsExcel(req: AuthRequest, res: Response): Promise<void> {
+    try {
+      const tenant_id = req.user?.tenant_id;
+      const result = await ProjectManagementService.listProjects(tenant_id, 1, 100000);
+      const projects = result.data ?? [];
+
+      const header = [
+        'Code', 'Titre', 'Statut', 'Phase', 'Localisation',
+        'Date debut', 'Date fin', 'Budget initial', 'Devise',
+        'Client', 'Ville', 'Pays', 'Lots', 'Taches', 'SDT', 'Lignes budget',
+      ];
+
+      const rows: unknown[][] = projects.map((p: any) => [
+        p.code,
+        p.title,
+        p.status,
+        p.phase,
+        p.location,
+        formatDateFr(p.start_date),
+        formatDateFr(p.end_date),
+        p.budget_initial ?? 0,
+        p.currency,
+        p.client_name,
+        p.city,
+        p.country,
+        p._count?.lots ?? 0,
+        p._count?.tasks ?? 0,
+        p._count?.wbs ?? 0,
+        p._count?.budgetLines ?? 0,
+      ]);
+
+      const csvLines = [header.map(csvCell).join(',')];
+      for (const row of rows) {
+        csvLines.push(row.map(csvCell).join(','));
+      }
+      const csv = csvLines.join('\r\n');
+
+      const BOM = '\uFEFF';
+      const fileName = `projets-${new Date().toISOString().slice(0, 10)}.csv`;
+      res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+      res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
+      res.status(200).send(BOM + csv);
+    } catch (error) {
+      console.error('[ProjectController.exportProjectsExcel]', error);
+      res.status(500).json({ error: 'Erreur lors de l’export des projets.' });
+    }
+  }
+
   static async getProject(req: AuthRequest, res: Response): Promise<void> {
     try {
       const id = parseId(req.params.id, res); if (id === null) return;
@@ -47,6 +107,18 @@ export class ProjectController {
     } catch (error) {
       console.error('[ProjectController.getProject]', error);
       res.status(500).json({ error: 'Erreur serveur.' });
+    }
+  }
+
+  static async getProjectPhaseTransitions(req: AuthRequest, res: Response): Promise<void> {
+    try {
+      const projectId = parseId(req.params.projectId, res); if (projectId === null) return;
+      const transitions = await ProjectManagementService.getProjectPhaseTransitions(projectId, req.user?.tenant_id);
+      res.json(transitions);
+    } catch (error: any) {
+      console.error('[ProjectController.getProjectPhaseTransitions]', error);
+      if (error.message?.includes('introuvable')) res.status(404).json({ error: error.message });
+      else res.status(500).json({ error: error.message || 'Erreur lors de la récupération de l’historique des transitions.' });
     }
   }
 
@@ -73,6 +145,24 @@ export class ProjectController {
         budget_initial: Number(budget_initial),
         currency:       currency.trim().toUpperCase(),
         location:       location.trim(),
+        client_name: req.body.client_name || null,
+        client_contact_name: req.body.client_contact_name || null,
+        client_phone: req.body.client_phone || null,
+        street_address: req.body.street_address || null,
+        postal_code: req.body.postal_code || null,
+        city: req.body.city || null,
+        country: req.body.country || null,
+        latitude: req.body.latitude !== undefined && req.body.latitude !== null && req.body.latitude !== '' ? Number(req.body.latitude) : null,
+        longitude: req.body.longitude !== undefined && req.body.longitude !== null && req.body.longitude !== '' ? Number(req.body.longitude) : null,
+        budget_approved: req.body.budget_approved !== undefined && req.body.budget_approved !== null && req.body.budget_approved !== '' ? Number(req.body.budget_approved) : null,
+        budget_committed: req.body.budget_committed !== undefined && req.body.budget_committed !== null && req.body.budget_committed !== '' ? Number(req.body.budget_committed) : null,
+        contingency_budget: req.body.contingency_budget !== undefined && req.body.contingency_budget !== null && req.body.contingency_budget !== '' ? Number(req.body.contingency_budget) : null,
+        permit_number: req.body.permit_number || null,
+        permit_type: req.body.permit_type || null,
+        risk_classification: req.body.risk_classification || null,
+        building_type: req.body.building_type || null,
+        erp_project_id: req.body.erp_project_id || null,
+        is_archived: req.body.is_archived === true,
         doc_name:       doc_name.trim(),
         doc_category:   doc_category ?? 'PLAN',
         doc_description: doc_description || null,
@@ -89,7 +179,15 @@ export class ProjectController {
   static async updateProject(req: AuthRequest, res: Response): Promise<void> {
     try {
       const id = parseId(req.params.id, res); if (id === null) return;
-      const project = await ProjectManagementService.updateProject(id, req.body, req.user?.tenant_id);
+      const body: Record<string, any> = { ...req.body };
+      const numericFields = [
+        'budget_initial', 'latitude', 'longitude', 'budget_approved', 'budget_committed', 'contingency_budget'
+      ];
+      for (const f of numericFields) {
+        if (body[f] !== undefined && body[f] !== null && body[f] !== '') body[f] = Number(body[f]);
+      }
+      if (body.is_archived !== undefined) body.is_archived = body.is_archived === true || body.is_archived === 'true';
+      const project = await ProjectManagementService.updateProject(id, body, req.user?.tenant_id, req.user?.id);
       res.json(project);
     } catch (error: any) {
       console.error('[ProjectController.updateProject]', error);
@@ -165,11 +263,12 @@ export class ProjectController {
 
   static async createTask(req: AuthRequest, res: Response): Promise<void> {
     try {
-      const { project_id, wbs_id, title, status = 'TODO', progress = 0, planned_start, planned_end } = req.body;
+      const { project_id, lot_id, wbs_id, title, status = 'TODO', progress = 0, planned_start, planned_end } = req.body;
       if (!title?.trim())  { res.status(400).json({ error: 'Titre requis.' }); return; }
       if (!project_id)     { res.status(400).json({ error: 'project_id requis.' }); return; }
+      if (!lot_id)         { res.status(400).json({ error: 'lot_id requis.' }); return; }
       const task = await ProjectManagementService.createTask({
-        project_id: Number(project_id), wbs_id: wbs_id ? Number(wbs_id) : null,
+        project_id: Number(project_id), lot_id: Number(lot_id), wbs_id: wbs_id ? Number(wbs_id) : null,
         title: title.trim(), status, progress: Number(progress),
         tenant_id: req.user!.tenant_id, created_by: req.user!.id,
         planned_start: planned_start || null, planned_end: planned_end || null,
@@ -181,7 +280,14 @@ export class ProjectController {
   static async updateTask(req: AuthRequest, res: Response): Promise<void> {
     try {
       const id = parseId(req.params.id, res); if (id === null) return;
-      res.json(await ProjectManagementService.updateTask(id, req.body));
+      const data: Record<string, any> = { ...req.body };
+      if (data.lot_id !== undefined) {
+        if (!data.lot_id) { res.status(400).json({ error: 'lot_id requis.' }); return; }
+        data.lot_id = Number(data.lot_id);
+      }
+      if (data.wbs_id !== undefined) data.wbs_id = data.wbs_id ? Number(data.wbs_id) : null;
+      if (data.progress !== undefined) data.progress = Number(data.progress);
+      res.json(await ProjectManagementService.updateTask(id, data, req.user!.tenant_id));
     } catch (error: any) { res.status(400).json({ error: error.message }); }
   }
 
@@ -206,12 +312,11 @@ export class ProjectController {
       const { project_id, name, description, lot_number, trade_code, status, budget_allocated, start_date, end_date, responsible_id, contractor_id, contract_id } = req.body;
       if (!name?.trim())       { res.status(400).json({ error: 'Nom requis.' }); return; }
       if (!project_id)         { res.status(400).json({ error: 'project_id requis.' }); return; }
-      if (!lot_number?.trim()) { res.status(400).json({ error: 'lot_number requis.' }); return; }
       if (!trade_code?.trim()) { res.status(400).json({ error: 'trade_code requis.' }); return; }
       const lot = await ProjectManagementService.createProjectLot({
         project_id:       Number(project_id),
         name:             name.trim(),
-        lot_number:       lot_number.trim(),
+        lot_number:       lot_number?.trim() || undefined,
         trade_code:       trade_code.trim(),
         description:      description || null,
         tenant_id:        req.user!.tenant_id,
@@ -231,6 +336,7 @@ export class ProjectController {
     try {
       const id = parseId(req.params.id, res); if (id === null) return;
       const body = { ...req.body };
+      if (body.lot_number !== undefined) delete body.lot_number;
       if (body.start_date !== undefined) body.start_date = toDateTime(body.start_date);
       if (body.end_date   !== undefined) body.end_date   = toDateTime(body.end_date);
       res.json(await ProjectManagementService.updateProjectLot(id, body, req.user!.tenant_id));
@@ -239,9 +345,9 @@ export class ProjectController {
 
   static async deleteLot(req: AuthRequest, res: Response): Promise<void> {
     try {
-      await ProjectManagementService.deleteProjectLot(Number(req.params.id));
+      await ProjectManagementService.deleteProjectLot(Number(req.params.id), req.user!.tenant_id);
       res.json({ success: true });
-    } catch (error) { res.status(500).json({ error: 'Erreur suppression lot.' }); }
+    } catch (error: any) { res.status(400).json({ error: error.message || 'Erreur suppression lot.' }); }
   }
 
   // ─── Budget Lines ──────────────────────────────────────────────────────────
@@ -290,7 +396,7 @@ export class ProjectController {
   static async createDependency(req: AuthRequest, res: Response): Promise<void> {
     try {
       const { taskId, dependsOnId } = req.body;
-      res.status(201).json(await ProjectManagementService.createTaskDependency(Number(taskId), Number(dependsOnId)));
+      res.status(201).json(await ProjectManagementService.createTaskDependency(Number(taskId), Number(dependsOnId), req.user!.tenant_id));
     } catch (error: any) { res.status(400).json({ error: error.message }); }
   }
 

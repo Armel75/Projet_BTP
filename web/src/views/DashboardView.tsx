@@ -1,295 +1,401 @@
-import React from "react";
-import { 
-  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, 
-  AreaChart, Area, PieChart, Pie, Cell 
+import React, { useEffect, useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
+import {
+  Area,
+  AreaChart,
+  Bar,
+  BarChart,
+  CartesianGrid,
+  Cell,
+  Pie,
+  PieChart,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
 } from "recharts";
-import { 
-  BarChart3, Users, Building2, AlertTriangle, 
-  TrendingUp, TrendingDown, ClipboardCheck, 
-  Package, Clock, CheckCircle2, MoreHorizontal,
-  ChevronRight, ArrowUpRight, HardHat, FileText,
-  BadgeAlert
-} from "lucide-react";
+import { AlertTriangle, Briefcase, CalendarClock, TrendingUp } from "lucide-react";
 import { motion } from "motion/react";
+import { apiFetch } from "../lib/api";
 
-// Mock Data based on Schema Analysis
-const PROGRESS_DATA = [
-  { name: "Sem 1", planned: 0, actual: 0 },
-  { name: "Sem 2", planned: 10, actual: 8 },
-  { name: "Sem 3", planned: 25, actual: 20 },
-  { name: "Sem 4", planned: 45, actual: 42 },
-  { name: "Sem 5", planned: 60, actual: 55 },
-  { name: "Sem 6", planned: 80, actual: 78 },
-];
+const API_BASE = import.meta.env.VITE_API_URL;
 
-const BUDGET_DATA = [
-  { category: "Gros Œuvre", planned: 450000, actual: 420000 },
-  { category: "Second Œuvre", planned: 300000, actual: 315000 },
-  { category: "Équipements", planned: 200000, actual: 180000 },
-  { category: "MO", planned: 150000, actual: 165000 },
-];
+type Persona = "operational" | "management" | "executive";
 
-const INCIDENT_DATA = [
-  { name: "Sécurité", value: 3, color: "#ef4444" },
-  { name: "Qualité", value: 8, color: "#f59e0b" },
-  { name: "Retard", value: 5, color: "#3b82f6" },
-  { name: "Technique", value: 4, color: "#8b5cf6" },
-];
-
-const RECENT_DOCS = [
-  { id: 1, type: "PV", name: "Réception Fondations", date: "Il y a 2h", status: "Validé" },
-  { id: 2, type: "RFI", name: "Clarification Plan C-04", date: "Il y a 5h", status: "Ouvert" },
-  { id: 3, type: "PO", name: "Commande Acier HA12", date: "Hier", status: "En attente" },
-];
-
-interface KpiCardProps {
+type Kpi = {
+  code: string;
   label: string;
-  value: string;
-  icon: React.ReactElement;
-  trend: string;
-  isPositive: boolean;
-  color: string;
+  value: number;
+  unit?: "count" | "currency" | "percent" | "days";
+  format?: "integer" | "decimal";
+};
+
+type PriorityAction = {
+  code: string;
+  title: string;
+  description: string;
+  severity: "low" | "medium" | "high" | "critical";
+  metric: number;
+  actionPath: string;
+};
+
+type ChartPoint = {
+  label: string;
+  value: number;
+  secondary?: number;
+};
+
+type PersonaPayload = {
+  persona: Persona;
+  title: string;
+  decisionFrequency: string;
+  kpis: Kpi[];
+  priorityActions: PriorityAction[];
+  charts: {
+    progressTrend: ChartPoint[];
+    incidentsByType: ChartPoint[];
+    cashFlow?: ChartPoint[];
+    projectHealth?: ChartPoint[];
+  };
+};
+
+type DashboardOverview = {
+  personas: Persona[];
+  defaultPersona: Persona;
+  filters: {
+    windowDays: number;
+    selectedProjectIds: number[];
+    projects: Array<{ id: number; code: string; title: string; status: string }>;
+  };
+  dashboards: {
+    operational?: PersonaPayload;
+    management?: PersonaPayload;
+    executive?: PersonaPayload;
+  };
+};
+
+const INCIDENT_COLORS = ["#ef4444", "#f59e0b", "#3b82f6", "#10b981", "#8b5cf6", "#14b8a6"];
+
+const PERSONA_LABELS: Record<Persona, string> = {
+  operational: "Opérationnel",
+  management: "Management Projet",
+  executive: "Direction Générale",
+};
+
+function formatKpiValue(kpi: Kpi): string {
+  if (kpi.unit === "currency") {
+    return new Intl.NumberFormat("fr-FR", {
+      style: "currency",
+      currency: "EUR",
+      maximumFractionDigits: 0,
+    }).format(kpi.value);
+  }
+
+  if (kpi.unit === "percent") {
+    return `${new Intl.NumberFormat("fr-FR", {
+      maximumFractionDigits: kpi.format === "decimal" ? 1 : 0,
+    }).format(kpi.value)}%`;
+  }
+
+  if (kpi.unit === "days") {
+    return `${new Intl.NumberFormat("fr-FR").format(kpi.value)} j`;
+  }
+
+  return new Intl.NumberFormat("fr-FR", {
+    maximumFractionDigits: kpi.format === "decimal" ? 1 : 0,
+  }).format(kpi.value);
 }
 
-const KpiCard = ({ label, value, icon, trend, isPositive, color }: KpiCardProps) => (
-  <motion.div 
-    whileHover={{ y: -2 }}
-    className="bg-gb-surface-solid border border-gb-border p-5 rounded-2xl shadow-sm hover:shadow-md transition-all"
-  >
-    <div className="flex justify-between items-start mb-4">
-      <div className={`p-2 rounded-xl ${color} bg-opacity-10`}>
-        {React.cloneElement(icon, { className: color } as any)}
-      </div>
-      <div className={`flex items-center gap-1 text-xs font-bold ${isPositive ? "text-emerald-500" : "text-rose-500"}`}> 
-        {isPositive ? <TrendingUp size={14} /> : <TrendingDown size={14} />}
-        {trend}
-      </div>
-    </div>
-    <div>
-      <p className="text-xs font-bold text-gb-muted uppercase tracking-wider mb-1">{label}</p>
-      <h3 className="text-3xl font-black text-gb-text tracking-tight">{value}</h3>
-    </div>
-  </motion.div>
-);
+function severityClass(severity: PriorityAction["severity"]): string {
+  if (severity === "critical") return "text-rose-600 bg-rose-50 border-rose-200";
+  if (severity === "high") return "text-amber-700 bg-amber-50 border-amber-200";
+  if (severity === "medium") return "text-blue-700 bg-blue-50 border-blue-200";
+  return "text-emerald-700 bg-emerald-50 border-emerald-200";
+}
+
+function severityLabel(severity: PriorityAction["severity"]): string {
+  if (severity === "critical") return "Critique";
+  if (severity === "high") return "Élevé";
+  if (severity === "medium") return "Moyen";
+  return "Faible";
+}
 
 export default function DashboardView() {
+  const navigate = useNavigate();
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [windowDays, setWindowDays] = useState<number>(30);
+  const [selectedProjects, setSelectedProjects] = useState<number[]>([]);
+  const [activePersona, setActivePersona] = useState<Persona>("operational");
+  const [overview, setOverview] = useState<DashboardOverview | null>(null);
+
+  useEffect(() => {
+    let alive = true;
+
+    const load = async () => {
+      try {
+        setLoading(true);
+        setError(null);
+
+        const params = new URLSearchParams();
+        params.set("windowDays", String(windowDays));
+        if (selectedProjects.length > 0) {
+          params.set("projectIds", selectedProjects.join(","));
+        }
+
+        const response = await apiFetch(`${API_BASE}/dashboard/overview?${params.toString()}`);
+        if (!response.ok) {
+          const body = await response.json().catch(() => ({}));
+          throw new Error(body.error || "Erreur de chargement du dashboard");
+        }
+
+        const data = (await response.json()) as DashboardOverview;
+        if (!alive) return;
+
+        setOverview(data);
+        setActivePersona((current) => (data.personas.includes(current) ? current : data.defaultPersona));
+
+        if (selectedProjects.length === 0 && data.filters.selectedProjectIds.length > 0) {
+          setSelectedProjects(data.filters.selectedProjectIds);
+        }
+      } catch (e: any) {
+        if (alive) {
+          setError(e?.message || "Erreur inattendue");
+        }
+      } finally {
+        if (alive) setLoading(false);
+      }
+    };
+
+    void load();
+    return () => {
+      alive = false;
+    };
+  }, [windowDays, selectedProjects]);
+
+  const activeDashboard = useMemo(() => {
+    if (!overview) return undefined;
+    if (activePersona === "executive") return overview.dashboards.executive;
+    if (activePersona === "management") return overview.dashboards.management;
+    return overview.dashboards.operational;
+  }, [overview, activePersona]);
+
+  const toggleProject = (projectId: number) => {
+    setSelectedProjects((current) => {
+      if (current.includes(projectId)) return current.filter((id) => id !== projectId);
+      return [...current, projectId];
+    });
+  };
+
+  if (loading && !overview) {
+    return <div className="py-16 text-center text-gb-muted font-semibold">Chargement du dashboard premium...</div>;
+  }
+
+  if (error && !overview) {
+    return <div className="py-16 text-center text-rose-600 font-semibold">{error}</div>;
+  }
+
+  if (!overview || !activeDashboard) {
+    return <div className="py-16 text-center text-gb-muted font-semibold">Aucune donnée dashboard disponible.</div>;
+  }
+
   return (
-    <div className="space-y-8 pb-10">
-      {/* 1. Header & Filters */}
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-        <div>
-          <h2 className="text-3xl font-black tracking-tighter text-gb-text">Dashboard Excellence</h2>
-          <p className="text-gb-muted text-sm font-medium">Vue consolidée - Chantier Résidence Horizon</p>
-        </div>
-        <div className="flex gap-2 w-full md:w-auto">
-          <button className="flex-1 md:flex-none px-4 py-2 bg-gb-surface-solid border border-gb-border rounded-xl text-xs font-bold hover:bg-gb-surface-hover transition-colors flex items-center justify-center gap-2">
-            <ClipboardCheck size={16} /> Rapport Hebdo
-          </button>
-          <button className="flex-1 md:flex-none px-4 py-2 bg-gb-primary text-gb-inverse rounded-xl text-xs font-black shadow-lg shadow-gb-primary/20 hover:bg-gb-primary-dark transition-all flex items-center justify-center gap-2">
-            <TrendingUp size={16} /> Analyse IA
-          </button>
-        </div>
-      </div>
-
-      {/* 2. KPI Top Strip */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
-        <KpiCard 
-          label="Progression Globale" 
-          value="78.4%" 
-          trend="+5.2%" 
-          isPositive={true} 
-          icon={<CheckCircle2 size={24} />} 
-          color="text-emerald-500"
-        />
-        <KpiCard 
-          label="Consommation Budget" 
-          value="1.2M €" 
-          trend="82%" 
-          isPositive={true} 
-          icon={<BarChart3 size={24} />} 
-          color="text-blue-500"
-        />
-        <KpiCard 
-          label="Incidents Ouverts" 
-          value="20" 
-          trend="-3" 
-          isPositive={true} 
-          icon={<AlertTriangle size={24} />} 
-          color="text-rose-500"
-        />
-        <KpiCard 
-          label="Livraisons à venir" 
-          value="12" 
-          trend="+2" 
-          isPositive={true} 
-          icon={<Package size={24} />} 
-          color="text-amber-500"
-        />
-      </div>
-
-      {/* 3. Main Analytics Grid */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        
-        {/* Execution S-Curve */}
-        <div className="lg:col-span-2 bg-gb-surface-solid border border-gb-border rounded-2xl p-6 shadow-sm">
-          <div className="flex justify-between items-center mb-6">
-            <div>
-              <h3 className="font-black text-lg text-gb-text tracking-tight uppercase">Avancement Chantier</h3>
-              <p className="text-xs text-gb-muted font-bold">Courbe S : Prévu vs Réel</p>
-            </div>
-            <select className="bg-gb-app border border-gb-border rounded-lg text-[10px] font-bold px-2 py-1 outline-none">
-              <option>Derniers 30 jours</option>
-              <option>Toute la durée</option>
-            </select>
+    <div className="space-y-6 pb-10">
+      <div className="bg-gb-surface-solid border border-gb-border rounded-2xl p-5 shadow-sm">
+        <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+          <div>
+            <h2 className="text-3xl font-black tracking-tighter text-gb-text">{activeDashboard.title}</h2>
+            <p className="text-sm font-semibold text-gb-muted">{activeDashboard.decisionFrequency}</p>
           </div>
-          <div className="h-[300px] w-full">
+
+          <div className="flex flex-wrap gap-2">
+            {overview.personas.map((persona) => (
+              <button
+                key={persona}
+                onClick={() => setActivePersona(persona)}
+                className={`px-3 py-2 rounded-xl text-xs font-black uppercase tracking-wide border transition-all ${
+                  activePersona === persona
+                    ? "bg-gb-primary text-gb-inverse border-gb-primary"
+                    : "bg-gb-app text-gb-muted border-gb-border hover:text-gb-text"
+                }`}
+              >
+                {PERSONA_LABELS[persona]}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="mt-5 grid grid-cols-1 lg:grid-cols-2 gap-5">
+          <div>
+            <p className="text-[11px] font-black uppercase text-gb-muted mb-2">Fenêtre temporelle</p>
+            <div className="flex gap-2">
+              {[7, 30, 90].map((days) => (
+                <button
+                  key={days}
+                  onClick={() => setWindowDays(days)}
+                  className={`px-3 py-2 rounded-lg text-xs font-bold border transition-colors ${
+                    windowDays === days
+                      ? "bg-gb-primary/10 text-gb-primary border-gb-primary/40"
+                      : "bg-gb-app border-gb-border text-gb-muted hover:text-gb-text"
+                  }`}
+                >
+                  {days} jours
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div>
+            <p className="text-[11px] font-black uppercase text-gb-muted mb-2">Projets (multi-sélection)</p>
+            <div className="flex flex-wrap gap-2 max-h-[96px] overflow-auto pr-1">
+              {overview.filters.projects.map((project) => {
+                const selected = selectedProjects.includes(project.id);
+                return (
+                  <button
+                    key={project.id}
+                    onClick={() => toggleProject(project.id)}
+                    className={`px-3 py-2 rounded-lg text-[11px] font-bold border transition-colors ${
+                      selected
+                        ? "bg-blue-50 border-blue-200 text-blue-700"
+                        : "bg-gb-app border-gb-border text-gb-muted hover:text-gb-text"
+                    }`}
+                    title={project.title}
+                  >
+                    {project.code}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
+        {activeDashboard.kpis.slice(0, 8).map((kpi) => (
+          <motion.div
+            key={kpi.code}
+            whileHover={{ y: -2 }}
+            className="bg-gb-surface-solid border border-gb-border rounded-2xl p-4 shadow-sm"
+          >
+            <p className="text-[10px] font-black uppercase tracking-wide text-gb-muted">{kpi.label}</p>
+            <h3 className="mt-2 text-2xl font-black tracking-tight text-gb-text">{formatKpiValue(kpi)}</h3>
+          </motion.div>
+        ))}
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <div className="lg:col-span-2 bg-gb-surface-solid border border-gb-border rounded-2xl p-5 shadow-sm">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-base font-black uppercase tracking-tight text-gb-text flex items-center gap-2">
+              <TrendingUp size={16} /> Progression consolidée
+            </h3>
+          </div>
+          <div className="h-[260px]">
             <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={PROGRESS_DATA}>
+              <AreaChart data={activeDashboard.charts.progressTrend}>
                 <defs>
-                  <linearGradient id="colorPlanned" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#94a3b8" stopOpacity={0.1}/>
-                    <stop offset="95%" stopColor="#94a3b8" stopOpacity={0}/>
-                  </linearGradient>
-                  <linearGradient id="colorActual" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.1}/>
-                    <stop offset="95%" stopColor="#3b82f6" stopOpacity={0}/>
+                  <linearGradient id="progressArea" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#2563eb" stopOpacity={0.25} />
+                    <stop offset="95%" stopColor="#2563eb" stopOpacity={0.03} />
                   </linearGradient>
                 </defs>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
-                <XAxis dataKey="name" fontSize={10} axisLine={false} tickLine={false} />
-                <YAxis fontSize={10} axisLine={false} tickLine={false} unit="%" />
-                <Tooltip 
-                  contentStyle={{ 
-                    backgroundColor: "#fff", 
-                    border: "1px solid #e2e8f0", 
-                    borderRadius: "12px",
-                    boxShadow: "0 10px 15px -3px rgb(0 0 0 / 0.1)"
-                  }} 
-                />
-                <Area 
-                  type="monotone" 
-                  dataKey="planned" 
-                  stroke="#94a3b8" 
-                  strokeWidth={2}
-                  strokeDasharray="5 5"
-                  fillOpacity={1} 
-                  fill="url(#colorPlanned)" 
-                  name="Planifié"
-                />
-                <Area 
-                  type="monotone" 
-                  dataKey="actual" 
-                  stroke="#3b82f6" 
-                  strokeWidth={3}
-                  fillOpacity={1} 
-                  fill="url(#colorActual)" 
-                  name="Réalisé"
-                />
+                <XAxis dataKey="label" axisLine={false} tickLine={false} fontSize={11} />
+                <YAxis axisLine={false} tickLine={false} fontSize={11} unit="%" />
+                <Tooltip />
+                <Area type="monotone" dataKey="value" stroke="#2563eb" strokeWidth={2.5} fill="url(#progressArea)" />
               </AreaChart>
             </ResponsiveContainer>
           </div>
         </div>
 
-        {/* Risk Distribution */}
-        <div className="bg-gb-surface-solid border border-gb-border rounded-2xl p-6 shadow-sm">
-          <h3 className="font-black text-lg text-gb-text tracking-tight uppercase mb-6">Profil Risques</h3>
-          <div className="h-[220px] w-full relative">
+        <div className="bg-gb-surface-solid border border-gb-border rounded-2xl p-5 shadow-sm">
+          <h3 className="text-base font-black uppercase tracking-tight text-gb-text flex items-center gap-2 mb-4">
+            <AlertTriangle size={16} /> Risques par type
+          </h3>
+          <div className="h-[260px]">
             <ResponsiveContainer width="100%" height="100%">
               <PieChart>
                 <Pie
-                  data={INCIDENT_DATA}
-                  cx="50%"
-                  cy="50%"
-                  innerRadius={60}
-                  outerRadius={80}
-                  paddingAngle={8}
+                  data={activeDashboard.charts.incidentsByType}
                   dataKey="value"
+                  nameKey="label"
+                  innerRadius={58}
+                  outerRadius={84}
+                  paddingAngle={4}
                 >
-                  {INCIDENT_DATA.map((entry, index) => (
-                    <Cell key={`cell-${index}`} fill={entry.color} />
+                  {activeDashboard.charts.incidentsByType.map((entry, index) => (
+                    <Cell key={`${entry.label}-${index}`} fill={INCIDENT_COLORS[index % INCIDENT_COLORS.length]} />
                   ))}
                 </Pie>
                 <Tooltip />
               </PieChart>
             </ResponsiveContainer>
-            <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-              <span className="text-3xl font-black text-gb-text">20</span>
-              <span className="text-[10px] font-bold text-gb-muted uppercase">Total</span>
-            </div>
-          </div>
-          <div className="mt-4 space-y-2">
-            {INCIDENT_DATA.map((item) => (
-              <div key={item.name} className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <div className="w-2 h-2 rounded-full" style={{ backgroundColor: item.color }} />
-                  <span className="text-xs font-bold text-gb-muted uppercase">{item.name}</span>
-                </div>
-                <span className="text-sm font-bold text-gb-text">{item.value}</span>
-              </div>
-            ))}
           </div>
         </div>
-
       </div>
 
-      {/* 4. Secondary Grid: Finance & Logistics */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        
-        {/* Budget Execution */}
-        <div className="bg-gb-surface-solid border border-gb-border rounded-2xl p-6 shadow-sm">
-          <div className="flex items-center justify-between mb-8">
-            <h3 className="font-black text-lg text-gb-text tracking-tight uppercase">Pilotage Financier</h3>
-            <button className="text-[10px] font-black text-gb-primary hover:underline uppercase">Détails Invoices</button>
-          </div>
-          <div className="h-[250px] w-full">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={BUDGET_DATA} layout="vertical" barGap={8}>
-                <CartesianGrid strokeDasharray="3 3" horizontal={true} vertical={false} stroke="#e2e8f0" />
-                <XAxis type="number" fontSize={10} axisLine={false} tickLine={false} tickFormatter={(val) => `${val / 1000}k`} />
-                <YAxis dataKey="category" type="category" fontSize={10} axisLine={false} tickLine={false} width={80} />
-                <Tooltip cursor={{ fill: "#f8fafc" }} />
-                <Bar dataKey="planned" fill="#e2e8f0" radius={[0, 4, 4, 0]} name="Budget" barSize={12} />
-                <Bar dataKey="actual" fill="#3b82f6" radius={[0, 4, 4, 0]} name="Dépenses" barSize={12} />
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-        </div>
-
-        {/* Site Activity / Documentation */}
-        <div className="bg-gb-surface-solid border border-gb-border rounded-2xl p-6 shadow-sm overflow-hidden flex flex-col">
-          <div className="flex items-center justify-between mb-8">
-            <h3 className="font-black text-lg text-gb-text tracking-tight uppercase">Flux Documentaire</h3>
-            <div className="flex gap-1">
-              <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-              <span className="text-[10px] font-black text-emerald-600 uppercase">Live</span>
+        {activeDashboard.charts.cashFlow && activeDashboard.charts.cashFlow.length > 0 && (
+          <div className="bg-gb-surface-solid border border-gb-border rounded-2xl p-5 shadow-sm">
+            <h3 className="text-base font-black uppercase tracking-tight text-gb-text flex items-center gap-2 mb-4">
+              <Briefcase size={16} /> Facturé vs encaissé
+            </h3>
+            <div className="h-[250px]">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={activeDashboard.charts.cashFlow}>
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
+                  <XAxis dataKey="label" axisLine={false} tickLine={false} fontSize={11} />
+                  <YAxis axisLine={false} tickLine={false} fontSize={11} />
+                  <Tooltip />
+                  <Bar dataKey="value" name="Facturé" fill="#93c5fd" radius={[4, 4, 0, 0]} />
+                  <Bar dataKey="secondary" name="Encaissé" fill="#2563eb" radius={[4, 4, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
             </div>
           </div>
-          <div className="space-y-4 flex-1">
-            {RECENT_DOCS.map((doc) => (
-              <div key={doc.id} className="flex items-center justify-between p-3 rounded-xl border border-gb-border hover:bg-gb-surface-hover transition-colors cursor-pointer group">
-                <div className="flex items-center gap-4">
-                  <div className="w-10 h-10 rounded-lg bg-gb-app flex items-center justify-center border border-gb-border font-black text-[10px] text-gb-primary">
-                    {doc.type}
-                  </div>
-                  <div>
-                    <h4 className="text-sm font-bold text-gb-text">{doc.name}</h4>
-                    <p className="text-[10px] font-medium text-gb-muted">{doc.date}</p>
-                  </div>
-                </div>
-                <div className="flex items-center gap-2">
-                  <span className="text-[9px] font-black uppercase px-2 py-0.5 rounded-full bg-gb-app text-gb-muted border border-gb-border">
-                    {doc.status}
+        )}
+
+        {activeDashboard.charts.projectHealth && activeDashboard.charts.projectHealth.length > 0 && (
+          <div className="bg-gb-surface-solid border border-gb-border rounded-2xl p-5 shadow-sm">
+            <h3 className="text-base font-black uppercase tracking-tight text-gb-text mb-4">Projets à risque (score)</h3>
+            <div className="h-[250px]">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={activeDashboard.charts.projectHealth} layout="vertical">
+                  <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#e2e8f0" />
+                  <XAxis type="number" axisLine={false} tickLine={false} fontSize={11} />
+                  <YAxis dataKey="label" type="category" axisLine={false} tickLine={false} width={90} fontSize={10} />
+                  <Tooltip />
+                  <Bar dataKey="value" name="Score" fill="#f59e0b" radius={[0, 5, 5, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+        )}
+
+        <div className="bg-gb-surface-solid border border-gb-border rounded-2xl p-5 shadow-sm lg:col-span-full">
+          <h3 className="text-base font-black uppercase tracking-tight text-gb-text flex items-center gap-2 mb-4">
+            <CalendarClock size={16} /> 3 actions prioritaires proposées
+          </h3>
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+            {activeDashboard.priorityActions.slice(0, 3).map((action) => (
+              <button
+                key={action.code}
+                onClick={() => navigate(action.actionPath)}
+                className="text-left p-4 rounded-xl border border-gb-border bg-gb-app hover:bg-gb-surface-hover transition-colors"
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <span className={`px-2 py-1 rounded-md text-[10px] font-black uppercase border ${severityClass(action.severity)}`}>
+                    {severityLabel(action.severity)}
                   </span>
-                  <ChevronRight size={14} className="text-gb-muted group-hover:text-gb-primary transition-colors" />
+                  <span className="text-sm font-black text-gb-text">{new Intl.NumberFormat("fr-FR").format(action.metric)}</span>
                 </div>
-              </div>
+                <h4 className="mt-3 text-sm font-black text-gb-text">{action.title}</h4>
+                <p className="mt-1 text-xs text-gb-muted leading-relaxed">{action.description}</p>
+              </button>
             ))}
           </div>
-          <button className="w-full mt-6 py-2 border border-dashed border-gb-border rounded-xl text-[10px] font-black uppercase text-gb-muted hover:text-gb-primary hover:border-gb-primary transition-all">
-            Voir tout le journal
-          </button>
         </div>
-
       </div>
     </div>
   );

@@ -68,6 +68,19 @@ export class WorkAcceptanceService {
     });
   }
 
+  static async getWorkAcceptanceByIdForTenant(id: number) {
+    const tenantId = TenantContext.getTenantId();
+    if (!tenantId) throw new Error("Tenant session required");
+
+    return await prisma.workAcceptance.findFirst({
+      where: {
+        id,
+        tenant_id: tenantId,
+      },
+      include: WORK_ACCEPTANCE_INCLUDE,
+    });
+  }
+
   static async updateWorkAcceptance(id: number, data: Record<string, any>) {
     // Auto-set accepted_at when status becomes ACCEPTED or ACCEPTED_WITH_RESERVES
     if (

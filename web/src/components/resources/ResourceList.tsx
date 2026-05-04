@@ -3,6 +3,7 @@ import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from ".
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
 import { User, Truck, HardHat, MoreHorizontal, Settings2 } from "lucide-react";
+import { getResourceTypeLabel } from "../../lib/resourceTypeLabel";
 
 interface Resource {
   id: number;
@@ -67,7 +68,7 @@ export function ResourceList({ resources, onSelect, onEdit }: ResourceListProps)
                     r.type.code === 'EQUIPMENT' ? 'border-blue-500/30 text-blue-600 bg-blue-500/5' :
                     'border-gb-border text-gb-muted'
                   }`}>
-                    {r.type.code}
+                    {getResourceTypeLabel(r.type.code)}
                   </Badge>
                 </TableCell>
                 <TableCell className="font-mono text-sm font-semibold">

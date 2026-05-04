@@ -6,13 +6,40 @@ export class ResourceService {
   // RESOURCE TYPES
   // ==========================
   static async getResourceTypes() {
-    return await prisma.resourceType.findMany();
+    return await prisma.resourceType.findMany({
+      include: {
+        _count: { select: { resources: true } }
+      },
+      orderBy: { code: "asc" }
+    });
   }
 
   static async createResourceType(code: string) {
+    const normalized = String(code ?? "").trim().toUpperCase();
+    if (!normalized) throw new Error("Le code du type est requis.");
+    if (!/^[A-Z0-9_]+$/.test(normalized)) {
+      throw new Error("Le code doit contenir uniquement lettres majuscules, chiffres ou underscore.");
+    }
+
     return await prisma.resourceType.create({
-      data: { code }
+      data: { code: normalized }
     });
+  }
+
+  static async deleteResourceType(id: number) {
+    if (!Number.isInteger(id) || id <= 0) throw new Error("ID de type invalide.");
+
+    const existing = await prisma.resourceType.findUnique({
+      where: { id },
+      include: { _count: { select: { resources: true } } }
+    });
+
+    if (!existing) throw new Error("Type de ressource introuvable.");
+    if (existing._count.resources > 0) {
+      throw new Error("Impossible de supprimer ce type: des ressources l'utilisent encore.");
+    }
+
+    return await prisma.resourceType.delete({ where: { id } });
   }
 
   // ==========================
@@ -26,12 +53,31 @@ export class ResourceService {
     const tenantId = TenantContext.getTenantId();
     if (!tenantId) throw new Error("Tenant session required");
 
-    return await prisma.resource.create({
+    const name = String(data.name ?? "").trim();
+    const typeId = Number(data.type_id);
+    const costRate = Number(data.cost_rate);
+
+    if (!name) throw new Error("Le nom de la ressource est requis.");
+    if (!Number.isInteger(typeId) || typeId <= 0) throw new Error("Le type de ressource est invalide.");
+    if (!Number.isFinite(costRate) || costRate < 0) throw new Error("Le taux horaire est invalide.");
+
+    const type = await prisma.resourceType.findUnique({ where: { id: typeId } });
+    if (!type) throw new Error("Le type de ressource sélectionné n'existe pas.");
+
+    const created = await prisma.resource.create({
       data: {
-        ...data,
+        name,
+        type_id: typeId,
+        cost_rate: costRate,
         tenant_id: tenantId
       }
     });
+
+    if (!created || !created.id) {
+      throw new Error("La ressource n'a pas pu être enregistrée.");
+    }
+
+    return created;
   }
 
   static async getResources() {

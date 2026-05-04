@@ -4,12 +4,49 @@ import { prisma } from '../config/prisma.js';
 import { env } from '../config/env.js';
 import { RbacService } from './rbac.service.js';
 
+const MATRICULE_REGEX = /^[A-Z]{2}[0-9]+$/;
+const SIMPLE_EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
 export class AuthService {
   static async registerUser(data: any, reqIp?: string, reqUserAgent?: string) {
-    const { firstname, lastname, email, password, username, matricule, roleCode = "CHEF_PROJET" } = data;
+    const firstname = String(data.firstname ?? '').trim();
+    const lastname = String(data.lastname ?? '').trim();
+    const email = String(data.email ?? '').trim().toLowerCase();
+    const username = String(data.username ?? '').trim();
+    const matricule = String(data.matricule ?? '').trim();
+    const password = String(data.password ?? '');
+    const confirmPassword = String(data.confirmPassword ?? '');
+    const roleCode = data.roleCode ?? "CHEF_PROJET";
 
-    if (!firstname || !lastname || !email || !password || !username || !matricule) {
-      throw { status: 400, message: "Missing required fields (matricule, username, password, email, firstname, lastname)." };
+    if (!firstname) throw { status: 400, message: "Le prénom est obligatoire." };
+    if (!lastname) throw { status: 400, message: "Le nom est obligatoire." };
+    if (!email) throw { status: 400, message: "L'email est obligatoire." };
+    if (!username) throw { status: 400, message: "Le nom d'utilisateur est obligatoire." };
+    if (!matricule) throw { status: 400, message: "Le matricule est obligatoire." };
+    if (!password) throw { status: 400, message: "Le mot de passe est obligatoire." };
+    if (!confirmPassword) throw { status: 400, message: "La confirmation du mot de passe est obligatoire." };
+
+    if (!SIMPLE_EMAIL_REGEX.test(email)) {
+      throw { status: 400, message: "Format d'email invalide." };
+    }
+
+    if (username.length < 3) {
+      throw { status: 400, message: "Le nom d'utilisateur doit contenir au moins 3 caracteres." };
+    }
+
+    if (password.length < 8) {
+      throw { status: 400, message: "Le mot de passe doit contenir au moins 8 caracteres." };
+    }
+
+    if (password !== confirmPassword) {
+      throw { status: 400, message: "Le mot de passe et sa confirmation ne correspondent pas." };
+    }
+
+    if (!MATRICULE_REGEX.test(matricule)) {
+      throw {
+        status: 400,
+        message: "Le matricule est invalide. Format attendu: 2 lettres majuscules suivies de chiffres (ex: DL1748)."
+      };
     }
 
     const existingUser = await prisma.user.findFirst({
@@ -23,9 +60,9 @@ export class AuthService {
     });
 
     if (existingUser) {
-      if (existingUser.email === email) throw { status: 400, message: "Email already in use." };
-      if (existingUser.username === username) throw { status: 400, message: "Username already in use." };
-      if (existingUser.matricule === matricule) throw { status: 400, message: "Matricule already in use." };
+      if (existingUser.email.toLowerCase() === email) throw { status: 400, message: "Cette adresse email est deja utilisee." };
+      if (existingUser.username === username) throw { status: 400, message: "Ce nom d'utilisateur est deja utilise." };
+      if (existingUser.matricule === matricule) throw { status: 400, message: "Ce matricule est deja utilise." };
     }
 
     const salt = await bcrypt.genSalt(10);

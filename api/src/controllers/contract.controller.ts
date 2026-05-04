@@ -223,6 +223,15 @@ export class ContractController {
         status: body.status,
         lot_id: body.lot_id ? Number(body.lot_id) : undefined,
         retention: body.retention ? Number(body.retention) : undefined,
+        payment_status: body.payment_status,
+        payment_tracking_status: body.payment_tracking_status,
+        supplier_invoice_number: body.supplier_invoice_number,
+        tax_amount: body.tax_amount !== undefined && body.tax_amount !== null && body.tax_amount !== '' ? Number(body.tax_amount) : undefined,
+        tax_rate: body.tax_rate !== undefined && body.tax_rate !== null && body.tax_rate !== '' ? Number(body.tax_rate) : undefined,
+        invoice_status_code: body.invoice_status_code,
+        invoice_line_items: body.invoice_line_items,
+        export_format_url: body.export_format_url,
+        dispute_reason: body.dispute_reason,
         created_by: userId!,
       });
       res.status(201).json(invoice);
@@ -236,7 +245,7 @@ export class ContractController {
       const contractId = req.query.contractId ? Number(req.query.contractId) : undefined;
       const invoices = contractId
         ? await ContractService.getInvoicesByContract(contractId)
-        : [];
+        : await ContractService.getAllInvoices();
       res.json(invoices);
     } catch (error) {
       res.status(500).json({ error: "Failed to fetch invoices" });

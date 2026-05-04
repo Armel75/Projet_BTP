@@ -2,6 +2,28 @@ import { prisma } from '../config/prisma.js';
 import { TenantContext } from '../config/tenant-context.js';
 
 export class FinanceService {
+  private static normalizeSituationTravaux(row: any) {
+    if (!row) return row;
+
+    const toNumber = (value: any) => {
+      if (value === null || value === undefined) return 0;
+      const casted = Number(value);
+      return Number.isNaN(casted) ? 0 : casted;
+    };
+
+    return {
+      ...row,
+      reception_pct: toNumber(row.reception_pct),
+      amount_global: toNumber(row.amount_global),
+      amount_proposed: toNumber(row.amount_proposed),
+      amount_accorded: toNumber(row.amount_accorded),
+      cumul_paid_before: toNumber(row.cumul_paid_before),
+      amount_paid_current: toNumber(row.amount_paid_current),
+      balance_to_pay: toNumber(row.balance_to_pay),
+      remaining_to_receive: toNumber(row.remaining_to_receive),
+    };
+  }
+
   // ==========================
   // BUDGET LINES
   // ==========================
@@ -129,5 +151,89 @@ export class FinanceService {
       },
       orderBy: { transaction_date: 'desc' }
     });
+  }
+
+  // ==========================
+  // SITUATIONS TRAVAUX
+  // ==========================
+
+  static async getSituationsTravaux(filters: {
+    project_id?: number;
+    contract_id?: number;
+    purchase_order_id?: number;
+    supplier_id?: number;
+    status?: string;
+  }) {
+    const situations = await prisma.situationTravaux.findMany({
+      where: filters,
+      include: {
+        project: {
+          select: { id: true, code: true, title: true }
+        },
+        contract: {
+          select: { id: true, reference: true, title: true }
+        },
+        purchaseOrder: {
+          select: { id: true, number: true, title: true }
+        },
+        supplier: {
+          select: { id: true, name: true }
+        },
+        createdBy: {
+          select: { id: true, firstname: true, lastname: true, email: true }
+        },
+        approvedBy: {
+          select: { id: true, firstname: true, lastname: true, email: true }
+        }
+      },
+      orderBy: [{ period_end: 'desc' }, { id: 'desc' }]
+    });
+
+    return situations.map(this.normalizeSituationTravaux);
+  }
+
+  static async getSituationTravauxById(id: number) {
+    const situation = await prisma.situationTravaux.findUnique({
+      where: { id },
+      include: {
+        project: {
+          select: { id: true, code: true, title: true }
+        },
+        contract: {
+          select: { id: true, reference: true, title: true }
+        },
+        purchaseOrder: {
+          select: { id: true, number: true, title: true }
+        },
+        supplier: {
+          select: { id: true, name: true }
+        },
+        createdBy: {
+          select: { id: true, firstname: true, lastname: true, email: true }
+        },
+        approvedBy: {
+          select: { id: true, firstname: true, lastname: true, email: true }
+        }
+      }
+    });
+
+    return this.normalizeSituationTravaux(situation);
+  }
+
+  static async createSituationTravaux(data: any) {
+    const created = await prisma.situationTravaux.create({
+      data
+    });
+
+    return this.normalizeSituationTravaux(created);
+  }
+
+  static async updateSituationTravaux(id: number, data: any) {
+    const updated = await prisma.situationTravaux.update({
+      where: { id },
+      data
+    });
+
+    return this.normalizeSituationTravaux(updated);
   }
 }

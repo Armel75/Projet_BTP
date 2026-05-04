@@ -60,6 +60,15 @@ export class IncidentService {
     });
   }
 
+  static async getIncidentByIdForTenant(id: number) {
+    const tenantId = TenantContext.getTenantId();
+    if (!tenantId) throw new Error('Tenant session required');
+    return await prisma.incident.findFirst({
+      where: { id, tenant_id: tenantId },
+      include: INCIDENT_INCLUDE,
+    });
+  }
+
   static async updateIncident(id: number, data: Record<string, any>) {
     // Auto-set resolved_at when status becomes RESOLVED
     if (data.status === 'RESOLVED' && !data.resolved_at) {

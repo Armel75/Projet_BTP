@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from "react";
-import { FolderKanban, Plus, MapPin, Euro, Loader2, AlertCircle, Calendar } from "lucide-react";
+import { FolderKanban, Plus, MapPin, Loader2, AlertCircle, Calendar, FileDown } from "lucide-react";
 import { ProjectDetail } from "../components/projects/ProjectDetail";
 import { CreateProjectDialog } from "../components/projects/CreateProjectDialog";
 import { motion } from "motion/react";
@@ -34,6 +34,28 @@ export default function ProjectsView() {
   const [error,       setError]       = useState<string | null>(null);
   const [dialogOpen,  setDialogOpen]  = useState(false);
   const [selectedId,  setSelectedId]  = useState<number | null>(null);
+
+  const handleExportProjectsExcel = async () => {
+    try {
+      const res = await apiFetch(`${API_BASE}/projects/export/excel`);
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || "Impossible d'exporter la liste des projets.");
+      }
+
+      const blob = await res.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `projets-${new Date().toISOString().slice(0, 10)}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (err: any) {
+      setError(err.message || "Impossible d'exporter la liste des projets.");
+    }
+  };
 
   // ── Fetch ────────────────────────────────────────────────────────────────────
 
@@ -90,15 +112,25 @@ export default function ProjectsView() {
               : "Suivi et pilotage de l'ensemble de vos opérations BTP."}
           </p>
         </div>
-        {can("project:create") && (
+        <div className="flex items-center gap-2 shrink-0">
           <button
-            onClick={() => setDialogOpen(true)}
-            className="flex items-center justify-center space-x-2 bg-gb-primary text-gb-inverse px-6 py-3 rounded-full font-bold hover:bg-gb-primary/90 transition-all shadow-lg shadow-gb-primary/20 text-sm active:scale-95 shrink-0"
+            onClick={handleExportProjectsExcel}
+            className="flex items-center justify-center gap-2 border border-gb-border text-gb-text px-5 py-3 rounded-full font-bold hover:bg-gb-surface-hover transition-all text-sm active:scale-95"
           >
-            <Plus size={18} />
-            <span>Nouveau Projet</span>
+            <FileDown size={16} />
+            <span>Exporter la liste des projets (Excel/CSV)</span>
           </button>
-        )}
+
+          {can("project:create") && (
+            <button
+              onClick={() => setDialogOpen(true)}
+              className="flex items-center justify-center space-x-2 bg-gb-primary text-gb-inverse px-6 py-3 rounded-full font-bold hover:bg-gb-primary/90 transition-all shadow-lg shadow-gb-primary/20 text-sm active:scale-95"
+            >
+              <Plus size={18} />
+              <span>Nouveau Projet</span>
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Error */}
@@ -168,7 +200,7 @@ export default function ProjectsView() {
                   </span>
                   <span>·</span>
                   <span className="flex items-center gap-1">
-                    <span className="font-semibold text-gb-text">{prj._count.wbs ?? 0}</span> WBS
+                    <span className="font-semibold text-gb-text">{prj._count.wbs ?? 0}</span> SDT
                   </span>
                 </div>
               )}
@@ -176,7 +208,6 @@ export default function ProjectsView() {
               {/* Budget */}
               <div className="flex justify-between items-center">
                 <div className="flex items-center gap-1 text-gb-text font-bold">
-                  <Euro size={14} className="text-gb-primary" />
                   <span>{(prj.budget_initial ?? 0).toLocaleString("fr-FR")} {prj.currency}</span>
                 </div>
                 {prj.createdBy && (

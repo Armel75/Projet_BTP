@@ -8,6 +8,8 @@ router.use(authenticateToken);
 
 router.post('/', IncidentController.create);
 router.get('/', IncidentController.list);
+router.get('/:id/pdf',   IncidentController.generatePdf);
+router.get('/:id/excel', IncidentController.exportExcel);
 router.get('/:id', IncidentController.getById);
 router.put('/:id', IncidentController.update);
 router.delete('/:id', IncidentController.delete);

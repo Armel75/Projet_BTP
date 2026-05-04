@@ -24,6 +24,9 @@ export default function SettingsView() {
               <button className="w-full text-left p-3 border border-gb-border rounded bg-gb-app hover:border-gb-primary transition-colors text-sm font-medium">
                 Initialiser les Nomenclatures (Seed)
               </button>
+              <Link to="/settings/resource-types" className="block w-full text-left p-3 border border-gb-border rounded bg-gb-app hover:border-gb-primary transition-colors text-sm font-medium">
+                Paramétrer les types de ressources
+              </Link>
               <Link to="/settings/tenants" className="block w-full text-left p-3 border border-gb-border rounded bg-gb-app hover:border-gb-primary transition-colors text-sm font-medium">
                  Gérer les entreprises (Multi-Tenant)
               </Link>

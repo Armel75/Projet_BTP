@@ -19,9 +19,15 @@ export class InspectionService {
     type: string;
     status: string;
     scheduled_date?: Date;
+    date_scheduled?: Date;
     description?: string;
     location?: string;
     reference_norm?: string;
+    checklist_template_id?: number;
+    inspection_result?: string;
+    evidence_photos_required?: boolean;
+    approval_workflow_status?: string;
+    rework_required?: boolean;
     inspector_id?: number;
     created_by: number;
     items?: { description: string; result?: string; comment?: string; order?: number; category?: string }[];
@@ -37,9 +43,15 @@ export class InspectionService {
         type:           data.type,
         status:         data.status,
         scheduled_date: data.scheduled_date,
+        date_scheduled: data.date_scheduled,
         description:    data.description,
         location:       data.location,
         reference_norm: data.reference_norm,
+        checklist_template_id: data.checklist_template_id,
+        inspection_result: data.inspection_result,
+        evidence_photos_required: data.evidence_photos_required,
+        approval_workflow_status: data.approval_workflow_status,
+        rework_required: data.rework_required,
         inspector_id:   data.inspector_id,
         created_by:     data.created_by,
         tenant_id:      tenantId,
@@ -61,8 +73,11 @@ export class InspectionService {
     project_id?: number;
     status?: string;
     type?: string;
+    approval_workflow_status?: string;
+    inspection_result?: string;
     inspector_id?: number;
     created_by?: number;
+    rework_required?: boolean;
   }) {
     const tenantId = TenantContext.getTenantId();
     if (!tenantId) throw new Error("Tenant session required");
@@ -84,15 +99,31 @@ export class InspectionService {
     });
   }
 
+  static async getInspectionByIdForTenant(id: number) {
+    const tenantId = TenantContext.getTenantId();
+    if (!tenantId) throw new Error('Tenant session required');
+
+    return await prisma.inspection.findFirst({
+      where: { id, tenant_id: tenantId },
+      include: INSPECTION_INCLUDE,
+    });
+  }
+
   static async updateInspection(id: number, data: {
     title?: string;
     type?: string;
     status?: string;
     scheduled_date?: Date;
+    date_scheduled?: Date;
     completed_date?: Date;
     description?: string;
     location?: string;
     reference_norm?: string;
+    checklist_template_id?: number | null;
+    inspection_result?: string;
+    evidence_photos_required?: boolean;
+    approval_workflow_status?: string;
+    rework_required?: boolean;
     inspector_id?: number | null;
     lot_id?: number | null;
     items?: { id?: number; description: string; result?: string; comment?: string; order?: number; category?: string }[];
@@ -133,10 +164,16 @@ export class InspectionService {
           type:           data.type,
           status:         data.status,
           scheduled_date: data.scheduled_date,
+          date_scheduled: data.date_scheduled,
           completed_date: data.completed_date,
           description:    data.description,
           location:       data.location,
           reference_norm: data.reference_norm,
+          checklist_template_id: data.checklist_template_id,
+          inspection_result: data.inspection_result,
+          evidence_photos_required: data.evidence_photos_required,
+          approval_workflow_status: data.approval_workflow_status,
+          rework_required: data.rework_required,
           inspector_id:   data.inspector_id,
           lot_id:         data.lot_id
         },

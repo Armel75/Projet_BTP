@@ -14,6 +14,11 @@ import workAcceptanceRouter from './work-acceptance.routes.js';
 import seedRouter from './seed.routes.js';
 import rbacRouter from './rbac.routes.js';
 import tenantRouter from './tenant.routes.js';
+import documentRouter from './document.routes.js';
+import meetingRouter from './meeting.routes.js';
+import rfiRouter from './rfi.routes.js';
+import controlReportRouter from './control-report.routes.js';
+import dashboardRouter from './dashboard.routes.js';
 
 const router = Router();
 
@@ -36,5 +41,9 @@ router.use("/work-acceptances", workAcceptanceRouter);
 router.use("/seed", seedRouter);
 router.use("/rbac", rbacRouter);
 router.use("/tenants", tenantRouter);
-
+router.use('/documents', documentRouter);
+router.use('/meetings',  meetingRouter);
+router.use('/rfis',      rfiRouter);
+router.use('/control-reports', controlReportRouter);
+router.use('/dashboard', dashboardRouter);
 export default router;
