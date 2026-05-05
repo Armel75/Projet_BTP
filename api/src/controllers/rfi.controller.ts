@@ -93,14 +93,14 @@ export class RFIController {
   static async createComment(req: Request, res: Response) {
     try {
       const user = (req as AuthRequest).user;
-      const { content, document_url } = req.body;
+      const { content, document_id } = req.body;
       if (!content?.trim()) return res.status(400).json({ error: 'content est obligatoire' });
 
       const comment = await RFIService.createComment({
         rfi_id:       Number(req.params.id),
         user_id:      user?.id || undefined,
         content,
-        document_url: document_url || undefined,
+        document_id: document_id ? Number(document_id) : undefined,
       });
       res.status(201).json(comment);
     } catch (err: any) {
@@ -111,7 +111,11 @@ export class RFIController {
   // PUT /rfis/:id/comments/:cid
   static async updateComment(req: Request, res: Response) {
     try {
-      const comment = await RFIService.updateComment(Number(req.params.cid), req.body);
+      const body = req.body;
+      const comment = await RFIService.updateComment(Number(req.params.cid), {
+        ...(body.content !== undefined ? { content: body.content } : {}),
+        ...(body.document_id !== undefined ? { document_id: body.document_id ? Number(body.document_id) : null } : {}),
+      });
       res.json(comment);
     } catch (err: any) {
       res.status(400).json({ error: err.message });

@@ -16,7 +16,10 @@ import {
   Loader2,
   Clock,
   Briefcase,
-  FileText
+  FileText,
+  CheckCircle,
+  ImageIcon,
+  Download
 } from "lucide-react";
 import { Badge } from "../ui/badge";
 import { format } from "date-fns";
@@ -99,91 +102,141 @@ export default function DailyLogDetailDrawer({ open, onOpenChange, logId }: Dail
                  </div>
               </section>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-10">
-                 {/* Labor Entries */}
-                 <section className="space-y-4">
-                    <h4 className="text-[10px] font-black uppercase text-gb-muted tracking-widest flex items-center gap-2">
-                       <Users size={14} className="text-blue-500" /> Main d'œuvre
-                    </h4>
-                    <div className="space-y-2">
-                       {log.labor_entries?.length > 0 ? (
-                         log.labor_entries.map((entry: any) => (
-                           <div key={entry.id} className="flex justify-between items-center p-3 bg-gb-app/30 border border-gb-border rounded-xl">
-                              <div className="flex items-center gap-3">
-                                 <div className="p-1.5 bg-blue-500/10 text-blue-500 rounded-lg">
-                                    <HardHat size={14} />
-                                 </div>
-                                 <div>
-                                    <p className="text-sm font-bold text-gb-text leading-none mb-1">{entry.worker_name || 'Équipe'}</p>
-                                    <p className="text-[9px] font-bold text-gb-muted uppercase tracking-tighter">{entry.trade || "Corps d'état"}</p>
-                                 </div>
-                              </div>
-                              <div className="text-right">
-                                 <span className="text-sm font-black text-gb-text">{entry.hours}</span>
-                                 <span className="text-[10px] font-bold text-gb-muted ml-0.5">h</span>
-                              </div>
-                           </div>
-                         ))
-                       ) : (
-                         <p className="text-xs text-gb-muted italic py-4 text-center border border-dashed border-gb-border rounded-xl">Aucune saisie</p>
-                       )}
-                    </div>
-                 </section>
+              {/* Activités du jour */}
+              {/* Activités du jour */}
+              {log.task_progress && log.task_progress.length > 0 && (
+                <section className="space-y-4">
+                  <h4 className="text-[10px] font-black uppercase text-gb-muted tracking-widest flex items-center gap-2">
+                    <CheckCircle size={14} className="text-gb-primary" /> Activités du jour
+                  </h4>
+                  <div className="space-y-4">
+                    {log.task_progress.map((entry: any, idx: number) => {
+                      const laborData   = (() => { try { return entry.labor_data     ? JSON.parse(entry.labor_data)     : []; } catch { return []; } })();
+                      const equipData   = (() => { try { return entry.equipment_data ? JSON.parse(entry.equipment_data) : []; } catch { return []; } })();
+                      const matData     = (() => { try { return entry.material_data  ? JSON.parse(entry.material_data)  : []; } catch { return []; } })();
+                      const photosData  = (() => { try { return entry.photos_url     ? JSON.parse(entry.photos_url)     : []; } catch { return typeof entry.photos_url === "string" ? [entry.photos_url] : []; } })();
+                      const title       = entry.task_type === "unplanned" ? entry.task_title_custom : (entry.task?.title || "Tâche");
+                      const isUnplanned = entry.task_type === "unplanned";
+                      const totalH      = laborData.reduce((s: number, l: any) => s + (parseFloat(l.hours) || 0), 0);
 
-                 {/* Equipment Entries */}
-                 <section className="space-y-4">
-                    <h4 className="text-[10px] font-black uppercase text-gb-muted tracking-widest flex items-center gap-2">
-                       <Truck size={14} className="text-amber-500" /> Équipement & Engins
-                    </h4>
-                    <div className="space-y-2">
-                       {log.equipment_entries?.length > 0 ? (
-                         log.equipment_entries.map((entry: any) => (
-                           <div key={entry.id} className="flex justify-between items-center p-3 bg-gb-app/30 border border-gb-border rounded-xl">
-                              <div className="flex items-center gap-3">
-                                 <div className="p-1.5 bg-amber-500/10 text-amber-500 rounded-lg">
-                                    <Truck size={14} />
-                                 </div>
-                                 <p className="text-sm font-bold text-gb-text">{entry.equipment_id || 'Engin'}</p>
+                      return (
+                        <div key={idx} className="border border-gb-border rounded-2xl overflow-hidden">
+                          {/* Header activité */}
+                          <div className="flex items-center justify-between p-4 bg-gb-surface-solid">
+                            <div className="flex items-center gap-3">
+                              <div className={`w-1.5 h-10 rounded-full shrink-0 ${isUnplanned ? "bg-amber-400" : "bg-gb-primary"}`} />
+                              <div>
+                                <p className="text-sm font-black text-gb-text leading-none mb-1.5">{title}</p>
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <span className={`text-[9px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded ${isUnplanned ? "bg-amber-500/15 text-amber-600" : "bg-gb-primary/10 text-gb-primary"}`}>
+                                    {isUnplanned ? "⚡ Imprévue" : "✓ Planifiée"}
+                                  </span>
+                                  {laborData.length > 0   && <span className="text-[10px] font-bold text-blue-500">{laborData.length} ouvrier{laborData.length > 1 ? "s" : ""} · {totalH}h</span>}
+                                  {equipData.length > 0   && <span className="text-[10px] font-bold text-amber-500">{equipData.length} engin{equipData.length > 1 ? "s" : ""}</span>}
+                                  {matData.length > 0     && <span className="text-[10px] font-bold text-emerald-500">{matData.length} mat.</span>}
+                                  {photosData.length > 0  && <span className="text-[10px] font-bold text-purple-500">{photosData.length} photo{photosData.length > 1 ? "s" : ""}</span>}
+                                </div>
                               </div>
-                              <div className="text-right">
-                                 <span className="text-sm font-black text-gb-text">{entry.hours_used}</span>
-                                 <span className="text-[10px] font-bold text-gb-muted ml-0.5">h</span>
+                            </div>
+                            {entry.progress_percentage != null && (
+                              <div className="w-14 h-14 rounded-full bg-gb-primary/10 border-2 border-gb-primary flex items-center justify-center shrink-0">
+                                <span className="text-sm font-black text-gb-primary">{entry.progress_percentage}%</span>
                               </div>
-                           </div>
-                         ))
-                       ) : (
-                         <p className="text-xs text-gb-muted italic py-4 text-center border border-dashed border-gb-border rounded-xl">Aucune saisie</p>
-                       )}
-                    </div>
-                 </section>
-              </div>
+                            )}
+                          </div>
 
-              {/* Material Entries */}
-              <section className="space-y-4">
-                 <h4 className="text-[10px] font-black uppercase text-gb-muted tracking-widest flex items-center gap-2">
-                    <Package size={14} className="text-emerald-500" /> Matériaux Consommés
-                 </h4>
-                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    {log.material_entries?.length > 0 ? (
-                      log.material_entries.map((entry: any) => (
-                        <div key={entry.id} className="flex justify-between items-center p-4 bg-gb-app/30 border border-gb-border rounded-xl">
-                           <div className="flex items-center gap-3">
-                              <div className="p-2 bg-emerald-500/10 text-emerald-500 rounded-xl">
-                                 <Package size={16} />
+                          {/* Body activité */}
+                          <div className="p-4 space-y-4 border-t border-gb-border bg-gb-app/10">
+                            {/* Main d'œuvre */}
+                            {laborData.length > 0 && (
+                              <div className="space-y-2">
+                                <p className="text-[10px] font-black uppercase text-blue-600 flex items-center gap-1.5 tracking-widest"><HardHat size={12} /> Main d'œuvre</p>
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                                  {laborData.map((l: any, li: number) => (
+                                    <div key={li} className="flex items-center justify-between p-2.5 bg-gb-surface-solid rounded-xl border border-gb-border">
+                                      <div className="flex items-center gap-2">
+                                        <div className="w-7 h-7 rounded-lg bg-blue-500/10 text-blue-500 flex items-center justify-center"><HardHat size={12} /></div>
+                                        <div>
+                                          <p className="text-xs font-bold text-gb-text leading-none">{l.worker_name || "—"}</p>
+                                          <p className="text-[9px] text-gb-muted mt-0.5">{l.trade || "Corps d'état"}</p>
+                                        </div>
+                                      </div>
+                                      <span className="text-xs font-black text-gb-text">{l.hours}h</span>
+                                    </div>
+                                  ))}
+                                </div>
                               </div>
-                              <p className="text-sm font-black text-gb-text">{entry.material_id || 'Consommable'}</p>
-                           </div>
-                           <div className="flex items-center gap-1.5 px-3 py-1 bg-gb-surface-solid border border-gb-border rounded-lg">
-                              <span className="text-sm font-black text-gb-primary">{entry.quantity}</span>
-                              <span className="text-[10px] font-bold text-gb-muted">{entry.unit || 'unit'}</span>
-                           </div>
+                            )}
+
+                            {/* Équipement */}
+                            {equipData.length > 0 && (
+                              <div className="space-y-2">
+                                <p className="text-[10px] font-black uppercase text-amber-600 flex items-center gap-1.5 tracking-widest"><Truck size={12} /> Équipement & Engins</p>
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                                  {equipData.map((eq: any, ei: number) => (
+                                    <div key={ei} className="flex items-center justify-between p-2.5 bg-gb-surface-solid rounded-xl border border-gb-border">
+                                      <div className="flex items-center gap-2">
+                                        <div className="w-7 h-7 rounded-lg bg-amber-500/10 text-amber-500 flex items-center justify-center"><Truck size={12} /></div>
+                                        <p className="text-xs font-bold text-gb-text">{eq.equipment_name || "—"}</p>
+                                      </div>
+                                      <span className="text-xs font-black text-gb-text">{eq.hours_used}h</span>
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+
+                            {/* Matériaux */}
+                            {matData.length > 0 && (
+                              <div className="space-y-2">
+                                <p className="text-[10px] font-black uppercase text-emerald-600 flex items-center gap-1.5 tracking-widest"><Package size={12} /> Matériaux</p>
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                                  {matData.map((m: any, mi: number) => (
+                                    <div key={mi} className="flex items-center justify-between p-2.5 bg-gb-surface-solid rounded-xl border border-gb-border">
+                                      <div className="flex items-center gap-2">
+                                        <div className="w-7 h-7 rounded-lg bg-emerald-500/10 text-emerald-500 flex items-center justify-center"><Package size={12} /></div>
+                                        <p className="text-xs font-bold text-gb-text">{m.material_name || "—"}</p>
+                                      </div>
+                                      <span className="text-xs font-black text-gb-primary">{m.quantity} <span className="text-[10px] text-gb-muted font-normal">{m.unit}</span></span>
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+
+                            {/* Observations */}
+                            {entry.comment && (
+                              <div className="p-3 bg-gb-surface-solid rounded-xl border border-gb-border">
+                                <p className="text-[10px] font-bold text-gb-muted uppercase tracking-tighter mb-1.5">Observations</p>
+                                <p className="text-sm text-gb-text leading-relaxed whitespace-pre-wrap">{entry.comment}</p>
+                              </div>
+                            )}
+
+                            {/* Photos */}
+                            {photosData.length > 0 && (
+                              <div className="space-y-2">
+                                <p className="text-[10px] font-black uppercase text-purple-600 flex items-center gap-1.5 tracking-widest"><ImageIcon size={12} /> Photos ({photosData.length})</p>
+                                <div className="grid grid-cols-3 md:grid-cols-5 gap-2">
+                                  {photosData.map((photo: string, pi: number) => (
+                                    <div key={pi} className="relative group">
+                                      <img src={photo} alt={`Photo ${pi + 1}`} className="w-full h-20 object-cover rounded-lg border border-gb-border" />
+                                      {photo.startsWith("http") && (
+                                        <a href={photo} download className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-gb-primary text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity" title="Télécharger">
+                                          <Download size={10} />
+                                        </a>
+                                      )}
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+                          </div>
                         </div>
-                      ))
-                    ) : (
-                      <p className="text-xs text-gb-muted italic py-8 text-center border border-dashed border-gb-border rounded-2xl col-span-full">Aucun matériau renseigné dans ce rapport.</p>
-                    )}
-                 </div>
-              </section>
+                      );
+                    })}
+                  </div>
+                </section>
+              )}
             </div>
           </>
         ) : (

@@ -2,6 +2,34 @@ import { prisma } from '../config/prisma.js';
 import { TenantContext } from '../config/tenant-context.js';
 
 export class ResourceService {
+  static async getGlpiUsers(limit = 200) {
+    const tenantId = TenantContext.getTenantId();
+    if (!tenantId) throw new Error("Tenant session required");
+
+    const safeLimit = Math.max(1, Math.min(1000, Number(limit) || 200));
+    return (prisma as any).gLPIUser.findMany({
+      where: {
+        tenant_id: tenantId,
+        is_deleted_in_source: false,
+      },
+      select: {
+        id: true,
+        glpi_id: true,
+        login: true,
+        email: true,
+        first_name: true,
+        last_name: true,
+        full_name: true,
+        status: true,
+      },
+      orderBy: [
+        { full_name: 'asc' },
+        { login: 'asc' },
+      ],
+      take: safeLimit,
+    });
+  }
+
   // ==========================
   // RESOURCE TYPES
   // ==========================

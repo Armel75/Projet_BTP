@@ -2,6 +2,8 @@ import 'dotenv/config';
 import app from './app.js';
 import { syncPermissions } from './services/permissions-sync.service.js';
 import { syncSeedUsers } from './services/seed-users-sync.service.js';
+import { startGlpiUserSyncCron } from './cron/glpi-user-sync.cron.js';
+import { startGlpiTicketSyncCron } from './cron/glpi-ticket-sync.cron.js';
 
 const PORT = process.env.PORT;
 
@@ -17,4 +19,8 @@ app.listen(PORT, async () => {
   await syncSeedUsers().catch(err =>
     console.error('[seed-users] ⚠ Erreur :', err)
   );
+
+  // 3. Sync GLPI users/tickets every minute (create-only for new records)
+  startGlpiUserSyncCron();
+  startGlpiTicketSyncCron();
 });

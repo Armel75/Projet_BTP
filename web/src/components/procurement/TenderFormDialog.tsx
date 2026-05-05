@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { apiFetch, API_BASE } from "../../lib/api";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle,
@@ -6,6 +6,7 @@ import {
 import { Button } from "../ui/button";
 import {
   Loader2, FileText, Building2, Calendar, Banknote, Save, X,
+  Upload, Paperclip, CheckCircle2, AlertCircle, Trash2,
 } from "lucide-react";
 import { motion } from "motion/react";
 
@@ -66,31 +67,62 @@ function SectionTitle({ label }: { label: string }) {
 }
 
 const EMPTY = {
-  title: "", reference: "", type: "OPEN", category: "TRAVAUX",
+  title: "", type: "OPEN", category: "TRAVAUX",
   status: "DRAFT", currency: "EUR", project_id: "",
   lot_id: "", budget_estimate: "", submission_deadline: "",
-  opening_date: "", document_url: "", notes: "", description: "",
+  opening_date: "", notes: "", description: "",
 };
+
+type UploadedFile = {
+  documentId: number;
+  url: string;
+  filename: string;
+  size?: number;
+};
+
+function parseDocumentUrls(tender: any): UploadedFile[] {
+  // New approach: tender.documents is a Document[] with direct tender_id FK
+  if (tender?.documents && Array.isArray(tender.documents) && tender.documents.length > 0) {
+    return tender.documents.map((doc: any) => ({
+      documentId: doc.id,
+      url: doc.file_url ?? "",
+      filename: doc.file_name ?? doc.name ?? "Pièce jointe",
+      size: doc.file_size ?? undefined,
+    }));
+  }
+  return [];
+}
 
 export default function TenderFormDialog({ open, onOpenChange, tender, onSaved }: TenderFormDialogProps) {
   const [form, setForm] = useState({ ...EMPTY });
   const [projects, setProjects] = useState<any[]>([]);
   const [lots, setLots] = useState<any[]>([]);
+  const [attachments, setAttachments] = useState<UploadedFile[]>([]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const set = (k: string, v: string) => setForm(f => ({ ...f, [k]: v }));
 
+  // ── Génère une référence unique AO-{year}-{3 chiffres aléatoires}
+  function genRef() {
+    const year = new Date().getFullYear();
+    const rand = String(Math.floor(Math.random() * 900) + 100);
+    return `AO-${year}-${rand}`;
+  }
+
   useEffect(() => {
     if (!open) return;
-    apiFetch(`${API_BASE}/project-management/projects?limit=100`)
-      .then(r => r.json()).then(d => setProjects(Array.isArray(d) ? d : [])).catch(() => {});
+    apiFetch(`${API_BASE}/projects?limit=100`)
+      .then(r => r.json()).then(d => setProjects(Array.isArray(d) ? d : (d?.data ?? []))).catch(() => {});
   }, [open]);
 
   useEffect(() => {
     if (!form.project_id) { setLots([]); return; }
-    apiFetch(`${API_BASE}/project-management/lots?projectId=${form.project_id}`)
-      .then(r => r.json()).then(d => setLots(Array.isArray(d) ? d : [])).catch(() => {});
+    apiFetch(`${API_BASE}/projects/${form.project_id}/lots`)
+      .then(r => r.json()).then(d => setLots(Array.isArray(d) ? d : (d?.data ?? []))).catch(() => {});
   }, [form.project_id]);
 
   useEffect(() => {
@@ -98,7 +130,6 @@ export default function TenderFormDialog({ open, onOpenChange, tender, onSaved }
     if (tender) {
       setForm({
         title:               tender.title ?? "",
-        reference:           tender.reference ?? "",
         type:                tender.type ?? "OPEN",
         category:            tender.category ?? "TRAVAUX",
         status:              tender.status ?? "DRAFT",
@@ -108,26 +139,28 @@ export default function TenderFormDialog({ open, onOpenChange, tender, onSaved }
         budget_estimate:     tender.budget_estimate != null ? String(tender.budget_estimate) : "",
         submission_deadline: tender.submission_deadline ? tender.submission_deadline.split("T")[0] : "",
         opening_date:        tender.opening_date ? tender.opening_date.split("T")[0] : "",
-        document_url:        tender.document_url ?? "",
         notes:               tender.notes ?? "",
         description:         tender.description ?? "",
       });
+      setAttachments(parseDocumentUrls(tender));
     } else {
       setForm({ ...EMPTY });
+      setAttachments([]);
     }
     setError(null);
+    setUploadError(null);
   }, [open, tender]);
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!form.title.trim()) { setError("Le titre est obligatoire"); return; }
     if (!form.project_id)   { setError("Le projet est obligatoire"); return; }
+    if (uploading)           { setError("Veuillez attendre la fin de l'envoi du fichier."); return; }
     setSaving(true);
     setError(null);
     try {
       const payload: Record<string, any> = {
         title:               form.title,
-        reference:           form.reference || undefined,
         type:                form.type,
         category:            form.category,
         status:              form.status,
@@ -137,7 +170,8 @@ export default function TenderFormDialog({ open, onOpenChange, tender, onSaved }
         budget_estimate:     form.budget_estimate ? Number(form.budget_estimate) : undefined,
         submission_deadline: form.submission_deadline || undefined,
         opening_date:        form.opening_date || undefined,
-        document_url:        form.document_url || undefined,
+        // Send document IDs for proper DB relations (skip documentId=0 legacy entries)
+        document_ids:        attachments.filter(a => a.documentId > 0).map(a => a.documentId),
         notes:               form.notes || undefined,
         description:         form.description || undefined,
       };
@@ -148,6 +182,7 @@ export default function TenderFormDialog({ open, onOpenChange, tender, onSaved }
           body: JSON.stringify(payload),
         });
       } else {
+        payload.reference = genRef();
         await apiFetch(`${API_BASE}/procurement/tenders`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -184,9 +219,6 @@ export default function TenderFormDialog({ open, onOpenChange, tender, onSaved }
                 <input value={form.title} onChange={e => set("title", e.target.value)} placeholder="ex: Gros œuvre - Bâtiment A" className={inputCls} />
               </Field>
             </div>
-            <Field label="Référence">
-              <input value={form.reference} onChange={e => set("reference", e.target.value)} placeholder="AO-2026-001" className={inputCls} />
-            </Field>
             <Field label="Statut">
               <select value={form.status} onChange={e => set("status", e.target.value)} className={selectCls}>
                 {STATUSES.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
@@ -248,8 +280,105 @@ export default function TenderFormDialog({ open, onOpenChange, tender, onSaved }
 
           <SectionTitle label="Documents & Informations" />
           <div className="space-y-4">
-            <Field label="Lien DCE (Document de Consultation)">
-              <input value={form.document_url} onChange={e => set("document_url", e.target.value)} placeholder="https://…" className={inputCls} />
+            <Field label="Pièces jointes DCE (plusieurs fichiers)">
+              <div className="space-y-2">
+                {!form.project_id && (
+                  <p className="text-xs text-gb-muted italic px-1">Sélectionnez d'abord un projet pour activer l'upload.</p>
+                )}
+                {/* input file hors du flux du form pour éviter tout submit parasite */}
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  className="hidden"
+                  multiple
+                  accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.zip,.rar"
+                  onChange={async (e) => {
+                    const files = e.target.files ? Array.from(e.target.files) : [];
+                    if (!files.length) return;
+                    setUploading(true);
+                    setUploadError(null);
+                    try {
+                      const fd = new FormData();
+                      files.forEach((file) => fd.append("files", file));
+                      fd.append("project_id", form.project_id);
+                      const res = await apiFetch(`${API_BASE}/procurement/tenders/dce-uploads`, {
+                        method: "POST",
+                        body: fd,
+                        noAutoLogout: true, // un échec d'upload ne doit jamais déconnecter l'utilisateur
+                      });
+                      if (!res.ok) {
+                        const errData = await res.json().catch(() => ({}));
+                        throw new Error(errData?.error ?? "Échec de l'envoi");
+                      }
+                      const data = await res.json();
+                      setAttachments((prev) => [...prev, ...(Array.isArray(data.files) ? data.files : [])]);
+                    } catch (err: any) {
+                      setUploadError(err?.message ?? "Impossible d'envoyer le fichier. Réessayez.");
+                    } finally {
+                      setUploading(false);
+                      e.target.value = "";
+                    }
+                  }}
+                />
+                <div
+                  role="button"
+                  tabIndex={form.project_id && !uploading ? 0 : -1}
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    if (!form.project_id || uploading) return;
+                    fileInputRef.current?.click();
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      if (!form.project_id || uploading) return;
+                      fileInputRef.current?.click();
+                    }
+                  }}
+                  className={`flex items-center gap-3 min-h-[52px] px-4 py-3 rounded-xl border-2 border-dashed transition-colors select-none ${
+                    !form.project_id
+                      ? "opacity-40 cursor-not-allowed border-gb-border"
+                      : uploading
+                      ? "cursor-wait border-gb-primary/40 bg-gb-primary/5"
+                      : attachments.length > 0
+                      ? "cursor-pointer border-emerald-500/40 bg-emerald-500/5 hover:border-emerald-500/60"
+                      : "cursor-pointer border-gb-border hover:border-gb-primary/50 hover:bg-gb-primary/5"
+                  }`}
+                >
+                  {uploading ? (
+                    <><Loader2 size={16} className="text-gb-primary animate-spin shrink-0" /><span className="text-sm text-gb-primary font-semibold">Envoi en cours…</span></>
+                  ) : attachments.length > 0 ? (
+                    <><CheckCircle2 size={16} className="text-emerald-500 shrink-0" /><span className="text-sm text-emerald-600 truncate font-semibold">{attachments.length} pièce(s) jointe(s)</span><span className="ml-auto text-[11px] font-semibold text-gb-muted">Ajouter d'autres fichiers</span></>
+                  ) : (
+                    <><Upload size={16} className="text-gb-muted shrink-0" /><span className="text-sm text-gb-muted font-semibold">Cliquer pour charger vos pièces DCE (PDF, Word, Excel, ZIP…)</span></>
+                  )}
+                </div>
+                {uploadError && (
+                  <p className="flex items-center gap-1.5 text-xs text-gb-danger"><AlertCircle size={12} />{uploadError}</p>
+                )}
+                {attachments.length > 0 && (
+                  <div className="space-y-1.5">
+                    {attachments.map((file, idx) => (
+                      <div key={`${file.url}-${idx}`} className="flex items-center gap-2 px-3 py-2 rounded-lg border border-gb-border bg-gb-app">
+                        <Paperclip size={13} className="text-gb-muted shrink-0" />
+                        <a href={file.url} target="_blank" rel="noreferrer" className="text-xs font-medium text-gb-text truncate hover:text-gb-primary hover:underline">
+                          {file.filename}
+                        </a>
+                        <button
+                          type="button"
+                          onClick={() => setAttachments((prev) => prev.filter((_, i) => i !== idx))}
+                          className="ml-auto p-1 rounded text-gb-danger hover:bg-gb-danger/10"
+                          title="Retirer ce fichier"
+                        >
+                          <Trash2 size={12} />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
             </Field>
             <Field label="Description / Objet">
               <textarea value={form.description} onChange={e => set("description", e.target.value)} rows={3} placeholder="Décrire le périmètre de la consultation…" className={textareaCls} />

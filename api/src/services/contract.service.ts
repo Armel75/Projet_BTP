@@ -3,6 +3,7 @@ import { TenantContext } from '../config/tenant-context.js';
 
 const CONTRACT_INCLUDE = {
   supplier:  { select: { id: true, name: true, email: true, contact_name: true, phone: true } },
+  document:  { select: { id: true, name: true, file_url: true, file_name: true, file_size: true } },
   project:   { select: { id: true, code: true, title: true } },
   createdBy: { select: { id: true, firstname: true, lastname: true } },
   approvedBy: { select: { id: true, firstname: true, lastname: true } },
@@ -60,7 +61,7 @@ export class ContractService {
     advance_payment_amount?: number;
     price_revision_index?: string;
     payment_terms?: number;
-    document_url?: string;
+    document_id?: number;
     created_by: number;
   }) {
     const tenantId = TenantContext.getTenantId();
@@ -86,7 +87,7 @@ export class ContractService {
         advance_payment_amount: data.advance_payment_amount,
         price_revision_index: data.price_revision_index,
         payment_terms: data.payment_terms,
-        document_url: data.document_url,
+        document_id: data.document_id,
         tenant_id: tenantId,
         created_by: data.created_by,
       },

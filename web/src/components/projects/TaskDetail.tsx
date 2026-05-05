@@ -3,6 +3,7 @@ import { Badge } from "../ui/badge";
 import { Clock, User, Link as LinkIcon, AlertCircle, Plus, HardHat, Truck, Trash2 } from "lucide-react";
 import { Button } from "../ui/button";
 import { ResourceAssignmentDialog } from "./ResourceAssignmentDialog";
+import { apiFetch, API_BASE } from "../../lib/api";
 
 interface TaskDetailProps {
   task: any;
@@ -17,10 +18,7 @@ export function TaskDetail({ task, onClose }: TaskDetailProps) {
   const fetchAssignments = async () => {
     setLoadingAssignments(true);
     try {
-      const token = localStorage.getItem("token");
-      const res = await fetch(`/api/resources/tasks/${task.id}/assignments`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
+      const res = await apiFetch(`${API_BASE}/resources/tasks/${task.id}/assignments`);
       if (res.ok) {
         setAssignments(await res.json());
       }
@@ -36,10 +34,9 @@ export function TaskDetail({ task, onClose }: TaskDetailProps) {
   }, [task.id]);
 
   const handleAssign = async (resourceId: number, data: any) => {
-    const token = localStorage.getItem("token");
-    const res = await fetch(`/api/resources/tasks/${task.id}/assign`, {
+    const res = await apiFetch(`${API_BASE}/resources/tasks/${task.id}/assign`, {
       method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify(data)
     });
 
@@ -49,10 +46,8 @@ export function TaskDetail({ task, onClose }: TaskDetailProps) {
   };
 
   const handleUnassign = async (resourceId: number) => {
-    const token = localStorage.getItem("token");
-    const res = await fetch(`/api/resources/tasks/${task.id}/assign/${resourceId}`, {
-      method: "DELETE",
-      headers: { Authorization: `Bearer ${token}` }
+    const res = await apiFetch(`${API_BASE}/resources/tasks/${task.id}/assign/${resourceId}`, {
+      method: "DELETE"
     });
 
     if (res.ok) {

@@ -47,7 +47,7 @@ export class IncidentService {
     if (!tenantId) throw new Error("Tenant session required");
 
     return await prisma.incident.findMany({
-      where: { ...filters, tenant_id: tenantId },
+      where: { ...filters, tenant_id: tenantId, is_archived: false },
       include: INCIDENT_INCLUDE,
       orderBy: { created_at: 'desc' }
     });
@@ -85,7 +85,11 @@ export class IncidentService {
     });
   }
 
-  static async deleteIncident(id: number) {
-    return await prisma.incident.delete({ where: { id } });
+  static async archiveIncident(id: number) {
+    return await prisma.incident.update({
+      where: { id },
+      data: { is_archived: true, archived_at: new Date() },
+      include: INCIDENT_INCLUDE,
+    });
   }
 }

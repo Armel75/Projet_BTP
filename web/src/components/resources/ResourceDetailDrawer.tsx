@@ -54,7 +54,7 @@ export function ResourceDetailDrawer({ open, onClose, resource, onUnassign }: Re
                 </div>
                 <div className="p-4 bg-gb-app border border-gb-border rounded-xl">
                   <p className="text-[10px] font-bold text-gb-muted uppercase tracking-widest mb-1">Coût Horaire</p>
-                  <p className="font-bold text-gb-text">{resource.cost_rate} €/h</p>
+                  <p className="font-bold text-gb-text">{resource.cost_rate} FCFA/h</p>
                 </div>
               </div>
 
@@ -78,9 +78,9 @@ export function ResourceDetailDrawer({ open, onClose, resource, onUnassign }: Re
                         <div className="flex justify-between items-start mb-3">
                           <div>
                             <h5 className="font-bold text-sm text-gb-text group-hover:text-gb-primary transition-colors">
-                              {assignment.task.title}
+                              {assignment.task?.title ?? '—'}
                             </h5>
-                            <p className="text-[10px] text-gb-muted mt-0.5">PROJET: {assignment.task.project.code}</p>
+                            <p className="text-[10px] text-gb-muted mt-0.5">PROJET: {assignment.task?.project?.code ?? '—'}</p>
                           </div>
                           <button 
                             onClick={() => onUnassign(assignment.task_id)}

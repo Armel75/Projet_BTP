@@ -70,7 +70,7 @@ export class AuthService {
 
     let tenant = await prisma.tenant.findFirst();
     if (!tenant) {
-      tenant = await prisma.tenant.create({ data: { name: "Default Tenant" } });
+      tenant = await prisma.tenant.create({ data: { name: process.env.SEED_TENANT_NAME ?? 'SOREPCO' } });
     }
 
     const user = await prisma.user.create({

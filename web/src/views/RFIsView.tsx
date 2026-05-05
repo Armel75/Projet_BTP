@@ -22,7 +22,8 @@ interface Comment {
   rfi_id: number;
   user_id?: number;
   content: string;
-  document_url?: string;
+  document_id?: number;
+  document?: { id: number; name?: string; file_url?: string; file_name?: string };
   created_at: string;
   updated_at: string;
   user?: { id: number; firstname: string; lastname: string; email: string };
@@ -562,7 +563,7 @@ function RFIDetailDrawer({ rfi, onClose, onEdit, onDelete, onUpdated }: {
   const [tab, setTab] = useState<"detail" | "comments" | "impacts">("detail");
   const [comments, setComments] = useState<Comment[]>(rfi.comments ?? []);
   const [newComment, setNewComment] = useState("");
-  const [newDocUrl, setNewDocUrl] = useState("");
+  const [newCommentFiles, setNewCommentFiles] = useState<File[]>([]);
   const [postingComment, setPostingComment] = useState(false);
   const [editCommentId, setEditCommentId] = useState<number | null>(null);
   const [editContent, setEditContent] = useState("");
@@ -579,16 +580,38 @@ function RFIDetailDrawer({ rfi, onClose, onEdit, onDelete, onUpdated }: {
     setComments(Array.isArray(d) ? d : []);
   }, [rfi.id]);
 
+  const uploadCommentFiles = async () => {
+    if (newCommentFiles.length === 0) return [] as number[];
+    const fd = new FormData();
+    newCommentFiles.forEach((f) => fd.append("files", f));
+    fd.append("project_id", String(rfi.project_id));
+    fd.append("category", "RFI");
+    fd.append("phase", "EXE");
+
+    const uploadRes = await apiFetch(`${API_BASE}/documents/uploads`, { method: "POST", body: fd });
+    if (!uploadRes.ok) {
+      const b = await uploadRes.json().catch(() => ({}));
+      throw new Error(b.error || `Erreur upload (${uploadRes.status})`);
+    }
+    const uploadBody = await uploadRes.json().catch(() => ({}));
+    const files = Array.isArray(uploadBody?.files) ? uploadBody.files : [];
+    return files
+      .map((f: any) => Number(f.documentId ?? f.id))
+      .filter((id: number) => Number.isFinite(id) && id > 0);
+  };
+
   const postComment = async () => {
     if (!newComment.trim()) return;
     setPostingComment(true);
     try {
+      const documentIds = await uploadCommentFiles();
       await apiFetch(`${API_BASE}/rfis/${rfi.id}/comments`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ content: newComment.trim(), document_url: newDocUrl.trim() || undefined }),
+        body: JSON.stringify({ content: newComment.trim(), document_id: documentIds[0] || undefined }),
       });
-      setNewComment(""); setNewDocUrl("");
+      setNewComment("");
+      setNewCommentFiles([]);
       await fetchComments();
       onUpdated();
       setTimeout(() => commentsEndRef.current?.scrollIntoView({ behavior: "smooth" }), 100);
@@ -858,10 +881,10 @@ function RFIDetailDrawer({ rfi, onClose, onEdit, onDelete, onUpdated }: {
                       ) : (
                         <>
                           <p className="text-sm text-gb-text leading-relaxed whitespace-pre-wrap">{c.content}</p>
-                          {c.document_url && (
-                            <a href={c.document_url} target="_blank" rel="noopener noreferrer"
+                          {c.document?.file_url && (
+                            <a href={c.document.file_url} target="_blank" rel="noopener noreferrer"
                               className="inline-flex items-center gap-1.5 mt-1.5 text-xs text-gb-primary hover:underline">
-                              <Paperclip size={11} /> Pièce jointe
+                              <Paperclip size={11} /> {c.document.file_name || c.document.name || "Pièce jointe"}
                             </a>
                           )}
                         </>
@@ -889,15 +912,21 @@ function RFIDetailDrawer({ rfi, onClose, onEdit, onDelete, onUpdated }: {
                   rows={3} onKeyDown={e => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) postComment(); }}
                   className="w-full bg-gb-app border border-gb-border rounded-xl px-3 py-2 text-sm text-gb-text placeholder:text-gb-muted focus:ring-2 focus:ring-gb-primary outline-none resize-none" />
                 <div className="flex items-center gap-2">
-                  <input value={newDocUrl} onChange={e => setNewDocUrl(e.target.value)}
-                    placeholder="URL pièce jointe (optionnel)"
-                    className="flex-1 h-8 bg-gb-app border border-gb-border rounded-lg px-3 text-xs text-gb-text placeholder:text-gb-muted focus:ring-2 focus:ring-gb-primary outline-none" />
+                  <input
+                    type="file"
+                    multiple
+                    onChange={e => setNewCommentFiles(Array.from(e.target.files || []))}
+                    className="flex-1 h-8 bg-gb-app border border-gb-border rounded-lg px-2 text-xs text-gb-text file:mr-2 file:border-0 file:bg-transparent"
+                  />
                   <button onClick={postComment} disabled={postingComment || !newComment.trim()}
                     className="h-8 px-4 rounded-xl bg-gb-primary text-white text-xs font-bold flex items-center gap-1.5 hover:opacity-90 transition-all disabled:opacity-50">
                     {postingComment ? <Loader2 size={12} className="animate-spin" /> : <Send size={12} />}
                     Envoyer
                   </button>
                 </div>
+                {newCommentFiles.length > 0 && (
+                  <p className="text-[10px] text-gb-muted">{newCommentFiles.length} fichier(s) sélectionné(s).</p>
+                )}
                 <p className="text-[10px] text-gb-muted/50">⌘ + Entrée pour envoyer rapidement</p>
               </div>
             </>

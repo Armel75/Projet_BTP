@@ -21,6 +21,66 @@ function detectFileType(mimetype: string): string {
 
 export class DocumentController {
 
+  // POST /documents/uploads (multipart/form-data, field: files[])
+  static async uploadMany(req: Request, res: Response) {
+    try {
+      const user = (req as AuthRequest).user;
+      const files = Array.isArray((req as any).files) ? ((req as any).files as Express.Multer.File[]) : [];
+      const body = req.body;
+
+      if (files.length === 0) {
+        return res.status(400).json({ error: 'Aucun fichier reçu.' });
+      }
+
+      const projectId = Number(body.project_id);
+      if (!projectId) {
+        return res.status(400).json({ error: 'project_id requis pour l\'upload de documents.' });
+      }
+
+      const docs = await Promise.all(
+        files.map(async (file) => {
+          const fileUrl = `/api/v1/documents/files/${file.filename}`;
+          const doc = await DocumentService.createDocument({
+            project_id: projectId,
+            lot_id: body.lot_id ? Number(body.lot_id) : undefined,
+            category: body.category ?? 'SPEC',
+            name: file.originalname,
+            description: body.description,
+            reference: body.reference,
+            discipline: body.discipline ?? 'GENERAL',
+            phase: body.phase ?? 'EXE',
+            status: body.status ?? 'APPROVED',
+            approval_status: body.approval_status,
+            revision: body.revision ?? 'A',
+            confidentiality: body.confidentiality ?? 'INTERNAL',
+            security_clearance_level: body.security_clearance_level,
+            supersedes_document_id: body.supersedes_document_id ? Number(body.supersedes_document_id) : undefined,
+            document_change_log: body.document_change_log,
+            expiry_date: body.expiry_date ? new Date(body.expiry_date) : undefined,
+            tags: body.tags,
+            file_url: fileUrl,
+            file_name: file.originalname,
+            file_size: file.size,
+            file_type: detectFileType(file.mimetype),
+            created_by: user!.id,
+          });
+
+          return {
+            documentId: doc.id,
+            id: doc.id,
+            url: fileUrl,
+            filename: file.originalname,
+            size: file.size,
+          };
+        })
+      );
+
+      res.status(201).json({ files: docs });
+    } catch (err: any) {
+      res.status(400).json({ error: err.message });
+    }
+  }
+
   // GET /documents
   static async list(req: Request, res: Response) {
     try {

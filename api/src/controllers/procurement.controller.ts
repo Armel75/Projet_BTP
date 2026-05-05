@@ -50,7 +50,9 @@ export class ProcurementController {
         opening_date: b.opening_date ? new Date(b.opening_date) : undefined,
         lot_id: b.lot_id ? Number(b.lot_id) : undefined,
         wbs_id: b.wbs_id ? Number(b.wbs_id) : undefined,
-        document_url: b.document_url,
+        document_ids: Array.isArray(b.document_ids)
+          ? b.document_ids.map((id: any) => Number(id)).filter((id: number) => Number.isFinite(id) && id > 0)
+          : undefined,
         notes: b.notes,
         created_by: userId!,
       });
@@ -76,7 +78,9 @@ export class ProcurementController {
       if (b.opening_date !== undefined)        data.opening_date = b.opening_date ? new Date(b.opening_date) : null;
       if (b.award_date !== undefined)          data.award_date = b.award_date ? new Date(b.award_date) : null;
       if (b.lot_id !== undefined)              data.lot_id = b.lot_id ? Number(b.lot_id) : null;
-      if (b.document_url !== undefined)        data.document_url = b.document_url || null;
+      if (b.document_ids !== undefined)        data.document_ids = Array.isArray(b.document_ids)
+        ? b.document_ids.map((id: any) => Number(id)).filter((id: number) => Number.isFinite(id) && id > 0)
+        : [];
       if (b.notes !== undefined)               data.notes = b.notes || null;
       const tender = await ProcurementService.updateTender(Number(req.params.id), data);
       res.json(tender);
@@ -107,7 +111,7 @@ export class ProcurementController {
         supplier_id: Number(b.supplier_id),
         amount: Number(b.amount),
         notes: b.notes,
-        document_url: b.document_url,
+        document_id: b.document_id ? Number(b.document_id) : undefined,
         submitted_at: b.submitted_at ? new Date(b.submitted_at) : undefined,
         validity_period: b.validity_period ? Number(b.validity_period) : undefined,
         is_compliant: b.is_compliant !== undefined ? Boolean(b.is_compliant) : true,
@@ -130,7 +134,7 @@ export class ProcurementController {
         total_score: b.total_score !== undefined ? Number(b.total_score) : undefined,
         rank: b.rank !== undefined ? Number(b.rank) : undefined,
         notes: b.notes,
-        document_url: b.document_url,
+        document_id: b.document_id !== undefined ? (b.document_id ? Number(b.document_id) : null) : undefined,
         is_compliant: b.is_compliant !== undefined ? Boolean(b.is_compliant) : undefined,
         validity_period: b.validity_period !== undefined ? Number(b.validity_period) : undefined,
       });

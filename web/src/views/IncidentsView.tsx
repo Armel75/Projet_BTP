@@ -3,7 +3,7 @@ import {
   ShieldAlert, Plus, Filter, X, Loader2, AlertCircle,
   ChevronDown, TrendingUp, Clock, CheckCircle2, XCircle,
   MapPin, User, Calendar, Wrench, DollarSign, AlertTriangle,
-  Eye, Pencil, Trash2, BarChart3, Activity, ArrowUpRight,
+  Eye, Pencil, Archive, BarChart3, Activity, ArrowUpRight,
   FileDown, Sheet
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
@@ -197,11 +197,12 @@ async function downloadIncidentExcel(incident: Incident) {
 // ─── Incident Detail Drawer ───────────────────────────────────────────────────
 
 function IncidentDetailDrawer({
-  incident, onClose, onStatusChange, onDelete, canEdit, canDelete, canMutate, workflowBlockMessage
+  incident, onClose, onStatusChange, onEdit, onDelete, canEdit, canDelete, canMutate, workflowBlockMessage
 }: {
   incident: Incident;
   onClose: () => void;
   onStatusChange: (id: number, status: string) => void;
+  onEdit: (incident: Incident) => void;
   onDelete: (id: number) => void;
   canEdit: boolean;
   canDelete: boolean;
@@ -380,6 +381,33 @@ function IncidentDetailDrawer({
             </button>
           </div>
 
+          {/* Edit + Archive row */}
+          {(canEdit || canDelete) && (
+            <div className="flex items-center gap-2">
+              {canEdit && (
+                <button
+                  onClick={() => onEdit(incident)}
+                  disabled={!canMutate}
+                  className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl border border-gb-border text-gb-text font-bold text-sm hover:bg-gb-surface-hover transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <Pencil size={14} />
+                  Modifier l'incident
+                </button>
+              )}
+              {canDelete && (
+                <button
+                  onClick={() => { if (window.confirm("Archiver cet incident ? Il ne sera plus visible mais restera dans l'historique pour la traçabilité PPSPS.")) onDelete(incident.id); }}
+                  disabled={!canMutate}
+                  className="flex items-center gap-2 px-4 py-2.5 rounded-xl border border-amber-500/30 text-amber-600 hover:bg-amber-500/10 transition-colors disabled:opacity-50 disabled:cursor-not-allowed font-bold text-sm"
+                  title="Archiver l'incident (non destructif)"
+                >
+                  <Archive size={15} />
+                  Archiver
+                </button>
+              )}
+            </div>
+          )}
+
           {/* Workflow + delete */}
           <div className="flex items-center gap-3">
             {!canMutate && workflowBlockMessage && (
@@ -396,15 +424,6 @@ function IncidentDetailDrawer({
               >
                 <ArrowUpRight size={15} />
                 {next === "IN_PROGRESS" ? "Prendre en charge" : next === "RESOLVED" ? "Marquer résolu" : "Clôturer"}
-              </button>
-            )}
-            {canDelete && (
-              <button
-                onClick={() => { if (window.confirm("Supprimer cet incident ?")) onDelete(incident.id); }}
-                disabled={!canMutate}
-                className="p-2.5 rounded-xl border border-gb-danger/30 text-gb-danger hover:bg-gb-danger/10 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                <Trash2 size={16} />
               </button>
             )}
           </div>
@@ -511,7 +530,6 @@ function IncidentFormDialog({
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
       className="fixed inset-0 z-50 flex items-center justify-center p-4"
-      onClick={onClose}
     >
       <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" />
       <motion.div
@@ -661,7 +679,14 @@ function IncidentFormDialog({
 
 // ─── Incident Row (table) ─────────────────────────────────────────────────────
 
-function IncidentRow({ incident, onClick }: { incident: Incident; onClick: () => void }) {
+function IncidentRow({ incident, onClick, onEdit, onDelete, canEdit, canDelete }: {
+  incident: Incident;
+  onClick: () => void;
+  onEdit: (incident: Incident) => void;
+  onDelete: (id: number) => void;
+  canEdit: boolean;
+  canDelete: boolean;
+}) {
   const type = getTypeMeta(incident.type);
   const sev  = getSeverityMeta(incident.severity);
 
@@ -731,9 +756,29 @@ function IncidentRow({ incident, onClick }: { incident: Incident; onClick: () =>
           ? format(new Date(incident.incident_date), "d MMM yyyy", { locale: fr })
           : format(new Date(incident.created_at), "d MMM yyyy", { locale: fr })}
       </td>
-      {/* Chevron */}
-      <td className="py-3 pr-4">
-        <ChevronDown size={14} className="-rotate-90 text-gb-muted/40 group-hover:text-gb-muted transition-colors" />
+      {/* Actions inline */}
+      <td className="py-3 pr-4" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center gap-1.5">
+          {canEdit && (
+            <button
+              onClick={() => onEdit(incident)}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-gb-border text-xs font-semibold text-gb-text hover:bg-gb-primary/10 hover:text-gb-primary hover:border-gb-primary/30 transition-colors"
+            >
+              <Pencil size={12} />
+              Modifier
+            </button>
+          )}
+          {canDelete && (
+            <button
+              onClick={() => { if (window.confirm("Archiver cet incident ? Il ne sera plus visible mais restera dans l'historique pour la traçabilité PPSPS.")) onDelete(incident.id); }}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-amber-500/30 text-xs font-semibold text-amber-600 hover:bg-amber-500/10 transition-colors"
+            >
+              <Archive size={12} />
+              Archiver
+            </button>
+          )}
+          <ChevronDown size={14} className="-rotate-90 text-gb-muted/40" />
+        </div>
       </td>
     </motion.tr>
   );
@@ -823,7 +868,7 @@ export default function IncidentsView() {
       return;
     }
     const res = await apiFetch(`${API_BASE}/incidents/${id}`, { method: "DELETE" });
-    if (res.ok || res.status === 204) {
+    if (res.ok) {
       setIncidents(prev => prev.filter(i => i.id !== id));
       setSelected(null);
       setWorkflowNotice(null);
@@ -1033,6 +1078,10 @@ export default function IncidentsView() {
                       key={incident.id}
                       incident={incident}
                       onClick={() => setSelected(incident)}
+                      onEdit={(inc) => { setEditTarget(inc); setShowCreate(true); }}
+                      onDelete={handleDelete}
+                      canEdit={can("incident:update")}
+                      canDelete={can("incident:delete")}
                     />
                   ))}
                 </AnimatePresence>
@@ -1063,6 +1112,7 @@ export default function IncidentsView() {
             incident={selected}
             onClose={() => setSelected(null)}
             onStatusChange={handleStatusChange}
+            onEdit={(inc) => { setSelected(null); setEditTarget(inc); setShowCreate(true); }}
             onDelete={handleDelete}
             canEdit={can("incident:update")}
             canDelete={can("incident:delete")}

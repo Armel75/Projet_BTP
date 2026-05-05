@@ -38,7 +38,6 @@ interface Tender {
   opening_date?: string;
   award_date?: string;
   awarded_supplier_id?: number;
-  document_url?: string;
   notes?: string;
   description?: string;
   project_id: number;

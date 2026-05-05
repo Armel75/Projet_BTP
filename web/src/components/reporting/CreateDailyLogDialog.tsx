@@ -1,56 +1,158 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { apiFetch } from "../../lib/api";
 const API_BASE = import.meta.env.VITE_API_URL;
-import { 
-  Dialog, 
-  DialogContent, 
-  DialogHeader, 
-  DialogTitle, 
-  DialogFooter 
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter
 } from "../ui/dialog";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
 import { Label } from "../ui/label";
 import { Textarea } from "../ui/textarea";
-import { 
-  Loader2, 
-  Calendar as CalendarIcon, 
-  CloudSun, 
-  Thermometer, 
-  Info, 
-  Plus, 
+import {
+  Loader2,
+  Calendar as CalendarIcon,
+  CloudSun,
+  Thermometer,
+  Info,
+  Plus,
   Trash2,
   HardHat,
   Truck,
-  Package
+  Package,
+  CheckCircle,
+  Image as ImageIcon,
+  AlertTriangle,
+  ChevronDown,
+  ChevronUp,
+  ClipboardList
 } from "lucide-react";
 import { format } from "date-fns";
 
-interface CreateDailyLogDialogProps {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  projectId: number;
-  onSuccess: () => void;
+//  Types 
+
+interface ActivityLabor     { worker_name: string; trade: string; hours: string; }
+interface ActivityEquipment { equipment_name: string; hours_used: string; }
+interface ActivityMaterial  { material_name: string; quantity: string; unit: string; }
+
+interface Activity {
+  task_type:          "planned" | "unplanned";
+  task_id:            number;        // 0 = non sélectionné (cas planned)
+  task_title_custom:  string;        // titre libre si unplanned
+  progress_percentage: string;       // 0-100
+  comment:            string;
+  photo_urls:         string[];
+  labor:              ActivityLabor[];
+  equipment:          ActivityEquipment[];
+  materials:          ActivityMaterial[];
+  collapsed:          boolean;       // état UI uniquement
 }
 
+interface CreateDailyLogDialogProps {
+  open:         boolean;
+  onOpenChange: (open: boolean) => void;
+  projectId:    number;
+  onSuccess:    () => void;
+}
+
+//  Helpers 
+
+const WEATHER_OPTIONS = ["Soleil", "Nuageux", "Pluie fine", "Pluie forte", "Orage", "Vent fort", "Brouillard", "Neige"];
+
+function emptyActivity(): Activity {
+  return {
+    task_type: "planned", task_id: 0, task_title_custom: "",
+    progress_percentage: "", comment: "", photo_urls: [],
+    labor: [], equipment: [], materials: [], collapsed: false,
+  };
+}
+
+//  Component 
+
 export default function CreateDailyLogDialog({ open, onOpenChange, projectId, onSuccess }: CreateDailyLogDialogProps) {
-  const [date, setDate] = useState(format(new Date(), 'yyyy-MM-dd'));
-  const [weather, setWeather] = useState("Soleil");
+  const [date,        setDate]        = useState(format(new Date(), "yyyy-MM-dd"));
+  const [weather,     setWeather]     = useState("Soleil");
   const [temperature, setTemperature] = useState("20");
-  const [notes, setNotes] = useState("");
-  const [laborEntries, setLaborEntries] = useState<{worker_name: string, hours: number, trade: string}[]>([]);
-  const [equipmentEntries, setEquipmentEntries] = useState<{equipment_id: string, hours_used: number}[]>([]);
-  const [materialEntries, setMaterialEntries] = useState<{material_id: string, quantity: number, unit: string}[]>([]);
-  const [submitting, setSubmitting] = useState(false);
+  const [notes,       setNotes]       = useState("");
+  const [activities,  setActivities]  = useState<Activity[]>([]);
+  const [tasks,       setTasks]       = useState<{ id: number; title: string }[]>([]);
+  const [loadingTasks, setLoadingTasks] = useState(false);
+  const [submitting,  setSubmitting]  = useState(false);
 
-  const addLabor = () => setLaborEntries([...laborEntries, { worker_name: "", hours: 8, trade: "" }]);
-  const removeLabor = (index: number) => setLaborEntries(laborEntries.filter((_, i) => i !== index));
+  // Fetch tasks on open
+  useEffect(() => {
+    if (!open || !projectId) return;
+    const fetchTasks = async () => {
+      setLoadingTasks(true);
+      try {
+        const res = await apiFetch(`${API_BASE}/projects/${projectId}/tasks`);
+        if (res.ok) {
+          const data = await res.json();
+          const list = Array.isArray(data) ? data : (data.data ?? []);
+          setTasks(list.map((t: any) => ({ id: t.id, title: t.title })));
+        }
+      } catch (err) { console.error(err); }
+      finally { setLoadingTasks(false); }
+    };
+    fetchTasks();
+  }, [open, projectId]);
 
-  const addEquipment = () => setEquipmentEntries([...equipmentEntries, { equipment_id: "", hours_used: 0 }]);
-  const removeEquipment = (index: number) => setEquipmentEntries(equipmentEntries.filter((_, i) => i !== index));
+  // Reset on close
+  useEffect(() => {
+    if (!open) {
+      setDate(format(new Date(), "yyyy-MM-dd"));
+      setWeather("Soleil"); setTemperature("20"); setNotes(""); setActivities([]);
+    }
+  }, [open]);
 
-  const addMaterial = () => setMaterialEntries([...materialEntries, { material_id: "", quantity: 0, unit: "" }]);
-  const removeMaterial = (index: number) => setMaterialEntries(materialEntries.filter((_, i) => i !== index));
+  //  Activity helpers 
+
+  const addActivity    = () => setActivities([...activities, emptyActivity()]);
+  const removeActivity = (i: number) => setActivities(activities.filter((_, idx) => idx !== i));
+  const toggleCollapse = (i: number) => {
+    const a = [...activities]; a[i].collapsed = !a[i].collapsed; setActivities(a);
+  };
+  const updateActivity = (i: number, field: keyof Activity, value: any) => {
+    const a = [...activities]; (a[i] as any)[field] = value; setActivities(a);
+  };
+
+  // Labor
+  const addLabor    = (ai: number) => { const a = [...activities]; a[ai].labor = [...a[ai].labor, { worker_name: "", trade: "", hours: "8" }]; setActivities(a); };
+  const removeLabor = (ai: number, li: number) => { const a = [...activities]; a[ai].labor = a[ai].labor.filter((_, i) => i !== li); setActivities(a); };
+  const updateLabor = (ai: number, li: number, f: keyof ActivityLabor, v: string) => { const a = [...activities]; a[ai].labor[li][f] = v; setActivities(a); };
+
+  // Equipment
+  const addEquipment    = (ai: number) => { const a = [...activities]; a[ai].equipment = [...a[ai].equipment, { equipment_name: "", hours_used: "0" }]; setActivities(a); };
+  const removeEquipment = (ai: number, ei: number) => { const a = [...activities]; a[ai].equipment = a[ai].equipment.filter((_, i) => i !== ei); setActivities(a); };
+  const updateEquipment = (ai: number, ei: number, f: keyof ActivityEquipment, v: string) => { const a = [...activities]; a[ai].equipment[ei][f] = v; setActivities(a); };
+
+  // Materials
+  const addMaterial    = (ai: number) => { const a = [...activities]; a[ai].materials = [...a[ai].materials, { material_name: "", quantity: "0", unit: "" }]; setActivities(a); };
+  const removeMaterial = (ai: number, mi: number) => { const a = [...activities]; a[ai].materials = a[ai].materials.filter((_, i) => i !== mi); setActivities(a); };
+  const updateMaterial = (ai: number, mi: number, f: keyof ActivityMaterial, v: string) => { const a = [...activities]; a[ai].materials[mi][f] = v; setActivities(a); };
+
+  // Photos
+  const addPhotos = (ai: number, files?: FileList | null) => {
+    if (!files?.length) return;
+    Promise.all(Array.from(files).map(file => new Promise<string>((res, rej) => {
+      const r = new FileReader();
+      r.onload = () => res(typeof r.result === "string" ? r.result : "");
+      r.onerror = () => rej();
+      r.readAsDataURL(file);
+    }))).then(encoded => {
+      const a = [...activities];
+      a[ai].photo_urls = [...a[ai].photo_urls, ...encoded.filter(Boolean)];
+      setActivities(a);
+    }).catch(console.error);
+  };
+  const removePhoto = (ai: number, pi: number) => {
+    const a = [...activities]; a[ai].photo_urls = a[ai].photo_urls.filter((_, i) => i !== pi); setActivities(a);
+  };
+
+  //  Submit 
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -60,29 +162,31 @@ export default function CreateDailyLogDialog({ open, onOpenChange, projectId, on
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          project_id: projectId,
-          date: new Date(date).toISOString(),
+          project_id:  projectId,
+          date:        new Date(date).toISOString(),
           weather,
           temperature: parseFloat(temperature),
           notes,
-          labor_entries: laborEntries.map(e => ({ ...e, hours: parseFloat(e.hours.toString()) })),
-          equipment_entries: equipmentEntries.map(e => ({ ...e, hours_used: parseFloat(e.hours_used.toString()) })),
-          material_entries: materialEntries.map(e => ({ ...e, quantity: parseFloat(e.quantity.toString()) }))
+          task_progress: activities.map(act => ({
+            task_type:           act.task_type,
+            task_id:             act.task_type === "planned" && act.task_id > 0 ? act.task_id : null,
+            task_title_custom:   act.task_type === "unplanned" ? act.task_title_custom : null,
+            progress_percentage: act.progress_percentage ? parseInt(act.progress_percentage) : null,
+            comment:             act.comment || null,
+            photos_url:          act.photo_urls.length > 0 ? act.photo_urls : null,
+            labor_data:          act.labor.length > 0 ? act.labor.map(l => ({ worker_name: l.worker_name, trade: l.trade, hours: parseFloat(l.hours) || 0 })) : null,
+            equipment_data:      act.equipment.length > 0 ? act.equipment.map(eq => ({ equipment_name: eq.equipment_name, hours_used: parseFloat(eq.hours_used) || 0 })) : null,
+            material_data:       act.materials.length > 0 ? act.materials.map(m => ({ material_name: m.material_name, quantity: parseFloat(m.quantity) || 0, unit: m.unit })) : null,
+          }))
         })
       });
-      if (res.ok) {
-        onSuccess();
-        onOpenChange(false);
-      } else {
-        const err = await res.json();
-        alert(err.error || "Erreur de création");
-      }
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setSubmitting(false);
-    }
+      if (res.ok) { onSuccess(); onOpenChange(false); }
+      else { const err = await res.json(); alert(err.error || "Erreur de création"); }
+    } catch (err) { console.error(err); }
+    finally { setSubmitting(false); }
   };
+
+  //  Render 
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -92,223 +196,222 @@ export default function CreateDailyLogDialog({ open, onOpenChange, projectId, on
           <p className="text-xs text-gb-muted font-bold uppercase tracking-widest mt-1">Saisie complète de l'activité chantier</p>
         </DialogHeader>
 
-        <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto p-6 space-y-8">
-          {/* Header Info */}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+        <form id="daily-log-form" onSubmit={handleSubmit} className="flex-1 overflow-y-auto p-6 space-y-8">
+
+          {/*  En-tête journée  */}
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
             <div className="space-y-1.5">
-              <Label className="text-[10px] font-black text-gb-muted uppercase flex items-center gap-1.5 focus:text-gb-primary">
-                <CalendarIcon size={12} /> Date
-              </Label>
-              <Input 
-                type="date" 
-                value={date}
-                onChange={(e) => setDate(e.target.value)}
-                className="h-10 bg-gb-app/50 border-gb-border rounded-xl font-bold"
-                required
-              />
+              <Label className="text-[10px] font-black text-gb-muted uppercase flex items-center gap-1.5"><CalendarIcon size={12} /> Date</Label>
+              <Input type="date" value={date} onChange={e => setDate(e.target.value)} className="h-10 bg-gb-app/50 border-gb-border rounded-xl font-bold" required />
             </div>
             <div className="space-y-1.5">
-              <Label className="text-[10px] font-black text-gb-muted uppercase flex items-center gap-1.5">
-                <Thermometer size={12} /> Temp (°C)
-              </Label>
-              <Input 
-                type="number" 
-                value={temperature}
-                onChange={(e) => setTemperature(e.target.value)}
-                className="h-10 bg-gb-app/50 border-gb-border rounded-xl font-bold"
-              />
+              <Label className="text-[10px] font-black text-gb-muted uppercase flex items-center gap-1.5"><Thermometer size={12} /> Temp (°C)</Label>
+              <Input type="number" value={temperature} onChange={e => setTemperature(e.target.value)} className="h-10 bg-gb-app/50 border-gb-border rounded-xl font-bold" />
             </div>
-            <div className="space-y-1.5 lg:col-span-2">
-              <Label className="text-[10px] font-black text-gb-muted uppercase flex items-center gap-1.5">
-                <CloudSun size={12} /> Météo
-              </Label>
-              <Input 
-                value={weather}
-                onChange={(e) => setWeather(e.target.value)}
-                placeholder="Ex: Ensoleillé"
-                className="h-10 bg-gb-app/50 border-gb-border rounded-xl"
-              />
+            <div className="space-y-1.5 col-span-2">
+              <Label className="text-[10px] font-black text-gb-muted uppercase flex items-center gap-1.5"><CloudSun size={12} /> Météo</Label>
+              <select value={weather} onChange={e => setWeather(e.target.value)} className="w-full h-10 bg-gb-app/50 border border-gb-border rounded-xl px-3 text-sm font-bold">
+                {WEATHER_OPTIONS.map(w => <option key={w}>{w}</option>)}
+              </select>
             </div>
           </div>
 
           <div className="space-y-1.5">
-            <Label className="text-[10px] font-black text-gb-muted uppercase flex items-center gap-1.5">
-              <Info size={12} /> Résumé de la journée
-            </Label>
-            <Textarea 
-              value={notes}
-              onChange={(e) => setNotes(e.target.value)}
-              placeholder="Travaux réalisés, incidents, livraisons..."
-              className="min-h-[80px] bg-gb-app/50 border-gb-border rounded-xl resize-none"
-            />
+            <Label className="text-[10px] font-black text-gb-muted uppercase flex items-center gap-1.5"><Info size={12} /> Notes générales de la journée</Label>
+            <Textarea value={notes} onChange={e => setNotes(e.target.value)} placeholder="Résumé global, incidents, livraisons, visiteurs..." className="min-h-[68px] bg-gb-app/50 border-gb-border rounded-xl resize-none" />
           </div>
 
-          <div className="grid grid-cols-1 gap-8">
-            {/* Labor Entries */}
-            <div className="space-y-4">
-              <div className="flex justify-between items-center bg-blue-500/5 p-3 rounded-xl border border-blue-500/10">
-                <h4 className="text-[10px] font-black uppercase text-blue-600 flex items-center gap-2 tracking-widest">
-                  <HardHat size={14} /> Main d'œuvre
-                </h4>
-                <Button type="button" size="sm" variant="ghost" onClick={addLabor} className="h-7 text-[10px] font-bold bg-white dark:bg-gb-surface-solid shadow-sm">
-                  <Plus size={14} className="mr-1" /> Ajouter
-                </Button>
+          {/*  Activités du jour  */}
+          <div className="space-y-4">
+            <div className="flex justify-between items-start">
+              <div>
+                <h3 className="text-sm font-black text-gb-text uppercase tracking-widest flex items-center gap-2"><ClipboardList size={16} className="text-gb-primary" /> Activités du jour</h3>
+                <p className="text-[10px] text-gb-muted mt-0.5">Chaque activité = une tâche + ses ouvriers, engins et matériaux associés</p>
               </div>
-              <div className="space-y-2">
-                {laborEntries.map((entry, idx) => (
-                  <div key={idx} className="grid grid-cols-12 gap-2 bg-gb-app/30 p-2 rounded-xl border border-gb-border items-center">
-                    <div className="col-span-5">
-                      <Input 
-                        placeholder="Nom / Équipe" 
-                        value={entry.worker_name}
-                        onChange={(e) => {
-                          const newEntries = [...laborEntries];
-                          newEntries[idx].worker_name = e.target.value;
-                          setLaborEntries(newEntries);
-                        }}
-                        className="h-9 bg-gb-surface-solid border-gb-border text-xs"
-                      />
-                    </div>
-                    <div className="col-span-4">
-                      <Input 
-                        placeholder="Corps d'état" 
-                        value={entry.trade}
-                        onChange={(e) => {
-                          const newEntries = [...laborEntries];
-                          newEntries[idx].trade = e.target.value;
-                          setLaborEntries(newEntries);
-                        }}
-                        className="h-9 bg-gb-surface-solid border-gb-border text-xs"
-                      />
-                    </div>
-                    <div className="col-span-2">
-                      <Input 
-                        type="number"
-                        placeholder="H" 
-                        value={entry.hours}
-                        onChange={(e) => {
-                          const newEntries = [...laborEntries];
-                          newEntries[idx].hours = parseFloat(e.target.value);
-                          setLaborEntries(newEntries);
-                        }}
-                        className="h-9 bg-gb-surface-solid border-gb-border text-xs text-center font-bold"
-                      />
-                    </div>
-                    <div className="col-span-1 flex justify-center">
-                      <button type="button" onClick={() => removeLabor(idx)} className="text-gb-danger hover:scale-110 transition-transform">
-                        <Trash2 size={16} />
-                      </button>
-                    </div>
-                  </div>
-                ))}
-              </div>
+              <Button type="button" onClick={addActivity} className="h-9 bg-gb-primary text-white font-bold text-xs shadow-md shrink-0">
+                <Plus size={14} className="mr-1.5" /> Ajouter une activité
+              </Button>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-               {/* Equipment */}
-              <div className="space-y-4">
-                <div className="flex justify-between items-center bg-amber-500/5 p-3 rounded-xl border border-amber-500/10">
-                  <h4 className="text-[10px] font-black uppercase text-amber-600 flex items-center gap-2 tracking-widest">
-                    <Truck size={14} /> Équipement
-                  </h4>
-                  <Button type="button" size="sm" variant="ghost" onClick={addEquipment} className="h-7 text-[10px] font-bold bg-white dark:bg-gb-surface-solid shadow-sm">
-                    <Plus size={14} className="mr-1" /> Ajouter
-                  </Button>
-                </div>
-                <div className="space-y-2">
-                  {equipmentEntries.map((entry, idx) => (
-                    <div key={idx} className="flex gap-2 bg-gb-app/30 p-2 rounded-xl border border-gb-border items-center">
-                      <Input 
-                        placeholder="ID Engin" 
-                        value={entry.equipment_id}
-                        onChange={(e) => {
-                          const newEntries = [...equipmentEntries];
-                          newEntries[idx].equipment_id = e.target.value;
-                          setEquipmentEntries(newEntries);
-                        }}
-                        className="h-9 bg-gb-surface-solid border-gb-border text-xs flex-1"
-                      />
-                      <Input 
-                        type="number"
-                        placeholder="Heures" 
-                        value={entry.hours_used}
-                        onChange={(e) => {
-                          const newEntries = [...equipmentEntries];
-                          newEntries[idx].hours_used = parseFloat(e.target.value);
-                          setEquipmentEntries(newEntries);
-                        }}
-                        className="h-9 bg-gb-surface-solid border-gb-border text-xs w-20 text-center font-bold"
-                      />
-                      <button type="button" onClick={() => removeEquipment(idx)} className="text-gb-danger px-1">
-                        <Trash2 size={16} />
-                      </button>
-                    </div>
-                  ))}
-                </div>
+            {activities.length === 0 && (
+              <div className="border-2 border-dashed border-gb-border rounded-2xl p-10 text-center">
+                <CheckCircle size={28} className="text-gb-muted/40 mx-auto mb-3" />
+                <p className="text-sm font-bold text-gb-muted">Aucune activité renseignée</p>
+                <p className="text-[11px] text-gb-muted/60 mt-1">Ajoutez les tâches réalisées ce jour — planifiées ou imprévues</p>
               </div>
+            )}
 
-               {/* Materials */}
-              <div className="space-y-4">
-                <div className="flex justify-between items-center bg-emerald-500/5 p-3 rounded-xl border border-emerald-500/10">
-                  <h4 className="text-[10px] font-black uppercase text-emerald-600 flex items-center gap-2 tracking-widest">
-                    <Package size={14} /> Matériaux
-                  </h4>
-                  <Button type="button" size="sm" variant="ghost" onClick={addMaterial} className="h-7 text-[10px] font-bold bg-white dark:bg-gb-surface-solid shadow-sm">
-                    <Plus size={14} className="mr-1" /> Ajouter
-                  </Button>
-                </div>
-                <div className="space-y-2">
-                  {materialEntries.map((entry, idx) => (
-                    <div key={idx} className="flex gap-2 bg-gb-app/30 p-2 rounded-xl border border-gb-border items-center">
-                      <Input 
-                        placeholder="Matériau" 
-                        value={entry.material_id}
-                        onChange={(e) => {
-                          const newEntries = [...materialEntries];
-                          newEntries[idx].material_id = e.target.value;
-                          setMaterialEntries(newEntries);
-                        }}
-                        className="h-9 bg-gb-surface-solid border-gb-border text-xs flex-1"
-                      />
-                      <Input 
-                        type="number"
-                        placeholder="Qté" 
-                        value={entry.quantity}
-                        onChange={(e) => {
-                          const newEntries = [...materialEntries];
-                          newEntries[idx].quantity = parseFloat(e.target.value);
-                          setMaterialEntries(newEntries);
-                        }}
-                        className="h-9 bg-gb-surface-solid border-gb-border text-xs w-16 text-center font-bold"
-                      />
-                       <Input 
-                        placeholder="Unité" 
-                        value={entry.unit}
-                        onChange={(e) => {
-                          const newEntries = [...materialEntries];
-                          newEntries[idx].unit = e.target.value;
-                          setMaterialEntries(newEntries);
-                        }}
-                        className="h-9 bg-gb-surface-solid border-gb-border text-[10px] w-14"
-                      />
-                      <button type="button" onClick={() => removeMaterial(idx)} className="text-gb-danger px-1">
-                        <Trash2 size={16} />
-                      </button>
+            <div className="space-y-3">
+              {activities.map((act, ai) => {
+                const label = act.task_type === "planned"
+                  ? (tasks.find(t => t.id === act.task_id)?.title || "— Sélectionner une tâche —")
+                  : (act.task_title_custom || "— Activité imprévue —");
+                const totalH = act.labor.reduce((s, l) => s + (parseFloat(l.hours) || 0), 0);
+
+                return (
+                  <div key={ai} className="border border-gb-border rounded-2xl overflow-hidden">
+
+                    {/*  Card header  */}
+                    <div className="flex items-center justify-between p-4 bg-gb-surface-solid cursor-pointer select-none" onClick={() => toggleCollapse(ai)}>
+                      <div className="flex items-center gap-3 min-w-0">
+                        <div className={`w-1.5 h-10 rounded-full shrink-0 ${act.task_type === "unplanned" ? "bg-amber-400" : "bg-gb-primary"}`} />
+                        <div className="min-w-0">
+                          <p className="text-sm font-black text-gb-text truncate leading-none mb-1">{label}</p>
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className={`text-[9px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded ${act.task_type === "unplanned" ? "bg-amber-500/15 text-amber-600" : "bg-gb-primary/10 text-gb-primary"}`}>
+                              {act.task_type === "unplanned" ? "⚡ Imprévue" : "✓ Planifiée"}
+                            </span>
+                            {act.progress_percentage && <span className="text-[10px] font-bold text-gb-muted">{act.progress_percentage}%</span>}
+                            {act.labor.length > 0 && <span className="text-[10px] font-bold text-blue-500">{act.labor.length} ouvrier{act.labor.length > 1 ? "s" : ""} · {totalH}h</span>}
+                            {act.equipment.length > 0 && <span className="text-[10px] font-bold text-amber-500">{act.equipment.length} engin{act.equipment.length > 1 ? "s" : ""}</span>}
+                            {act.materials.length > 0 && <span className="text-[10px] font-bold text-emerald-500">{act.materials.length} mat.</span>}
+                            {act.photo_urls.length > 0 && <span className="text-[10px] font-bold text-purple-500">{act.photo_urls.length} photo{act.photo_urls.length > 1 ? "s" : ""}</span>}
+                          </div>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2 shrink-0">
+                        <button type="button" onClick={e => { e.stopPropagation(); removeActivity(ai); }} className="w-8 h-8 rounded-lg bg-gb-danger/10 text-gb-danger hover:bg-gb-danger/20 flex items-center justify-center transition-colors">
+                          <Trash2 size={14} />
+                        </button>
+                        {act.collapsed ? <ChevronDown size={16} className="text-gb-muted" /> : <ChevronUp size={16} className="text-gb-muted" />}
+                      </div>
                     </div>
-                  ))}
-                </div>
-              </div>
+
+                    {/*  Card body  */}
+                    {!act.collapsed && (
+                      <div className="p-5 space-y-5 border-t border-gb-border bg-gb-app/10">
+
+                        {/* Type + Tâche + Avancement */}
+                        <div className="grid grid-cols-1 md:grid-cols-12 gap-4 items-end">
+                          <div className="md:col-span-3">
+                            <Label className="text-[10px] font-black text-gb-muted uppercase mb-2 block">Type d'activité</Label>
+                            <div className="flex rounded-xl border border-gb-border overflow-hidden h-9">
+                              <button type="button" onClick={() => updateActivity(ai, "task_type", "planned")} className={`flex-1 text-[11px] font-bold transition-all ${act.task_type === "planned" ? "bg-gb-primary text-white" : "bg-gb-surface-solid text-gb-muted hover:bg-gb-app"}`}>
+                                Planifiée
+                              </button>
+                              <button type="button" onClick={() => updateActivity(ai, "task_type", "unplanned")} className={`flex-1 text-[11px] font-bold transition-all border-l border-gb-border ${act.task_type === "unplanned" ? "bg-amber-500 text-white" : "bg-gb-surface-solid text-gb-muted hover:bg-gb-app"}`}>
+                                Imprévue
+                              </button>
+                            </div>
+                          </div>
+
+                          <div className="md:col-span-6">
+                            <Label className="text-[10px] font-black text-gb-muted uppercase mb-2 block">
+                              {act.task_type === "planned" ? "Tâche du projet" : "Intitulé de l'activité"}{" "}
+                              <span className="text-gb-danger">*</span>
+                              {act.task_type === "unplanned" && <span className="text-amber-500 ml-1 font-normal normal-case">· saisie libre</span>}
+                            </Label>
+                            {act.task_type === "planned" ? (
+                              <select value={act.task_id} onChange={e => updateActivity(ai, "task_id", parseInt(e.target.value))} className="w-full h-9 bg-gb-surface-solid border border-gb-border rounded-xl px-3 text-xs font-bold">
+                                <option value={0}>— Sélectionner une tâche —</option>
+                                {tasks.map(t => <option key={t.id} value={t.id}>{t.title}</option>)}
+                              </select>
+                            ) : (
+                              <Input placeholder="Ex: Réparation fuite canalisation, Sondage géotechnique..." value={act.task_title_custom} onChange={e => updateActivity(ai, "task_title_custom", e.target.value)} className="h-9 bg-gb-surface-solid border-gb-border rounded-xl text-xs font-bold" />
+                            )}
+                          </div>
+
+                          <div className="md:col-span-3">
+                            <Label className="text-[10px] font-black text-gb-muted uppercase mb-2 block">Avancement (%)</Label>
+                            <Input type="number" min="0" max="100" placeholder="0 - 100" value={act.progress_percentage} onChange={e => updateActivity(ai, "progress_percentage", e.target.value)} className="h-9 bg-gb-surface-solid border-gb-border rounded-xl text-center text-sm font-black" />
+                          </div>
+                        </div>
+
+                        {/*  Main d'œuvre  */}
+                        <div className="space-y-2">
+                          <div className="flex justify-between items-center pb-1 border-b border-blue-500/10">
+                            <span className="text-[10px] font-black uppercase text-blue-600 flex items-center gap-1.5 tracking-widest"><HardHat size={12} /> Main d'œuvre</span>
+                            <button type="button" onClick={() => addLabor(ai)} className="text-[10px] font-bold text-blue-600 hover:text-blue-700 flex items-center gap-0.5 transition-colors"><Plus size={12} /> Ajouter</button>
+                          </div>
+                          {act.labor.map((l, li) => (
+                            <div key={li} className="grid grid-cols-12 gap-2 items-center">
+                              <Input placeholder="Nom / Équipe" value={l.worker_name} onChange={e => updateLabor(ai, li, "worker_name", e.target.value)} className="col-span-5 h-8 text-xs bg-gb-surface-solid border-gb-border" />
+                              <Input placeholder="Corps d'état" value={l.trade}       onChange={e => updateLabor(ai, li, "trade",       e.target.value)} className="col-span-4 h-8 text-xs bg-gb-surface-solid border-gb-border" />
+                              <Input type="number" placeholder="h" value={l.hours}   onChange={e => updateLabor(ai, li, "hours",       e.target.value)} className="col-span-2 h-8 text-xs text-center font-black bg-gb-surface-solid border-gb-border" />
+                              <button type="button" onClick={() => removeLabor(ai, li)} className="col-span-1 text-gb-danger flex justify-center hover:scale-110 transition-transform"><Trash2 size={14} /></button>
+                            </div>
+                          ))}
+                          {act.labor.length === 0 && <p className="text-[11px] text-gb-muted/50 italic pl-1">Aucun ouvrier affecté à cette activité</p>}
+                        </div>
+
+                        {/*  Équipement  */}
+                        <div className="space-y-2">
+                          <div className="flex justify-between items-center pb-1 border-b border-amber-500/10">
+                            <span className="text-[10px] font-black uppercase text-amber-600 flex items-center gap-1.5 tracking-widest"><Truck size={12} /> Équipement & Engins</span>
+                            <button type="button" onClick={() => addEquipment(ai)} className="text-[10px] font-bold text-amber-600 hover:text-amber-700 flex items-center gap-0.5 transition-colors"><Plus size={12} /> Ajouter</button>
+                          </div>
+                          {act.equipment.map((eq, ei) => (
+                            <div key={ei} className="grid grid-cols-12 gap-2 items-center">
+                              <Input placeholder="Désignation engin" value={eq.equipment_name} onChange={e => updateEquipment(ai, ei, "equipment_name", e.target.value)} className="col-span-9 h-8 text-xs bg-gb-surface-solid border-gb-border" />
+                              <Input type="number" placeholder="h" value={eq.hours_used} onChange={e => updateEquipment(ai, ei, "hours_used", e.target.value)} className="col-span-2 h-8 text-xs text-center font-black bg-gb-surface-solid border-gb-border" />
+                              <button type="button" onClick={() => removeEquipment(ai, ei)} className="col-span-1 text-gb-danger flex justify-center hover:scale-110 transition-transform"><Trash2 size={14} /></button>
+                            </div>
+                          ))}
+                          {act.equipment.length === 0 && <p className="text-[11px] text-gb-muted/50 italic pl-1">Aucun engin affecté</p>}
+                        </div>
+
+                        {/*  Matériaux  */}
+                        <div className="space-y-2">
+                          <div className="flex justify-between items-center pb-1 border-b border-emerald-500/10">
+                            <span className="text-[10px] font-black uppercase text-emerald-600 flex items-center gap-1.5 tracking-widest"><Package size={12} /> Matériaux utilisés</span>
+                            <button type="button" onClick={() => addMaterial(ai)} className="text-[10px] font-bold text-emerald-600 hover:text-emerald-700 flex items-center gap-0.5 transition-colors"><Plus size={12} /> Ajouter</button>
+                          </div>
+                          {act.materials.map((m, mi) => (
+                            <div key={mi} className="grid grid-cols-12 gap-2 items-center">
+                              <Input placeholder="Désignation matériau" value={m.material_name} onChange={e => updateMaterial(ai, mi, "material_name", e.target.value)} className="col-span-7 h-8 text-xs bg-gb-surface-solid border-gb-border" />
+                              <Input type="number" placeholder="Qté" value={m.quantity} onChange={e => updateMaterial(ai, mi, "quantity", e.target.value)} className="col-span-2 h-8 text-xs text-center font-black bg-gb-surface-solid border-gb-border" />
+                              <Input placeholder="Unité" value={m.unit} onChange={e => updateMaterial(ai, mi, "unit", e.target.value)} className="col-span-2 h-8 text-xs bg-gb-surface-solid border-gb-border" />
+                              <button type="button" onClick={() => removeMaterial(ai, mi)} className="col-span-1 text-gb-danger flex justify-center hover:scale-110 transition-transform"><Trash2 size={14} /></button>
+                            </div>
+                          ))}
+                          {act.materials.length === 0 && <p className="text-[11px] text-gb-muted/50 italic pl-1">Aucun matériau utilisé</p>}
+                        </div>
+
+                        {/*  Observations  */}
+                        <div>
+                          <Label className="text-[10px] font-black text-gb-muted uppercase mb-2 block">Observations terrain</Label>
+                          <textarea value={act.comment} onChange={e => updateActivity(ai, "comment", e.target.value)} placeholder="Difficultés rencontrées, points de vigilance, réserves, non-conformités..." className="w-full h-16 bg-gb-surface-solid border border-gb-border rounded-xl px-3 py-2 text-xs resize-none text-gb-text placeholder:text-gb-muted/50" />
+                        </div>
+
+                        {/*  Photos  */}
+                        <div className="space-y-2">
+                          <div className="flex items-center justify-between pb-1 border-b border-purple-500/10">
+                            <span className="text-[10px] font-black uppercase text-purple-600 flex items-center gap-1.5 tracking-widest"><ImageIcon size={12} /> Photos ({act.photo_urls.length})</span>
+                            <label className="text-[10px] font-bold text-purple-600 hover:text-purple-700 cursor-pointer flex items-center gap-0.5 transition-colors">
+                              <Plus size={12} /> Ajouter des photos
+                              <input type="file" accept="image/*" multiple className="hidden" onChange={e => addPhotos(ai, e.target.files)} />
+                            </label>
+                          </div>
+                          {act.photo_urls.length > 0 && (
+                            <div className="grid grid-cols-5 gap-2">
+                              {act.photo_urls.map((p, pi) => (
+                                <div key={pi} className="relative group">
+                                  <img src={p} alt="" className="h-14 w-full object-cover rounded-lg border border-gb-border" />
+                                  <button type="button" onClick={() => removePhoto(ai, pi)} className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-gb-danger text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                                    <Trash2 size={10} />
+                                  </button>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
             </div>
           </div>
         </form>
 
         <DialogFooter className="p-6 border-t border-gb-border bg-gb-app/30 gap-3 shrink-0">
-           <Button type="button" variant="ghost" className="rounded-xl h-11 px-8 font-bold" onClick={() => onOpenChange(false)}>
-             Fermer
-           </Button>
-           <Button type="submit" disabled={submitting} onClick={handleSubmit} className="rounded-xl h-11 px-10 bg-gb-primary hover:bg-gb-primary-dark shadow-xl shadow-gb-primary/20 font-black">
-             {submitting ? <Loader2 className="animate-spin mr-2" /> : "Enregistrer le Journal"}
-           </Button>
+          <Button type="button" variant="ghost" className="rounded-xl h-11 px-8 font-bold" onClick={() => onOpenChange(false)}>
+            Fermer
+          </Button>
+          <Button form="daily-log-form" type="submit" disabled={submitting} className="rounded-xl h-11 px-10 bg-gb-primary hover:bg-gb-primary-dark shadow-xl shadow-gb-primary/20 font-black min-w-[200px]">
+            {submitting ? <><Loader2 size={16} className="mr-2 animate-spin" /> Enregistrement...</> : "Enregistrer le Journal"}
+          </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

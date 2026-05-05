@@ -90,6 +90,7 @@ export class WorkAcceptanceController {
       const body = req.body;
       const wa = await WorkAcceptanceService.createWorkAcceptance({
         ...body,
+        document_id:        body.document_id ? Number(body.document_id) : undefined,
         project_id:         Number(body.project_id),
         lot_id:             body.lot_id          ? Number(body.lot_id)             : undefined,
         inspector_id:       body.inspector_id    ? Number(body.inspector_id)       : undefined,
@@ -158,6 +159,7 @@ export class WorkAcceptanceController {
 
       if (body.signed_by_owner      !== undefined) data.signed_by_owner      = body.signed_by_owner      === true || body.signed_by_owner      === 'true';
       if (body.signed_by_contractor !== undefined) data.signed_by_contractor = body.signed_by_contractor === true || body.signed_by_contractor === 'true';
+      if (body.document_id          !== undefined) data.document_id          = body.document_id ? Number(body.document_id) : null;
 
       const wa = await WorkAcceptanceService.updateWorkAcceptance(Number(req.params.id), data);
       res.json(wa);
@@ -292,11 +294,12 @@ export class WorkAcceptanceController {
       browser = await puppeteer.launch({
         headless: true,
         args: ['--no-sandbox', '--disable-setuid-sandbox'],
+        ...(process.env.PUPPETEER_EXECUTABLE_PATH && { executablePath: process.env.PUPPETEER_EXECUTABLE_PATH }),
       });
       const page = await browser.newPage();
       await page.setContent(html, { waitUntil: 'networkidle0' });
 
-      const pdfBuffer = await page.pdf({
+      const pdfBytes = await page.pdf({
         format: 'A4',
         printBackground: true,
         margin: {
@@ -309,8 +312,11 @@ export class WorkAcceptanceController {
 
       await page.close();
 
+      const pdfBuffer = Buffer.from(pdfBytes);
+
       res.setHeader('Content-Type', 'application/pdf');
       res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
+      res.setHeader('Content-Length', String(pdfBuffer.length));
       res.status(200).send(pdfBuffer);
     } catch (error: any) {
       res.status(400).json({ error: error.message || 'Impossible de generer le PDF.' });

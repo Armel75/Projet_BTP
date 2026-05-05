@@ -4,13 +4,18 @@ export const API_BASE = import.meta.env.VITE_API_URL;
 
 let refreshPromise: Promise<string | null> | null = null;
 
+/**
+ * Déclenche la déconnexion via un CustomEvent.
+ * AuthContext écoute cet événement et utilise React Router navigate() —
+ * pas de rechargement de page, pas de problème de basename Vite.
+ */
 const handleLogout = () => {
   localStorage.removeItem('token');
   localStorage.removeItem('user');
-  window.location.href = '/login';
+  window.dispatchEvent(new CustomEvent('auth:session-expired'));
 };
 
-export const apiFetch = async (input: RequestInfo | URL, init?: RequestInit) => {
+export const apiFetch = async (input: RequestInfo | URL, init?: RequestInit & { noAutoLogout?: boolean }) => {
   const url =
     typeof input === 'string'
       ? input
@@ -30,16 +35,21 @@ export const apiFetch = async (input: RequestInfo | URL, init?: RequestInit) => 
   }
 
   // On ne gère le token que pour les appels à l'API interne
+  const noAutoLogout = init?.noAutoLogout ?? false;
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const { noAutoLogout: _omit, ...fetchInit } = init ?? {};
+  const safeInit = fetchInit as RequestInit;
+
   if (url.startsWith(`${API_BASE}/`) && !url.startsWith(`${API_BASE}/auth/`)) {
     const token = localStorage.getItem('token');
 
-    const headers = new Headers(init?.headers);
+    const headers = new Headers(safeInit?.headers);
     if (token) {
       headers.set('Authorization', `Bearer ${token}`);
     }
 
     const options: RequestInit = {
-      ...init,
+      ...safeInit,
       headers,
       credentials: 'include',
     };
@@ -82,9 +92,9 @@ export const apiFetch = async (input: RequestInfo | URL, init?: RequestInit) => 
 
       const newToken = await refreshPromise;
 
-      // Si refresh échoue → logout
+      // Si refresh échoue → logout (sauf si l'appelant a demandé noAutoLogout)
       if (!newToken) {
-        handleLogout();
+        if (!noAutoLogout) handleLogout();
         return response;
       }
 
@@ -104,7 +114,7 @@ export const apiFetch = async (input: RequestInfo | URL, init?: RequestInit) => 
       }
 
       if (retryResponse.status === 401) {
-        handleLogout();
+        if (!noAutoLogout) handleLogout();
       }
 
       return retryResponse;
@@ -116,7 +126,7 @@ export const apiFetch = async (input: RequestInfo | URL, init?: RequestInit) => 
     }
 
     // Sécurisation du parsing JSON
-    let safeResponse = response;
+    const safeResponse = response;
     if (typeof window !== 'undefined' && response.status >= 400) {
       // On utilise response.clone() pour le log : le ReadableStream ne peut être lu qu'une fois.
       // L'original `response` reste intact pour être consommé par l'appelant.

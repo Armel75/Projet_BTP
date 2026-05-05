@@ -214,10 +214,10 @@ export const prisma = new Proxy(realPrisma, {
     if (prop === 'tenant') {
         return {
             findFirst: async () => {
-                try { return await target.tenant.findFirst(); } catch(e) { return { id: 1, name: "Default Tenant" }; }
+                try { return await target.tenant.findFirst(); } catch(e) { return { id: 1, name: process.env.SEED_TENANT_NAME ?? 'SOREPCO' }; }
             },
             create: async (args: any) => {
-                try { return await target.tenant.create(args); } catch(e) { return { id: 1, name: "Default Tenant" }; }
+                try { return await target.tenant.create(args); } catch(e) { return { id: 1, name: process.env.SEED_TENANT_NAME ?? 'SOREPCO' }; }
             },
             findUnique: async (args: any) => {
                 try { return await target.tenant.findUnique(args); } catch(e) { return null; }

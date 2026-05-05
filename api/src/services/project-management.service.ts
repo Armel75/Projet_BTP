@@ -484,8 +484,23 @@ export class ProjectManagementService {
   }
 
   static async updateProject(id: number, data: UpdateProjectInput, tenant_id?: number, changed_by?: number) {
-    const project = await prisma.project.findFirst({ where: { id, ...(tenant_id ? { tenant_id } : {}) } });
+    const project = await prisma.project.findFirst({
+      where: { id, ...(tenant_id ? { tenant_id } : {}) },
+      select: {
+        id: true,
+        tenant_id: true,
+        phase: true,
+        document_id: true,
+        _count: { select: { tasks: true } },
+      },
+    });
     if (!project) throw new Error('Projet introuvable.');
+
+    const hasNonPhaseUpdate = Object.entries(data).some(([key, value]) => key !== 'phase' && value !== undefined);
+
+    if (project._count.tasks > 0 && hasNonPhaseUpdate) {
+      throw new Error('Impossible de modifier ce projet : il contient déjà des tâches.');
+    }
 
     if (data.phase !== undefined && data.phase !== project.phase) {
       const workflow = await this.buildProjectWorkflowSummary({

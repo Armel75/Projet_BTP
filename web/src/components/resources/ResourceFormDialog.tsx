@@ -94,7 +94,7 @@ export function ResourceFormDialog({ open, onOpenChange, onSubmit, initialData, 
               </Select>
             </div>
             <div className="space-y-2">
-              <Label htmlFor="rate" className="text-sm font-bold text-gb-muted uppercase tracking-wider">Taux horaire (€)</Label>
+              <Label htmlFor="rate" className="text-sm font-bold text-gb-muted uppercase tracking-wider">Taux horaire (FCFA)</Label>
               <Input 
                 id="rate" 
                 type="number" 

@@ -309,6 +309,8 @@ model Ticket {
   sync_status       String   @default("SYNCED") // SYNCED | ERROR | PENDING
   raw_payload       String?  @db.NVarChar(Max)  // payload JSON brut GLPI pour debug
 
+  meetingActionItems MeetingActionItem[]
+
   created_at DateTime @default(now())
   updated_at DateTime @updatedAt
 
@@ -611,6 +613,7 @@ model Task {
   assignments  TaskAssignment[]
   controlReports ControlReport[]
   weeklyReportItems WeeklyReportItem[]
+  daily_log_progress DailyLogTaskProgress[]
 
   @@index([tenant_id, project_id])
   @@index([tenant_id, status])
@@ -710,7 +713,6 @@ model Tender {
   opening_date        DateTime?
   award_date          DateTime?
   awarded_supplier_id Int?
-  document_url        String?
   notes               String? @db.NVarChar(Max)
 
   wbs             WBSNode?    @relation(fields: [wbs_id],              references: [id])
@@ -719,6 +721,7 @@ model Tender {
   lot             ProjectLot? @relation(fields: [lot_id],              references: [id], onUpdate: NoAction, onDelete: NoAction)
   awardedSupplier Supplier?   @relation("TenderAwardedSupplier",       fields: [awarded_supplier_id], references: [id], onUpdate: NoAction, onDelete: NoAction)
   bids            TenderBid[]
+  documents       Document[]
 
   created_at DateTime @default(now())
   updated_at DateTime @updatedAt
@@ -742,13 +745,14 @@ model TenderBid {
   total_score     Float?
   rank            Int?
   submitted_at    DateTime?
-  document_url    String?
+  document_id     Int?
   is_compliant    Boolean  @default(true)
   validity_period Int?     // jours
   notes           String?  @db.NVarChar(Max)
 
-  tender   Tender   @relation(fields: [tender_id],   references: [id], onUpdate: NoAction, onDelete: NoAction)
-  supplier Supplier @relation(fields: [supplier_id], references: [id], onUpdate: NoAction, onDelete: NoAction)
+  tender   Tender    @relation(fields: [tender_id],   references: [id], onUpdate: NoAction, onDelete: NoAction)
+  supplier Supplier  @relation(fields: [supplier_id], references: [id], onUpdate: NoAction, onDelete: NoAction)
+  document Document? @relation("TenderBidDocument", fields: [document_id], references: [id], onUpdate: NoAction, onDelete: NoAction)
 
   created_at DateTime @default(now())
   updated_at DateTime @updatedAt
@@ -1252,7 +1256,7 @@ model MaterialConsumption {
     advance_payment_amount Decimal? @db.Decimal(15, 2)  // Montant de l'avance versée
     price_revision_index   String?               // Indice de révision des prix (BT01, TP01, ICC...)
     payment_terms          Int?                  // Délai de paiement légal en jours (30, 45...)
-    document_url           String?               // URL du contrat signé (PDF scanné)
+    document_id            Int?                  // Lien vers le Document structuré
 
     approved_by        Int?
     approved_at        DateTime?
@@ -1262,10 +1266,11 @@ model MaterialConsumption {
     currency       String
     tenant_id      Int
 
-    supplier   Supplier @relation(fields: [supplier_id], references: [id])
-    tenant     Tenant   @relation(fields: [tenant_id], references: [id], onUpdate: NoAction, onDelete: NoAction)
-    project    Project  @relation(fields: [project_id], references: [id], onUpdate: NoAction, onDelete: NoAction)
-    approvedBy User?    @relation("ContractApprovedBy", fields: [approved_by], references: [id], onUpdate: NoAction, onDelete: NoAction)
+    supplier   Supplier  @relation(fields: [supplier_id], references: [id])
+    tenant     Tenant    @relation(fields: [tenant_id], references: [id], onUpdate: NoAction, onDelete: NoAction)
+    project    Project   @relation(fields: [project_id], references: [id], onUpdate: NoAction, onDelete: NoAction)
+    approvedBy User?     @relation("ContractApprovedBy", fields: [approved_by], references: [id], onUpdate: NoAction, onDelete: NoAction)
+    document   Document? @relation("ContractDocument", fields: [document_id], references: [id], onUpdate: NoAction, onDelete: NoAction)
 
     line_items    ContractLineItem[]
     change_orders ChangeOrder[]
@@ -1424,10 +1429,11 @@ model MaterialConsumption {
       user_id Int?
 
       content      String  @db.NVarChar(Max)
-      document_url String?  // pièce jointe optionnelle
+      document_id  Int?
 
-      rfi  RFI   @relation(fields: [rfi_id],  references: [id], onDelete: NoAction, onUpdate: NoAction)
-      user User? @relation("RFICommentUser", fields: [user_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+      rfi      RFI       @relation(fields: [rfi_id],     references: [id], onDelete: NoAction, onUpdate: NoAction)
+      user     User?     @relation("RFICommentUser", fields: [user_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+      document Document? @relation("RFICommentDocument", fields: [document_id], references: [id], onUpdate: NoAction, onDelete: NoAction)
 
       created_at DateTime @default(now())
       updated_at DateTime @updatedAt
@@ -1463,9 +1469,10 @@ model MaterialConsumption {
       id          Int @id @default(autoincrement())
       submittal_id Int
       description  String @db.NVarChar(Max)
-      document_url String?  // lien vers Document
+      document_id  Int?
 
-  submittal Submittal @relation(fields: [submittal_id], references: [id])
+  submittal Submittal  @relation(fields: [submittal_id], references: [id])
+  document  Document? @relation("SubmittalItemDocument", fields: [document_id], references: [id], onUpdate: NoAction, onDelete: NoAction)
 }
 
 //////////////////////////////
@@ -1750,7 +1757,7 @@ model WorkAcceptance {
 
   signed_by_owner      Boolean @default(false)    // Le Maître d'Ouvrage a signé le PV
   signed_by_contractor Boolean @default(false)    // L'Entreprise a signé le PV
-  document_url         String?                    // URL du PV signé (scan PDF)
+  document_id          Int?                       // Lien vers le Document structuré
 
   inspector_id Int?
 
@@ -1760,6 +1767,7 @@ model WorkAcceptance {
   tenant     Tenant      @relation(fields: [tenant_id],         references: [id], onDelete: NoAction, onUpdate: NoAction)
   project    Project     @relation(fields: [project_id],        references: [id], onDelete: NoAction, onUpdate: NoAction)
   lot        ProjectLot? @relation(fields: [lot_id],            references: [id], onDelete: NoAction, onUpdate: NoAction)
+  document   Document?   @relation("WorkAcceptanceDocument", fields: [document_id], references: [id], onUpdate: NoAction, onDelete: NoAction)
 
   created_at DateTime @default(now())
   updated_at DateTime @updatedAt
@@ -1792,6 +1800,9 @@ model Incident {
   corrective_action String? @db.NVarChar(Max)   // Action corrective mise en place
   cost_impact       Float?                      // Impact financier estimé
   delay_impact_days Int?                        // Impact planning en jours
+
+  is_archived    Boolean  @default(false)         // Soft delete — jamais supprimer un incident (conformité PPSPS)
+  archived_at    DateTime?
 
   assigned_to_id Int?                           // Responsable de traitement
   created_by Int?
@@ -1840,6 +1851,10 @@ model Document {
   created_at  DateTime @default(now())
   updated_at  DateTime @updatedAt
 
+  // ── Lien optionnel vers un appel d'offres ──────────────────────────────
+  tender_id       Int?                       // Document uploadé pour un AO précis
+  tender          Tender?   @relation(fields: [tender_id], references: [id], onUpdate: NoAction, onDelete: NoAction)
+
   // ── Champs enrichis top 1% BTP ──────────────────────────────────────────
   reference       String?                    // Codification : ARC-STR-P-001-A
   discipline      String   @default("GENERAL") // ARCH | STRUCT | MEP | CIVIL | ELEC | PLUMB | GENERAL
@@ -1867,8 +1882,14 @@ model Document {
   projects             Project[]        @relation("ProjectMainDocument")
   documentVersions     DocumentVersion[] @relation("DocumentVersions")
   costTransactions     CostTransaction[]
+  tenderBids           TenderBid[]      @relation("TenderBidDocument")
+  contracts            Contract[]       @relation("ContractDocument")
+  rfiComments          RFIComment[]     @relation("RFICommentDocument")
+  submittalItems       SubmittalItem[]  @relation("SubmittalItemDocument")
+  workAcceptances      WorkAcceptance[] @relation("WorkAcceptanceDocument")
 
   @@index([lot_id])
+  @@index([tender_id])
   @@index([project_id])
   @@index([status])
   @@index([supersedes_document_id])
@@ -2068,6 +2089,7 @@ model WorkflowAction {
     labor_entries    DailyLogLabor[]
     equipment_entries DailyLogEquipment[]
     material_entries DailyLogMaterial[]
+    task_progress    DailyLogTaskProgress[]
     photos           Photo[]
     created_at DateTime @default(now())
     updated_at DateTime @updatedAt
@@ -2097,7 +2119,30 @@ model WorkflowAction {
     quantity      Float
     unit          String?
     daily_log DailyLog @relation(fields: [daily_log_id], references: [id])
-    }
+  }
+
+  model DailyLogTaskProgress {
+    id                  Int     @id @default(autoincrement())
+    daily_log_id        Int
+    task_id             Int?                           // null pour les activités imprévues
+    task_type           String  @default("planned")    // "planned" | "unplanned"
+    task_title_custom   String? @db.NVarChar(500)      // titre si activité imprévue
+    progress_percentage Int?                           // 0-100
+    comment             String? @db.NVarChar(Max)      // observations terrain
+    photos_url          String? @db.NVarChar(Max)      // JSON array de photos
+    labor_data          String? @db.NVarChar(Max)      // JSON: [{worker_name, trade, hours}]
+    equipment_data      String? @db.NVarChar(Max)      // JSON: [{equipment_name, hours_used}]
+    material_data       String? @db.NVarChar(Max)      // JSON: [{material_name, quantity, unit}]
+
+    daily_log DailyLog @relation(fields: [daily_log_id], references: [id], onDelete: Cascade)
+    task      Task?    @relation(fields: [task_id],     references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+    created_at DateTime @default(now())
+    updated_at DateTime @updatedAt
+
+    @@index([daily_log_id])
+    @@index([task_id])
+  }
 
     //////////////////////////////
     // INSPECTIONS & PUNCH LIST
@@ -2275,18 +2320,21 @@ model WorkflowAction {
         meeting_id Int
         tenant_id  Int
 
-        subject        String
-        responsible_id Int?      // User interne responsable
-        due_date       DateTime?
-        status         String   @default("OPEN")
+        subject          String
+        responsible_id   Int?     // User interne responsable
+        responsible_name String?  // Pilote externe / prestataire inconnu
+        glpi_ticket_id   Int?     // Ticket GLPI associe a l'action
+        due_date         DateTime?
+        status           String   @default("OPEN")
         // OPEN | IN_PROGRESS | CLOSED | CANCELLED
-        comment        String?  @db.NVarChar(Max)
+        comment          String?  @db.NVarChar(Max)
 
         created_by Int?
 
         meeting     Meeting  @relation(fields: [meeting_id],    references: [id], onUpdate: NoAction, onDelete: NoAction)
         tenant      Tenant   @relation(fields: [tenant_id],     references: [id], onUpdate: NoAction, onDelete: NoAction)
         responsible User?    @relation("ActionItemResponsible", fields: [responsible_id], references: [id], onUpdate: NoAction, onDelete: NoAction)
+        glpiTicket  Ticket?  @relation(fields: [glpi_ticket_id], references: [id], onUpdate: NoAction, onDelete: NoAction)
         createdBy   User?    @relation("ActionItemCreatedBy",   fields: [created_by],     references: [id], onUpdate: NoAction, onDelete: NoAction)
 
         created_at DateTime @default(now())
@@ -2295,6 +2343,7 @@ model WorkflowAction {
         @@index([meeting_id])
         @@index([tenant_id, status])
         @@index([responsible_id, status])
+        @@index([glpi_ticket_id])
       }
 
 

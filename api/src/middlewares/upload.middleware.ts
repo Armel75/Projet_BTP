@@ -75,4 +75,10 @@ export const uploadDocument = multer({
   limits: { fileSize: 100 * 1024 * 1024 }, // 100 Mo max
 }).single('file');
 
+export const uploadDocuments = multer({
+  storage,
+  fileFilter,
+  limits: { fileSize: 100 * 1024 * 1024 }, // 100 Mo max
+}).array('files', 10);
+
 export { UPLOADS_ROOT };

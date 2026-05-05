@@ -119,14 +119,15 @@ function buildMeetingHtml(meeting: any): string {
           <tr>
             <td>${idx + 1}</td>
             <td>${esc(a.subject || '—')}</td>
-            <td>${esc(a.responsible ? `${a.responsible.firstname} ${a.responsible.lastname}` : '—')}</td>
+            <td>${esc(a.responsible ? `${a.responsible.firstname} ${a.responsible.lastname}` : (a.responsible_name || '—'))}</td>
+            <td>${esc(a.glpiTicket ? (a.glpiTicket.ticket_number || `GLPI #${a.glpiTicket.glpi_id}`) : '—')}</td>
             <td>${esc(fmtDate(a.due_date))}</td>
             <td>${esc(a.status || '—')}</td>
             <td>${nl2br(a.comment) || '—'}</td>
           </tr>
         `)
         .join('')
-    : '<tr><td colspan="6">Aucun point d\'action.</td></tr>';
+    : '<tr><td colspan="7">Aucun point d\'action.</td></tr>';
 
   return `
 <!doctype html>
@@ -188,7 +189,7 @@ function buildMeetingHtml(meeting: any): string {
   <div class="section-title">Points d'action</div>
   <table>
     <thead>
-      <tr><th style="width: 6%">#</th><th style="width: 30%">Sujet</th><th style="width: 18%">Responsable</th><th style="width: 12%">Echeance</th><th style="width: 12%">Statut</th><th style="width: 22%">Commentaire</th></tr>
+      <tr><th style="width: 6%">#</th><th style="width: 26%">Sujet</th><th style="width: 18%">Responsable</th><th style="width: 14%">Ticket GLPI</th><th style="width: 12%">Echeance</th><th style="width: 10%">Statut</th><th style="width: 14%">Commentaire</th></tr>
     </thead>
     <tbody>${actionsRows}</tbody>
   </table>
@@ -233,11 +234,12 @@ function buildMeetingCsv(meeting: any): string {
   });
   lines.push('');
   lines.push(['Points d\'action'].map(csvCell).join(','));
-  lines.push(['Sujet', 'Responsable', 'Echeance', 'Statut', 'Commentaire'].map(csvCell).join(','));
+  lines.push(['Sujet', 'Responsable', 'Ticket GLPI', 'Echeance', 'Statut', 'Commentaire'].map(csvCell).join(','));
   actions.forEach((a) => {
     lines.push([
       a.subject || '',
-      a.responsible ? `${a.responsible.firstname} ${a.responsible.lastname}` : '',
+      a.responsible ? `${a.responsible.firstname} ${a.responsible.lastname}` : (a.responsible_name || ''),
+      a.glpiTicket ? (a.glpiTicket.ticket_number || `GLPI #${a.glpiTicket.glpi_id}`) : '',
       fmtDate(a.due_date),
       a.status || '',
       (a.comment || '').replace(/\n/g, ' '),
@@ -306,18 +308,22 @@ export class MeetingController {
       browser = await puppeteer.launch({
         headless: true,
         args: ['--no-sandbox', '--disable-setuid-sandbox'],
+        ...(process.env.PUPPETEER_EXECUTABLE_PATH && { executablePath: process.env.PUPPETEER_EXECUTABLE_PATH }),
       });
       const page = await browser.newPage();
       await page.setContent(html, { waitUntil: 'networkidle0' });
-      const pdfBuffer = await page.pdf({
+      const pdfBytes = await page.pdf({
         format: 'A4',
         printBackground: true,
         margin: { top: '10mm', right: '10mm', bottom: '10mm', left: '10mm' },
       });
       await page.close();
 
+      const pdfBuffer = Buffer.from(pdfBytes);
+
       res.setHeader('Content-Type', 'application/pdf');
       res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
+      res.setHeader('Content-Length', String(pdfBuffer.length));
       res.status(200).send(pdfBuffer);
     } catch (err: any) {
       res.status(500).json({ error: err.message || 'Impossible de generer le PDF.' });
@@ -483,14 +489,16 @@ export class MeetingController {
       if (!tenantId) return res.status(400).json({ error: 'Tenant session required' });
 
       const item = await MeetingService.createActionItem({
-        meeting_id:     Number(req.params.id),
-        tenant_id:      tenantId,
-        subject:        body.subject,
-        responsible_id: body.responsible_id ? Number(body.responsible_id) : undefined,
-        due_date:       body.due_date       ? new Date(body.due_date)     : undefined,
-        status:         body.status         ?? 'OPEN',
-        comment:        body.comment,
-        created_by:     user!.id,
+        meeting_id:       Number(req.params.id),
+        tenant_id:        tenantId,
+        subject:          body.subject,
+        responsible_id:   body.responsible_id   ? Number(body.responsible_id) : undefined,
+        responsible_name: body.responsible_name ?? undefined,
+        glpi_ticket_id:   body.glpi_ticket_id   ? Number(body.glpi_ticket_id) : undefined,
+        due_date:         body.due_date          ? new Date(body.due_date)     : undefined,
+        status:           body.status            ?? 'OPEN',
+        comment:          body.comment,
+        created_by:       user!.id,
       });
       res.status(201).json(item);
     } catch (err: any) {
@@ -503,13 +511,17 @@ export class MeetingController {
     try {
       const body = req.body;
       const item = await MeetingService.updateActionItem(Number(req.params.aiid), {
-        subject:        body.subject,
-        responsible_id: body.responsible_id !== undefined
+        subject:          body.subject,
+        responsible_id:   body.responsible_id !== undefined
           ? (body.responsible_id ? Number(body.responsible_id) : null)
           : undefined,
-        due_date:  body.due_date ? new Date(body.due_date) : body.due_date === null ? null : undefined,
-        status:    body.status,
-        comment:   body.comment,
+        responsible_name: body.responsible_name !== undefined ? (body.responsible_name || null) : undefined,
+        glpi_ticket_id:   body.glpi_ticket_id !== undefined
+          ? (body.glpi_ticket_id ? Number(body.glpi_ticket_id) : null)
+          : undefined,
+        due_date:         body.due_date ? new Date(body.due_date) : body.due_date === null ? null : undefined,
+        status:           body.status,
+        comment:          body.comment,
       });
       res.json(item);
     } catch (err: any) {

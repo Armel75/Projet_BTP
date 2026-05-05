@@ -1,6 +1,42 @@
 import { Response } from "express";
 import { AuthRequest } from "../middlewares/auth.middleware.js";
 import { ProjectManagementService } from "../services/project-management.service.js";
+import { buildProjectWhere, getProjectAccessFilter } from "../utils/projectFilterUtils.js";
+import { prisma } from "../config/prisma.js";
+
+type PdfPageLike = {
+  setContent: (html: string, opts?: Record<string, unknown>) => Promise<void>;
+  pdf: (opts?: Record<string, unknown>) => Promise<Uint8Array>;
+  close: () => Promise<void>;
+};
+
+type BrowserLike = {
+  newPage: () => Promise<PdfPageLike>;
+  close: () => Promise<void>;
+};
+
+type PuppeteerLike = {
+  launch: (opts?: Record<string, unknown>) => Promise<BrowserLike>;
+};
+
+let puppeteerLoader: Promise<PuppeteerLike | null> | null = null;
+
+async function getPuppeteer(): Promise<PuppeteerLike | null> {
+  if (!puppeteerLoader) {
+    puppeteerLoader = (async () => {
+      try {
+        const mod = await import('puppeteer');
+        const candidate = (mod as any).default ?? mod;
+        return candidate && typeof candidate.launch === 'function'
+          ? (candidate as PuppeteerLike)
+          : null;
+      } catch {
+        return null;
+      }
+    })();
+  }
+  return puppeteerLoader;
+}
 
 // ─── Helper ────────────────────────────────────────────────────────────────────
 
@@ -31,6 +67,222 @@ function formatDateFr(input?: string | Date | null): string {
   return d.toLocaleDateString('fr-FR');
 }
 
+function esc(value?: unknown): string {
+  if (value === null || value === undefined) return '';
+  return String(value)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+}
+
+function money(value?: number | null, currency?: string | null): string {
+  if (value === null || value === undefined || !Number.isFinite(value)) return '—';
+  return `${Number(value).toLocaleString('fr-FR')} ${currency || ''}`.trim();
+}
+
+function line(label: string, value?: unknown): string {
+  const rendered = value === null || value === undefined || value === '' ? '—' : esc(value);
+  return `<div class="kv"><div class="k">${esc(label)}</div><div class="v">${rendered}</div></div>`;
+}
+
+function buildProjectsPdfHtml(projects: any[]): string {
+  const cards = projects.map((project) => {
+    const lots = Array.isArray(project.lots) ? project.lots : [];
+    const budgetLines = Array.isArray(project.budgetLines) ? project.budgetLines : [];
+    const workflowRequirements = Array.isArray(project.workflow?.requirements) ? project.workflow.requirements : [];
+
+    const lotRows = lots.length
+      ? lots.map((lot: any) => `
+          <tr>
+            <td>${esc(lot.lot_number || '—')}</td>
+            <td>${esc(lot.name || '—')}</td>
+            <td>${esc(lot.trade_code || '—')}</td>
+            <td>${esc(lot.status || '—')}</td>
+            <td>${money(lot.budget_allocated, project.currency)}</td>
+            <td>${lot.progress != null ? `${esc(lot.progress)}%` : '—'}</td>
+          </tr>
+        `).join('')
+      : '<tr><td colspan="6">Aucun lot structuré.</td></tr>';
+
+    const budgetRows = budgetLines.length
+      ? budgetLines.map((lineItem: any) => `
+          <tr>
+            <td>${esc(lineItem.category || '—')}</td>
+            <td>${esc(lineItem.supplier?.name || '—')}</td>
+            <td>${money(lineItem.planned, lineItem.currency || project.currency)}</td>
+            <td>${money(lineItem.actual, lineItem.currency || project.currency)}</td>
+          </tr>
+        `).join('')
+      : '<tr><td colspan="4">Aucune ligne budgétaire.</td></tr>';
+
+    const workflowRows = workflowRequirements.length
+      ? workflowRequirements.map((req: any) => `
+          <tr>
+            <td>${esc(req.label || req.code || '—')}</td>
+            <td class="${req.satisfied ? 'ok' : 'ko'}">${req.satisfied ? 'Oui' : 'Non'}</td>
+          </tr>
+        `).join('')
+      : '<tr><td colspan="2">Aucune exigence de workflow calculée.</td></tr>';
+
+    return `
+      <section class="project-card">
+        <div class="top">
+          <div>
+            <div class="code">${esc(project.code || `PROJET-${project.id}`)}</div>
+            <h2>${esc(project.title || 'Projet sans titre')}</h2>
+            <p class="sub">${esc(project.location || 'Localisation non renseignée')}</p>
+          </div>
+          <div class="badges">
+            <span class="badge">${esc(project.status || '—')}</span>
+            <span class="badge phase">${esc(project.phase || '—')}</span>
+          </div>
+        </div>
+
+        <div class="grid two">
+          <div class="panel">
+            <h3>Identification</h3>
+            ${line('Code', project.code)}
+            ${line('Titre', project.title)}
+            ${line('Statut', project.status)}
+            ${line('Phase', project.phase)}
+            ${line('Projet ERP', project.erp_project_id)}
+            ${line('Type de batiment', project.building_type)}
+            ${line('Archive', project.is_archived ? 'Oui' : 'Non')}
+          </div>
+          <div class="panel">
+            <h3>Planification</h3>
+            ${line('Date debut', formatDateFr(project.start_date) || '—')}
+            ${line('Date fin', formatDateFr(project.end_date) || '—')}
+            ${line('Localisation', project.location)}
+            ${line('Adresse', project.street_address)}
+            ${line('Ville', project.city)}
+            ${line('Pays', project.country)}
+            ${line('Code postal', project.postal_code)}
+          </div>
+        </div>
+
+        <div class="grid two">
+          <div class="panel">
+            <h3>Client et gouvernance</h3>
+            ${line('Client', project.client_name)}
+            ${line('Contact client', project.client_contact_name)}
+            ${line('Telephone client', project.client_phone)}
+            ${line('Chef de projet', project.projectManager ? `${project.projectManager.firstname} ${project.projectManager.lastname}` : '—')}
+            ${line('Responsable HSE', project.hseResponsible ? `${project.hseResponsible.firstname} ${project.hseResponsible.lastname}` : '—')}
+            ${line('Cree par', project.createdBy ? `${project.createdBy.firstname} ${project.createdBy.lastname}` : '—')}
+            ${line('Document principal', project.document?.name)}
+          </div>
+          <div class="panel">
+            <h3>Budget et conformite</h3>
+            ${line('Budget initial', money(project.budget_initial, project.currency))}
+            ${line('Budget approuve', money(project.budget_approved, project.currency))}
+            ${line('Budget engage', money(project.budget_committed, project.currency))}
+            ${line('Budget contingence', money(project.contingency_budget, project.currency))}
+            ${line('Devise', project.currency)}
+            ${line('Type de permis', project.permit_type)}
+            ${line('Numero permis', project.permit_number)}
+            ${line('Classification risque', project.risk_classification)}
+          </div>
+        </div>
+
+        <div class="stats">
+          <div class="stat"><span>${esc(project._count?.lots ?? 0)}</span><small>Lots</small></div>
+          <div class="stat"><span>${esc(project._count?.tasks ?? 0)}</span><small>Taches</small></div>
+          <div class="stat"><span>${esc(project._count?.incidents ?? 0)}</span><small>Incidents</small></div>
+          <div class="stat"><span>${esc(project._count?.contracts ?? 0)}</span><small>Contrats</small></div>
+          <div class="stat"><span>${esc(project._count?.invoices ?? 0)}</span><small>Factures</small></div>
+        </div>
+
+        <div class="panel">
+          <h3>Lots</h3>
+          <table>
+            <thead>
+              <tr><th>Numero</th><th>Nom</th><th>Corps d'etat</th><th>Statut</th><th>Budget</th><th>Avancement</th></tr>
+            </thead>
+            <tbody>${lotRows}</tbody>
+          </table>
+        </div>
+
+        <div class="panel">
+          <h3>Lignes budgetaires</h3>
+          <table>
+            <thead>
+              <tr><th>Categorie</th><th>Fournisseur</th><th>Prevu</th><th>Reel</th></tr>
+            </thead>
+            <tbody>${budgetRows}</tbody>
+          </table>
+        </div>
+
+        <div class="panel">
+          <h3>Workflow</h3>
+          <div class="grid two compact">
+            ${line('Phase courante', project.workflow?.currentPhase || project.phase || '—')}
+            ${line('Phase suivante', project.workflow?.nextPhase || '—')}
+          </div>
+          <table>
+            <thead>
+              <tr><th>Exigence</th><th>Satisfaite</th></tr>
+            </thead>
+            <tbody>${workflowRows}</tbody>
+          </table>
+        </div>
+      </section>
+    `;
+  }).join('');
+
+  return `
+    <!doctype html>
+    <html lang="fr">
+    <head>
+      <meta charset="utf-8" />
+      <style>
+        @page { size: A4; margin: 12mm; }
+        body { font-family: 'Segoe UI', Arial, sans-serif; color: #0f172a; margin: 0; font-size: 11px; }
+        .report-head { border: 1px solid #d9e2ec; border-radius: 10px; padding: 14px 16px; margin-bottom: 14px; }
+        .report-head h1 { margin: 0; font-size: 22px; font-weight: 900; }
+        .report-head p { margin: 6px 0 0; color: #51606f; }
+        .project-card { border: 1px solid #d9e2ec; border-radius: 12px; padding: 14px; margin-bottom: 16px; page-break-inside: avoid; }
+        .top { display: flex; justify-content: space-between; gap: 12px; align-items: flex-start; margin-bottom: 12px; }
+        .code { display: inline-block; padding: 4px 8px; border-radius: 999px; background: #e0f2fe; color: #0369a1; font-size: 10px; font-weight: 900; }
+        h2 { margin: 8px 0 4px; font-size: 18px; }
+        .sub { margin: 0; color: #51606f; }
+        .badges { display: flex; gap: 6px; flex-wrap: wrap; }
+        .badge { border: 1px solid #cbd5e1; border-radius: 999px; padding: 5px 10px; font-size: 10px; font-weight: 800; }
+        .badge.phase { background: #f8fafc; }
+        .grid.two { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 10px; }
+        .grid.two.compact { margin-bottom: 8px; }
+        .panel { border: 1px solid #e2e8f0; border-radius: 8px; padding: 10px; margin-bottom: 10px; }
+        .panel h3 { margin: 0 0 8px; font-size: 11px; text-transform: uppercase; letter-spacing: .6px; }
+        .kv { display: grid; grid-template-columns: 145px 1fr; gap: 8px; padding: 4px 0; border-bottom: 1px dashed #e2e8f0; }
+        .kv:last-child { border-bottom: none; }
+        .k { color: #64748b; font-weight: 700; }
+        .v { font-weight: 600; }
+        .stats { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; margin-bottom: 10px; }
+        .stat { border: 1px solid #d9e2ec; border-radius: 8px; padding: 8px; text-align: center; }
+        .stat span { display: block; font-size: 18px; font-weight: 900; }
+        .stat small { color: #64748b; text-transform: uppercase; font-weight: 800; font-size: 9px; }
+        table { width: 100%; border-collapse: collapse; }
+        th, td { border: 1px solid #dbe5f0; padding: 6px 7px; vertical-align: top; }
+        th { background: #f8fafc; font-size: 9px; text-transform: uppercase; color: #475569; letter-spacing: .3px; }
+        .ok { color: #047857; font-weight: 800; }
+        .ko { color: #b91c1c; font-weight: 800; }
+        .footer { margin-top: 8px; font-size: 9px; color: #64748b; text-align: right; }
+      </style>
+    </head>
+    <body>
+      <div class="report-head">
+        <h1>Portefeuille des projets</h1>
+        <p>${projects.length} projet${projects.length > 1 ? 's' : ''} exporte${projects.length > 1 ? 's' : ''} avec leurs informations detaillees.</p>
+      </div>
+      ${cards || '<p>Aucun projet a exporter.</p>'}
+      <div class="footer">Genere le ${esc(new Date().toLocaleString('fr-FR'))}</div>
+    </body>
+    </html>
+  `;
+}
+
 // ─── ProjectController ─────────────────────────────────────────────────────────
 
 export class ProjectController {
@@ -47,6 +299,67 @@ export class ProjectController {
     } catch (error) {
       console.error('[ProjectController.listProjects]', error);
       res.status(500).json({ error: 'Erreur lors de la récupération des projets.' });
+    }
+  }
+
+  /**
+   * Endpoint pour requêtes filtrées de projets
+   * POST /projects/query
+   * Body: { logic: 'AND'|'OR', filters: [{ field, op, value }, ...] }
+   */
+  static async queryProjects(req: AuthRequest, res: Response): Promise<void> {
+    try {
+      const tenant_id = req.user?.tenant_id;
+      const { logic = 'AND', filters = [] } = req.body;
+      const page  = Math.max(1, parseInt(String(req.query.page  ?? 1), 10));
+      const limit = Math.min(100, Math.max(1, parseInt(String(req.query.limit ?? 20), 10)));
+
+      // Construire la clause WHERE
+      const accessFilter = getProjectAccessFilter(req.user);
+      const where = buildProjectWhere(logic, filters, tenant_id, accessFilter);
+
+      // Récupérer les données
+      const [projects, total] = await Promise.all([
+        prisma.project.findMany({
+          where,
+          select: {
+            id: true,
+            code: true,
+            title: true,
+            status: true,
+            phase: true,
+            client_name: true,
+            location: true,
+            city: true,
+            start_date: true,
+            end_date: true,
+            budget_initial: true,
+            budget_committed: true,
+            currency: true,
+            is_archived: true,
+            createdBy: {
+              select: { id: true, firstname: true, lastname: true }
+            },
+            projectManager: {
+              select: { id: true, firstname: true, lastname: true }
+            }
+          },
+          orderBy: { createdAt: 'desc' },
+          skip: (page - 1) * limit,
+          take: limit,
+        }),
+        prisma.project.count({ where }),
+      ]);
+
+      res.json({
+        data: projects,
+        total,
+        page,
+        limit,
+      });
+    } catch (error) {
+      console.error('[ProjectController.queryProjects]', error);
+      res.status(500).json({ error: 'Erreur lors du filtrage des projets.' });
     }
   }
 
@@ -95,6 +408,53 @@ export class ProjectController {
     } catch (error) {
       console.error('[ProjectController.exportProjectsExcel]', error);
       res.status(500).json({ error: 'Erreur lors de l’export des projets.' });
+    }
+  }
+
+  static async exportProjectsPdf(req: AuthRequest, res: Response): Promise<void> {
+    let browser: BrowserLike | null = null;
+    try {
+      const tenant_id = req.user?.tenant_id;
+      const result = await ProjectManagementService.listProjects(tenant_id, 1, 100000);
+      const summaries = result.data ?? [];
+      const projects = await Promise.all(
+        summaries.map((project: any) => ProjectManagementService.getProjectById(project.id, tenant_id))
+      );
+      const detailedProjects = projects.filter(Boolean);
+
+      const puppeteer = await getPuppeteer();
+      if (!puppeteer) {
+        res.status(503).json({ error: 'Generation PDF indisponible: moteur PDF non disponible.' });
+        return;
+      }
+
+      const html = buildProjectsPdfHtml(detailedProjects);
+      const fileName = `projets-${new Date().toISOString().slice(0, 10)}.pdf`;
+
+      browser = await puppeteer.launch({
+        headless: true,
+        args: ['--no-sandbox', '--disable-setuid-sandbox'],
+        ...(process.env.PUPPETEER_EXECUTABLE_PATH && { executablePath: process.env.PUPPETEER_EXECUTABLE_PATH }),
+      });
+      const page = await browser.newPage();
+      await page.setContent(html, { waitUntil: 'networkidle0' });
+      const pdfBytes = await page.pdf({
+        format: 'A4',
+        printBackground: true,
+        margin: { top: '10mm', right: '10mm', bottom: '12mm', left: '10mm' },
+      });
+      await page.close();
+
+      const pdfBuffer = Buffer.from(pdfBytes);
+      res.setHeader('Content-Type', 'application/pdf');
+      res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
+      res.setHeader('Content-Length', String(pdfBuffer.length));
+      res.status(200).send(pdfBuffer);
+    } catch (error) {
+      console.error('[ProjectController.exportProjectsPdf]', error);
+      res.status(500).json({ error: 'Erreur lors de l’export PDF des projets.' });
+    } finally {
+      if (browser) await browser.close().catch(() => undefined);
     }
   }
 
@@ -192,6 +552,7 @@ export class ProjectController {
     } catch (error: any) {
       console.error('[ProjectController.updateProject]', error);
       if (error.message?.includes('introuvable')) res.status(404).json({ error: error.message });
+      else if (error.message?.includes('Impossible')) res.status(409).json({ error: error.message });
       else res.status(500).json({ error: error.message || 'Erreur serveur.' });
     }
   }

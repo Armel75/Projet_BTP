@@ -32,7 +32,7 @@ export async function syncSeedUsers(): Promise<void> {
   // ── 1. Tenant par défaut ────────────────────────────────────────────────────
   let tenant = await prisma.tenant.findFirst();
   if (!tenant) {
-    tenant = await prisma.tenant.create({ data: { name: 'Default Tenant' } });
+    tenant = await prisma.tenant.create({ data: { name: process.env.SEED_TENANT_NAME ?? 'SOREPCO' } });
     console.log('[seed-users] ✅ Tenant créé');
   }
 

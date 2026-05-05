@@ -25,9 +25,19 @@ interface TenderBid {
   is_compliant: boolean;
   validity_period?: number;
   notes?: string;
-  document_url?: string;
+  document_id?: number;
   submitted_at?: string;
   supplier: { id: number; name: string; email?: string; contact_name?: string };
+}
+
+interface TenderDocumentItem {
+  id: number;
+  name: string;
+  file_url?: string;
+  file_name?: string;
+  file_size?: number;
+  file_type?: string;
+  category?: string;
 }
 
 interface Tender {
@@ -44,7 +54,6 @@ interface Tender {
   award_date?: string;
   description?: string;
   notes?: string;
-  document_url?: string;
   awarded_supplier_id?: number;
   project_id: number;
   lot_id?: number;
@@ -52,6 +61,7 @@ interface Tender {
   lot?: { id: number; lot_number: string; name: string };
   awardedSupplier?: { id: number; name: string };
   bids: TenderBid[];
+  documents?: TenderDocumentItem[];
   createdBy?: { firstname: string; lastname: string };
   created_at: string;
   updated_at: string;
@@ -301,13 +311,34 @@ export default function TenderDetailDrawer({ open, onOpenChange, tenderId, onUpd
                         <p className="text-sm text-gb-text">{tender.notes}</p>
                       </div>
                     )}
-                    {/* Document */}
-                    {tender.document_url && (
-                      <a href={tender.document_url} target="_blank" rel="noopener noreferrer"
-                        className="flex items-center gap-2 text-sm text-gb-primary hover:underline font-medium">
-                        <Download size={14} /> Télécharger le DCE
-                      </a>
-                    )}
+                    {/* Documents */}
+                    {(() => {
+                      // New approach: tender.documents is Document[] (direct FK)
+                      const docs: Array<{ url: string; filename: string }> =
+                        tender.documents && tender.documents.length > 0
+                        ? tender.documents.map(doc => ({
+                            url: doc.file_url ?? "",
+                            filename: doc.file_name ?? doc.name,
+                          }))
+                        : [];
+                      if (docs.length === 0) return null;
+                      return (
+                        <div className="space-y-2">
+                          {docs.map((doc, idx) => (
+                            <a
+                              key={`${doc.url}-${idx}`}
+                              href={doc.url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="flex items-center gap-2 text-sm text-gb-primary hover:underline font-medium"
+                            >
+                              <Download size={14} />
+                              {doc.filename}
+                            </a>
+                          ))}
+                        </div>
+                      );
+                    })()}
                   </div>
                 )}
 

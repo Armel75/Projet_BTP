@@ -19,6 +19,8 @@ import meetingRouter from './meeting.routes.js';
 import rfiRouter from './rfi.routes.js';
 import controlReportRouter from './control-report.routes.js';
 import dashboardRouter from './dashboard.routes.js';
+import validationRouter from './validation.routes.js';
+import glpiRouter from './glpi.routes.js';
 
 const router = Router();
 
@@ -46,4 +48,6 @@ router.use('/meetings',  meetingRouter);
 router.use('/rfis',      rfiRouter);
 router.use('/control-reports', controlReportRouter);
 router.use('/dashboard', dashboardRouter);
+router.use('/validation', validationRouter);
+router.use('/glpi', glpiRouter);
 export default router;

@@ -2,7 +2,7 @@ import React from "react";
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from "../ui/table";
 import { Badge } from "../ui/badge";
 import { Button } from "../ui/button";
-import { User, Truck, HardHat, MoreHorizontal, Settings2 } from "lucide-react";
+import { User, Truck, HardHat, MoreHorizontal, Pencil } from "lucide-react";
 import { getResourceTypeLabel } from "../../lib/resourceTypeLabel";
 
 interface Resource {
@@ -72,19 +72,20 @@ export function ResourceList({ resources, onSelect, onEdit }: ResourceListProps)
                   </Badge>
                 </TableCell>
                 <TableCell className="font-mono text-sm font-semibold">
-                  {r.cost_rate} €/h
+                  {r.cost_rate} FCFA/h
                 </TableCell>
                 <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
                   <div className="flex justify-end gap-2">
                     <Button 
-                      variant="ghost" 
-                      size="icon" 
-                      className="h-8 w-8 opacity-0 group-hover:opacity-100 transition-opacity"
+                      variant="outline" 
+                      size="sm" 
+                      className="h-8 gap-1.5 text-xs font-semibold"
                       onClick={() => onEdit(r)}
                     >
-                      <Settings2 size={14} />
+                      <Pencil size={12} />
+                      Modifier
                     </Button>
-                    <Button variant="ghost" size="icon" className="h-8 w-8">
+                    <Button variant="ghost" size="icon" className="h-8 w-8" title="Plus d'options">
                       <MoreHorizontal size={14} />
                     </Button>
                   </div>

@@ -50,9 +50,9 @@ export function ResourceAssignmentDialog({ open, onOpenChange, task, onAssign }:
     if (!selectedResourceId) return;
     setSubmitting(true);
     try {
-      await onAssign(parseInt(selectedResourceId), {
-        resourceId: parseInt(selectedResourceId),
-        plannedHours: parseFloat(plannedHours)
+      await onAssign(parseInt(selectedResourceId, 10), {
+        resource_id: parseInt(selectedResourceId, 10),
+        planned_hours: parseFloat(plannedHours)
       });
       onOpenChange(false);
     } catch (err) {
@@ -83,7 +83,7 @@ export function ResourceAssignmentDialog({ open, onOpenChange, task, onAssign }:
             <Label className="text-sm font-bold text-gb-muted uppercase tracking-wider">Sélectionner la Ressource</Label>
             <Select 
               value={selectedResourceId} 
-              onValueChange={setSelectedResourceId}
+              onValueChange={(value) => setSelectedResourceId(value ?? "")}
             >
               <SelectTrigger className="bg-gb-app border-gb-border h-11">
                 <SelectValue placeholder={loading ? "Chargement..." : "Choisir une ressource..."} />

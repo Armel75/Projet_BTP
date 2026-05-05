@@ -66,7 +66,9 @@ export default function ContractFormDialog({
   const [suppliers, setSuppliers] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
 
   const [form, setForm] = useState({
     reference: "",
@@ -82,7 +84,7 @@ export default function ContractFormDialog({
     advance_payment_pct: "",
     payment_terms: "",
     price_revision_index: "",
-    document_url: "",
+    document_id: "",
     signed_at: "",
     start_date: "",
     end_date: "",
@@ -120,7 +122,7 @@ export default function ContractFormDialog({
         advance_payment_pct: contract.advance_payment_pct != null ? String(contract.advance_payment_pct) : "",
         payment_terms:       contract.payment_terms != null ? String(contract.payment_terms) : "",
         price_revision_index: contract.price_revision_index || "",
-        document_url:        contract.document_url || "",
+        document_id:         contract.document_id != null ? String(contract.document_id) : "",
         signed_at:           toDate(contract.signed_at),
         start_date:          toDate(contract.start_date),
         end_date:            toDate(contract.end_date),
@@ -131,12 +133,36 @@ export default function ContractFormDialog({
         reference: "", title: "", type: "SUBCONTRACT", category: "",
         status: "DRAFT", currency: "EUR", project_id: "", supplier_id: "",
         amount: "", retention_pct: "", advance_payment_pct: "", payment_terms: "",
-        price_revision_index: "", document_url: "", signed_at: "", start_date: "",
+        price_revision_index: "", document_id: "", signed_at: "", start_date: "",
         end_date: "", description: "",
       });
     }
     setError(null);
   }, [contract, open]);
+
+  const uploadDocuments = async (projectId: number) => {
+    if (selectedFiles.length === 0) return [] as number[];
+    const fd = new FormData();
+    selectedFiles.forEach((f) => fd.append("files", f));
+    fd.append("project_id", String(projectId));
+    fd.append("category", "CONTRACT");
+    fd.append("phase", "EXECUTION");
+    setUploading(true);
+    try {
+      const res = await apiFetch(`${API_BASE}/documents/uploads`, { method: "POST", body: fd });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error || `Erreur upload (${res.status})`);
+      }
+      const body = await res.json().catch(() => ({}));
+      const files = Array.isArray(body?.files) ? body.files : [];
+      return files
+        .map((f: any) => Number(f.documentId ?? f.id))
+        .filter((id: number) => Number.isFinite(id) && id > 0);
+    } finally {
+      setUploading(false);
+    }
+  };
 
   const set = (key: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) =>
     setForm(prev => ({ ...prev, [key]: e.target.value }));
@@ -150,6 +176,8 @@ export default function ContractFormDialog({
     setSaving(true);
     setError(null);
     try {
+      const projectId = Number(form.project_id);
+      const uploadedIds = await uploadDocuments(projectId);
       const payload: any = {
         reference:    form.reference || undefined,
         title:        form.title,
@@ -157,14 +185,14 @@ export default function ContractFormDialog({
         category:     form.category || undefined,
         status:       form.status,
         currency:     form.currency,
-        project_id:   Number(form.project_id),
+        project_id:   projectId,
         supplier_id:  Number(form.supplier_id),
         amount:       form.amount ? Number(form.amount) : 0,
         retention_pct:       form.retention_pct ? Number(form.retention_pct) : undefined,
         advance_payment_pct: form.advance_payment_pct ? Number(form.advance_payment_pct) : undefined,
         payment_terms:       form.payment_terms ? Number(form.payment_terms) : undefined,
         price_revision_index: form.price_revision_index || undefined,
-        document_url: form.document_url || undefined,
+        document_id: uploadedIds[0] || (form.document_id ? Number(form.document_id) : undefined),
         signed_at:    form.signed_at || undefined,
         start_date:   form.start_date || undefined,
         end_date:     form.end_date || undefined,
@@ -292,8 +320,21 @@ export default function ContractFormDialog({
                 <Field label="Indice de révision de prix">
                   <input type="text" placeholder="ex: BT01, TP09…" className={inputCls} value={form.price_revision_index} onChange={set("price_revision_index")} />
                 </Field>
-                <Field label="URL document (PDF)">
-                  <input type="url" placeholder="https://…" className={inputCls} value={form.document_url} onChange={set("document_url")} />
+                <Field label="Pièces jointes (multiple)">
+                  <input
+                    type="file"
+                    multiple
+                    className={`${inputCls} py-2`}
+                    onChange={(e) => setSelectedFiles(Array.from(e.target.files || []))}
+                  />
+                  {selectedFiles.length > 0 && (
+                    <p className="text-[11px] text-gb-muted mt-1">{selectedFiles.length} fichier(s) prêt(s) à l'upload.</p>
+                  )}
+                  {!selectedFiles.length && contract?.document?.file_url && (
+                    <a href={contract.document.file_url} target="_blank" rel="noreferrer" className="text-[11px] text-gb-primary hover:underline mt-1 inline-block">
+                      Document actuel: {contract.document.file_name || contract.document.name || "ouvrir"}
+                    </a>
+                  )}
                 </Field>
               </div>
 
@@ -349,11 +390,11 @@ export default function ContractFormDialog({
             </Button>
             <Button
               type="submit"
-              disabled={saving || loading}
+              disabled={saving || loading || uploading}
               className="rounded-xl px-6 shadow-md shadow-gb-primary/20 font-bold"
             >
-              {saving ? (
-                <><Loader2 size={15} className="animate-spin mr-2" /> Enregistrement…</>
+              {saving || uploading ? (
+                <><Loader2 size={15} className="animate-spin mr-2" /> {uploading ? "Upload des fichiers…" : "Enregistrement…"}</>
               ) : (
                 <><Save size={15} className="mr-2" /> {isEdit ? "Enregistrer les modifications" : "Créer le contrat"}</>
               )}

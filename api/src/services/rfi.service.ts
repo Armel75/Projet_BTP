@@ -12,9 +12,10 @@ const COMMENT_SELECT = {
   rfi_id:       true,
   user_id:      true,
   content:      true,
-  document_url: true,
+  document_id:  true,
   created_at:   true,
   updated_at:   true,
+  document: { select: { id: true, name: true, file_url: true, file_name: true, file_size: true } },
   user: { select: USER_SELECT },
 } as const;
 
@@ -174,24 +175,24 @@ export class RFIService {
     });
   }
 
-  static async createComment(data: { rfi_id: number; user_id?: number; content: string; document_url?: string }) {
+  static async createComment(data: { rfi_id: number; user_id?: number; content: string; document_id?: number }) {
     return prisma.rFIComment.create({
       data: {
         rfi_id:       data.rfi_id,
         user_id:      data.user_id      || null,
         content:      data.content,
-        document_url: data.document_url || null,
+        document_id:  data.document_id  || null,
       },
       select: COMMENT_SELECT,
     });
   }
 
-  static async updateComment(id: number, data: { content?: string; document_url?: string }) {
+  static async updateComment(id: number, data: { content?: string; document_id?: number | null }) {
     return prisma.rFIComment.update({
       where: { id },
       data: {
-        ...(data.content      !== undefined && { content: data.content }),
-        ...(data.document_url !== undefined && { document_url: data.document_url }),
+        ...(data.content     !== undefined && { content: data.content }),
+        ...(data.document_id !== undefined && { document_id: data.document_id }),
       },
       select: COMMENT_SELECT,
     });

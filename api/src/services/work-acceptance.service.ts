@@ -4,6 +4,7 @@ import { TenantContext } from '../config/tenant-context.js';
 const WORK_ACCEPTANCE_INCLUDE = {
   createdBy: { select: { id: true, firstname: true, lastname: true } },
   inspector: { select: { id: true, firstname: true, lastname: true } },
+  document:  { select: { id: true, name: true, file_url: true, file_name: true, file_size: true } },
   project:   { select: { id: true, code: true, title: true } },
   lot:       { select: { id: true, lot_number: true, name: true } },
 } as const;
@@ -31,7 +32,7 @@ export class WorkAcceptanceService {
     attendees?:          string;
     signed_by_owner?:    boolean;
     signed_by_contractor?: boolean;
-    document_url?:       string;
+    document_id?:        number;
     inspector_id?:       number;
     created_by:          number;
   }) {

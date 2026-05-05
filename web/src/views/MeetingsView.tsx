@@ -33,11 +33,14 @@ interface ActionItem {
   meeting_id: number;
   subject: string;
   responsible_id?: number;
+  responsible_name?: string;
+  glpi_ticket_id?: number;
   due_date?: string;
   status: string;
   comment?: string;
   created_at: string;
   updated_at: string;
+  glpiTicket?: { id: number; glpi_id: number; ticket_number?: string; title: string; status?: string };
   responsible?: { id: number; firstname: string; lastname: string };
   createdBy?: { id: number; firstname: string; lastname: string };
 }
@@ -72,6 +75,24 @@ interface Meeting {
 interface Project { id: number; code: string; title: string; phase?: string | null; }
 interface Lot     { id: number; lot_number: string; name: string; }
 interface UserRef { id: number; firstname: string; lastname: string; email: string; }
+interface GLPIUserRef {
+  id: number;
+  glpi_id: number;
+  login?: string;
+  email?: string;
+  first_name?: string;
+  last_name?: string;
+  full_name?: string;
+  status?: string;
+}
+
+interface GLPITicketRef {
+  id: number;
+  glpi_id: number;
+  ticket_number?: string;
+  title: string;
+  status?: string;
+}
 
 const MEETING_WORKFLOW_GUARD = {
   allowedPhases: ["PREPARATION", "EXECUTION"],
@@ -195,9 +216,60 @@ function MeetingFormDialog({ open, onClose, meeting, onSaved }: {
   const [form, setForm] = useState({ ...EMPTY_FORM });
   const [projects, setProjects] = useState<Project[]>([]);
   const [lots, setLots] = useState<Lot[]>([]);
+  const [users, setUsers] = useState<UserRef[]>([]);
+  const [glpiUsers, setGlpiUsers] = useState<GLPIUserRef[]>([]);
+  const [glpiTickets, setGlpiTickets] = useState<GLPITicketRef[]>([]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [tab, setTab] = useState<"info" | "content" | "next">("info");
+
+  // ─── Tâches locales (staging avant création) ──────────────────────────────
+  type LocalTask = {
+    id: number;
+    subject: string;
+    responsible_id: string;
+    responsible_name: string;
+    responsible_source: "internal" | "glpi" | "external";
+    glpi_ticket_id: string;
+    glpi_ticket_label: string;
+    due_date: string;
+  };
+  const [localTasks, setLocalTasks] = useState<LocalTask[]>([]);
+  const [newTaskSubject, setNewTaskSubject] = useState("");
+  const [newTaskResponsible, setNewTaskResponsible] = useState("");
+  const [newTaskGlpiUser, setNewTaskGlpiUser] = useState("");
+  const [newTaskGlpiTicket, setNewTaskGlpiTicket] = useState("");
+  const [newTaskResponsibleName, setNewTaskResponsibleName] = useState("");
+  const [newTaskDue, setNewTaskDue] = useState("");
+  const [pilotMode, setPilotMode] = useState<"internal" | "glpi" | "external">("internal");
+
+  const addLocalTask = () => {
+    if (!newTaskSubject.trim()) return;
+    const selectedGlpi = glpiUsers.find((u) => u.id === Number(newTaskGlpiUser));
+    const selectedTicket = glpiTickets.find((t) => t.id === Number(newTaskGlpiTicket));
+    const glpiDisplayName = selectedGlpi
+      ? (selectedGlpi.full_name || [selectedGlpi.first_name, selectedGlpi.last_name].filter(Boolean).join(" ") || selectedGlpi.login || `GLPI #${selectedGlpi.glpi_id}`)
+      : "";
+    const ticketLabel = selectedTicket
+      ? `${selectedTicket.ticket_number || `GLPI #${selectedTicket.glpi_id}`} - ${selectedTicket.title}`
+      : "";
+
+    setLocalTasks(prev => [...prev, {
+      id: Date.now(),
+      subject: newTaskSubject.trim(),
+      responsible_id: pilotMode === "internal" ? newTaskResponsible : "",
+      responsible_name:
+        pilotMode === "external"
+          ? newTaskResponsibleName.trim()
+          : (pilotMode === "glpi" ? glpiDisplayName : ""),
+      responsible_source: pilotMode,
+      glpi_ticket_id: newTaskGlpiTicket,
+      glpi_ticket_label: ticketLabel,
+      due_date: newTaskDue,
+    }]);
+    setNewTaskSubject(""); setNewTaskResponsible(""); setNewTaskGlpiUser(""); setNewTaskGlpiTicket(""); setNewTaskResponsibleName(""); setNewTaskDue("");
+  };
+  const removeLocalTask = (id: number) => setLocalTasks(prev => prev.filter(t => t.id !== id));
 
   const set = (k: string, v: string) => setForm(f => ({ ...f, [k]: v }));
 
@@ -207,6 +279,12 @@ function MeetingFormDialog({ open, onClose, meeting, onSaved }: {
       .then(r => r.json())
       .then(d => setProjects(Array.isArray(d) ? d : (d.data ?? [])))
       .catch(() => {});
+    apiFetch(`${API_BASE}/resources/users?limit=200`)
+      .then(r => r.json()).then(d => setUsers(Array.isArray(d) ? d : [])).catch(() => {});
+    apiFetch(`${API_BASE}/resources/glpi-users?limit=200`)
+      .then(r => r.json()).then(d => setGlpiUsers(Array.isArray(d) ? d : [])).catch(() => setGlpiUsers([]));
+    apiFetch(`${API_BASE}/glpi/tickets?limit=300`)
+      .then(r => r.json()).then(d => setGlpiTickets(Array.isArray(d) ? d : [])).catch(() => setGlpiTickets([]));
   }, [open]);
 
   useEffect(() => {
@@ -237,7 +315,10 @@ function MeetingFormDialog({ open, onClose, meeting, onSaved }: {
       });
     } else {
       setForm({ ...EMPTY_FORM });
+      setLocalTasks([]);
     }
+    setNewTaskSubject(""); setNewTaskResponsible(""); setNewTaskGlpiUser(""); setNewTaskGlpiTicket(""); setNewTaskResponsibleName(""); setNewTaskDue("");
+    setPilotMode("internal");
     setError(null);
     setTab("info");
   }, [open, meeting]);
@@ -268,12 +349,44 @@ function MeetingFormDialog({ open, onClose, meeting, onSaved }: {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(payload),
         });
+        // Ajouter les nouvelles tâches si saisies dans l'onglet Contenu
+        for (const task of localTasks) {
+          await apiFetch(`${API_BASE}/meetings/${meeting.id}/action-items`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              subject:          task.subject,
+              responsible_id:   task.responsible_id ? Number(task.responsible_id) : undefined,
+              responsible_name: task.responsible_name || undefined,
+              glpi_ticket_id:   task.glpi_ticket_id ? Number(task.glpi_ticket_id) : undefined,
+              due_date:         task.due_date || undefined,
+              status:           "OPEN",
+            }),
+          });
+        }
       } else {
-        await apiFetch(`${API_BASE}/meetings`, {
+        const res = await apiFetch(`${API_BASE}/meetings`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(payload),
         });
+        const created = await res.json().catch(() => null);
+        if (created?.id && localTasks.length > 0) {
+          for (const task of localTasks) {
+            await apiFetch(`${API_BASE}/meetings/${created.id}/action-items`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                subject:          task.subject,
+                responsible_id:   task.responsible_id ? Number(task.responsible_id) : undefined,
+                responsible_name: task.responsible_name || undefined,
+                glpi_ticket_id:   task.glpi_ticket_id ? Number(task.glpi_ticket_id) : undefined,
+                due_date:         task.due_date || undefined,
+                status:           "OPEN",
+              }),
+            });
+          }
+        }
       }
       onSaved();
     } catch (err: any) {
@@ -411,12 +524,12 @@ function MeetingFormDialog({ open, onClose, meeting, onSaved }: {
               <div className="space-y-4">
                 <F label="Ordre du jour">
                   <textarea value={form.agenda} onChange={e => set("agenda", e.target.value)} rows={4}
-                    placeholder="1. Avancement lots Gros Œuvre&#10;2. Revue planning&#10;3. Points sécurité…"
+                    placeholder={"1. Avancement lots Gros Œuvre\n2. Revue planning\n3. Points sécurité…"}
                     className={areaCls} />
                 </F>
                 <F label="Compte-rendu / Procès-verbal">
                   <textarea value={form.minutes} onChange={e => set("minutes", e.target.value)} rows={5}
-                    placeholder="Présents : …&#10;Discussion : …"
+                    placeholder={"Présents : …\nDiscussion : …"}
                     className={areaCls} />
                 </F>
                 <F label="Conclusions & décisions">
@@ -424,6 +537,210 @@ function MeetingFormDialog({ open, onClose, meeting, onSaved }: {
                     placeholder="Décisions prises, points validés…"
                     className={areaCls} />
                 </F>
+
+                {/* ─── Tâches arrêtées ──────────────────────────────────── */}
+                <div className="border border-gb-border rounded-2xl p-4 space-y-4 bg-gb-surface-solid/30">
+                  <div className="flex items-center justify-between">
+                    <p className="text-[10px] font-black uppercase tracking-widest text-gb-muted flex items-center gap-2">
+                      <ListChecks size={12} className="shrink-0" />
+                      Tâches arrêtées
+                    </p>
+                    {localTasks.length > 0 && (
+                      <span className="text-[10px] font-bold text-gb-primary bg-gb-primary/10 border border-gb-primary/20 px-2 py-0.5 rounded-full">
+                        {localTasks.length} tâche{localTasks.length > 1 ? "s" : ""}
+                      </span>
+                    )}
+                  </div>
+
+                  {/* Liste des tâches ajoutées */}
+                  {localTasks.length > 0 && (
+                    <div className="space-y-1.5">
+                      {localTasks.map((task, idx) => {
+                        const pilot = users.find(u => u.id === Number(task.responsible_id));
+                        const pilotLabel = pilot
+                          ? `${pilot.firstname} ${pilot.lastname}`
+                          : task.responsible_name || null;
+                        return (
+                          <div key={task.id} className="flex items-center gap-2 bg-gb-app rounded-xl px-3 py-2.5 border border-gb-border group">
+                            <div className="w-5 h-5 rounded-full bg-gb-primary/10 flex items-center justify-center shrink-0">
+                              <span className="text-[9px] font-black text-gb-primary">{idx + 1}</span>
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <p className="text-sm font-semibold text-gb-text truncate">{task.subject}</p>
+                              <div className="flex items-center gap-3 mt-0.5 flex-wrap">
+                                {pilotLabel ? (
+                                  <span className="text-[11px] text-gb-muted flex items-center gap-1">
+                                    <Flag size={9} className={pilot ? "text-gb-primary" : (task.responsible_source === "glpi" ? "text-cyan-500" : "text-amber-500")} />
+                                    {pilotLabel}
+                                    {!pilot && task.responsible_source === "external" && <span className="italic text-gb-muted/60"> (ext.)</span>}
+                                    {!pilot && task.responsible_source === "glpi" && <span className="italic text-gb-muted/60"> (GLPI)</span>}
+                                  </span>
+                                ) : (
+                                  <span className="text-[11px] text-gb-muted/50 italic">Pilote non défini</span>
+                                )}
+                                {task.due_date && (
+                                  <span className="text-[11px] text-gb-muted flex items-center gap-1">
+                                    <AlarmClock size={9} className="text-amber-500" />
+                                    {format(new Date(task.due_date), "dd/MM/yyyy", { locale: fr })}
+                                  </span>
+                                )}
+                                {task.glpi_ticket_label && (
+                                  <span className="text-[11px] text-gb-muted flex items-center gap-1">
+                                    <StickyNote size={9} className="text-cyan-500" />
+                                    {task.glpi_ticket_label}
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => removeLocalTask(task.id)}
+                              className="p-1 rounded-lg text-gb-muted hover:text-gb-danger hover:bg-gb-danger/10 transition-all"
+                            >
+                              <X size={12} />
+                            </button>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+
+                  {/* Formulaire d'ajout d'une tâche */}
+                  <div className="space-y-3 border-t border-gb-border/50 pt-3">
+                    {/* Description */}
+                    <div className="flex flex-col gap-1.5">
+                      <label className="text-[10px] font-black uppercase tracking-widest text-gb-muted">Description de la tâche</label>
+                      <input
+                        value={newTaskSubject}
+                        onChange={e => setNewTaskSubject(e.target.value)}
+                        placeholder="Ex : Reprendre le ferraillage de la dalle, zone B3…"
+                        className={inputCls}
+                      />
+                    </div>
+
+                    {/* Pilote — toggle Interne / GLPI / Externe */}
+                    <div className="flex flex-col gap-1.5">
+                      <div className="flex items-center justify-between">
+                        <label className="text-[10px] font-black uppercase tracking-widest text-gb-muted">Pilote responsable</label>
+                        <div className="flex rounded-xl overflow-hidden border border-gb-border text-[10px] font-bold">
+                          <button
+                            type="button"
+                            onClick={() => setPilotMode("internal")}
+                            className={`px-3 py-1.5 transition-colors ${
+                              pilotMode === "internal"
+                                ? "bg-gb-primary text-white"
+                                : "bg-gb-app text-gb-muted hover:text-gb-text"
+                            }`}
+                          >
+                            Interne
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setPilotMode("glpi")}
+                            className={`px-3 py-1.5 transition-colors border-l border-gb-border ${
+                              pilotMode === "glpi"
+                                ? "bg-cyan-500 text-white"
+                                : "bg-gb-app text-gb-muted hover:text-gb-text"
+                            }`}
+                          >
+                            GLPI
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setPilotMode("external")}
+                            className={`px-3 py-1.5 transition-colors border-l border-gb-border ${
+                              pilotMode === "external"
+                                ? "bg-amber-500 text-white"
+                                : "bg-gb-app text-gb-muted hover:text-gb-text"
+                            }`}
+                          >
+                            Externe / Inconnu
+                          </button>
+                        </div>
+                      </div>
+
+                      {pilotMode === "internal" ? (
+                        <select
+                          value={newTaskResponsible}
+                          onChange={e => setNewTaskResponsible(e.target.value)}
+                          className={selectCls}
+                        >
+                          <option value="">— Sélectionner un utilisateur interne —</option>
+                          {users.map(u => (
+                            <option key={u.id} value={u.id}>{u.firstname} {u.lastname}</option>
+                          ))}
+                        </select>
+                      ) : pilotMode === "glpi" ? (
+                        <select
+                          value={newTaskGlpiUser}
+                          onChange={e => setNewTaskGlpiUser(e.target.value)}
+                          className={selectCls}
+                        >
+                          <option value="">— Sélectionner un utilisateur GLPI —</option>
+                          {glpiUsers.map(u => {
+                            const label = u.full_name || [u.first_name, u.last_name].filter(Boolean).join(" ") || u.login || `GLPI #${u.glpi_id}`;
+                            return (
+                              <option key={u.id} value={u.id}>
+                                {label}{u.email ? ` — ${u.email}` : ""}
+                              </option>
+                            );
+                          })}
+                        </select>
+                      ) : (
+                        <input
+                          value={newTaskResponsibleName}
+                          onChange={e => setNewTaskResponsibleName(e.target.value)}
+                          placeholder="Nom du prestataire ou intervenant externe…"
+                          className={inputCls}
+                        />
+                      )}
+                    </div>
+
+                    {/* Délai */}
+                    <div className="flex flex-col gap-1.5">
+                      <label className="text-[10px] font-black uppercase tracking-widest text-gb-muted">Ticket GLPI (optionnel)</label>
+                      <select
+                        value={newTaskGlpiTicket}
+                        onChange={e => setNewTaskGlpiTicket(e.target.value)}
+                        className={selectCls}
+                      >
+                        <option value="">— Aucun ticket lié —</option>
+                        {glpiTickets.map(t => (
+                          <option key={t.id} value={t.id}>
+                            {(t.ticket_number || `GLPI #${t.glpi_id}`)} — {t.title}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    {/* Délai */}
+                    <div className="flex flex-col gap-1.5">
+                      <label className="text-[10px] font-black uppercase tracking-widest text-gb-muted">Délai d'exécution</label>
+                      <input
+                        type="date"
+                        value={newTaskDue}
+                        onChange={e => setNewTaskDue(e.target.value)}
+                        className={inputCls}
+                      />
+                    </div>
+
+                    {/* Bouton d'ajout */}
+                    <button
+                      type="button"
+                      onClick={addLocalTask}
+                      disabled={!newTaskSubject.trim()}
+                      className="w-full h-10 rounded-xl bg-gb-primary text-white text-sm font-bold shadow-sm shadow-gb-primary/20 hover:opacity-90 transition-all disabled:opacity-40 flex items-center justify-center gap-2"
+                    >
+                      <Plus size={14} /> Ajouter cette tâche
+                    </button>
+                  </div>
+
+                  {meeting && meeting.actionItems && meeting.actionItems.length > 0 && (
+                    <p className="text-[10px] text-gb-muted/70 italic border-t border-gb-border/50 pt-2">
+                      {meeting.actionItems.length} tâche{meeting.actionItems.length > 1 ? "s" : ""} existante{meeting.actionItems.length > 1 ? "s" : ""} — gérez-les depuis le panneau de détail (onglet Points d'action).
+                    </p>
+                  )}
+                </div>
               </div>
             )}
 
@@ -499,6 +816,7 @@ function MeetingDetailDrawer({
   const [attendees, setAttendees] = useState<Attendee[]>(meeting.attendees ?? []);
   const [actionItems, setActionItems] = useState<ActionItem[]>(meeting.actionItems ?? []);
   const [users, setUsers] = useState<UserRef[]>([]);
+  const [glpiTickets, setGlpiTickets] = useState<GLPITicketRef[]>([]);
 
   // Attendee form
   const [newAttUserId, setNewAttUserId] = useState("");
@@ -510,6 +828,7 @@ function MeetingDetailDrawer({
   // Action item form
   const [newActSubject, setNewActSubject]     = useState("");
   const [newActResponsible, setNewActResponsible] = useState("");
+  const [newActGlpiTicket, setNewActGlpiTicket] = useState("");
   const [newActDue, setNewActDue]             = useState("");
   const [newActStatus, setNewActStatus]       = useState("OPEN");
   const [newActComment, setNewActComment]     = useState("");
@@ -567,6 +886,8 @@ function MeetingDetailDrawer({
   useEffect(() => {
     apiFetch(`${API_BASE}/resources/users?limit=200`)
       .then(r => r.json()).then(d => setUsers(Array.isArray(d) ? d : [])).catch(() => {});
+    apiFetch(`${API_BASE}/glpi/tickets?limit=300`)
+      .then(r => r.json()).then(d => setGlpiTickets(Array.isArray(d) ? d : [])).catch(() => setGlpiTickets([]));
   }, []);
 
   const fetchAttendees = useCallback(async () => {
@@ -628,12 +949,13 @@ function MeetingDetailDrawer({
         body: JSON.stringify({
           subject:        newActSubject,
           responsible_id: newActResponsible ? Number(newActResponsible) : undefined,
+          glpi_ticket_id: newActGlpiTicket ? Number(newActGlpiTicket) : undefined,
           due_date:       newActDue || undefined,
           status:         newActStatus,
           comment:        newActComment || undefined,
         }),
       });
-      setNewActSubject(""); setNewActResponsible(""); setNewActDue("");
+      setNewActSubject(""); setNewActResponsible(""); setNewActGlpiTicket(""); setNewActDue("");
       setNewActStatus("OPEN"); setNewActComment("");
       await fetchActions();
       onUpdated();
@@ -936,8 +1258,16 @@ function MeetingDetailDrawer({
                     <option value="">Responsable…</option>
                     {users.map(u => <option key={u.id} value={u.id}>{u.firstname} {u.lastname}</option>)}
                   </select>
+                  <select value={newActGlpiTicket} onChange={e => setNewActGlpiTicket(e.target.value)} className={selectCls}>
+                    <option value="">Ticket GLPI (optionnel)…</option>
+                    {glpiTickets.map(t => (
+                      <option key={t.id} value={t.id}>
+                        {(t.ticket_number || `GLPI #${t.glpi_id}`)} — {t.title}
+                      </option>
+                    ))}
+                  </select>
                   <input type="date" value={newActDue} onChange={e => setNewActDue(e.target.value)}
-                    className={inputCls} placeholder="Échéance" />
+                    className={`${inputCls} col-span-2`} placeholder="Échéance" />
                   <select value={newActStatus} onChange={e => setNewActStatus(e.target.value)} className={`${selectCls} col-span-2`}>
                     {ACTION_STATUSES.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
                   </select>
@@ -987,6 +1317,12 @@ function MeetingDetailDrawer({
                                 <AlarmClock size={9} />
                                 {format(new Date(a.due_date), "d MMM yyyy", { locale: fr })}
                                 {overdue && " — en retard"}
+                              </span>
+                            )}
+                            {a.glpiTicket && (
+                              <span className="text-[11px] text-gb-muted flex items-center gap-1">
+                                <StickyNote size={9} className="text-cyan-500" />
+                                {(a.glpiTicket.ticket_number || `GLPI #${a.glpiTicket.glpi_id}`)}
                               </span>
                             )}
                           </div>

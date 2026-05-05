@@ -181,7 +181,12 @@ async function downloadInspectionPdf(inspection: Inspection) {
       return;
     }
 
-    const blob = await res.blob();
+    const buffer = await res.arrayBuffer();
+    const blob = new Blob([buffer], { type: "application/pdf" });
+    if (blob.size === 0) {
+      alert("Le PDF généré est vide.");
+      return;
+    }
     const url = window.URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
@@ -189,7 +194,7 @@ async function downloadInspectionPdf(inspection: Inspection) {
     document.body.appendChild(a);
     a.click();
     a.remove();
-    window.URL.revokeObjectURL(url);
+    window.setTimeout(() => window.URL.revokeObjectURL(url), 60_000);
   } catch {
     alert("Impossible de générer le rapport PDF d'inspection.");
   }

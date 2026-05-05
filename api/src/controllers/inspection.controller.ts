@@ -283,18 +283,22 @@ export class InspectionController {
       browser = await puppeteer.launch({
         headless: true,
         args: ['--no-sandbox', '--disable-setuid-sandbox'],
+        ...(process.env.PUPPETEER_EXECUTABLE_PATH && { executablePath: process.env.PUPPETEER_EXECUTABLE_PATH }),
       });
       const page = await browser.newPage();
       await page.setContent(html, { waitUntil: 'networkidle0' });
-      const pdfBuffer = await page.pdf({
+      const pdfBytes = await page.pdf({
         format: 'A4',
         printBackground: true,
         margin: { top: '10mm', right: '10mm', bottom: '10mm', left: '10mm' },
       });
       await page.close();
 
+      const pdfBuffer = Buffer.from(pdfBytes);
+
       res.setHeader('Content-Type', 'application/pdf');
       res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
+      res.setHeader('Content-Length', String(pdfBuffer.length));
       res.status(200).send(pdfBuffer);
     } catch (error: any) {
       res.status(500).json({ error: error.message || 'Impossible de generer le PDF.' });

@@ -17,16 +17,19 @@ const ATTENDEE_SELECT = {
 } as const;
 
 const ACTION_ITEM_SELECT = {
-  id:             true,
-  meeting_id:     true,
-  subject:        true,
-  responsible_id: true,
-  due_date:       true,
-  status:         true,
-  comment:        true,
-  created_by:     true,
-  created_at:     true,
-  updated_at:     true,
+  id:               true,
+  meeting_id:       true,
+  subject:          true,
+  responsible_id:   true,
+  responsible_name: true,
+  glpi_ticket_id:   true,
+  due_date:         true,
+  status:           true,
+  comment:          true,
+  created_by:       true,
+  created_at:       true,
+  updated_at:       true,
+  glpiTicket: { select: { id: true, glpi_id: true, ticket_number: true, title: true, status: true } },
   responsible: { select: { id: true, firstname: true, lastname: true } },
   createdBy:   { select: { id: true, firstname: true, lastname: true } },
 } as const;
@@ -194,14 +197,16 @@ export class MeetingService {
   }
 
   static async createActionItem(data: {
-    meeting_id:     number;
-    tenant_id:      number;
-    subject:        string;
-    responsible_id?: number;
-    due_date?:      Date;
-    status?:        string;
-    comment?:       string;
-    created_by?:    number;
+    meeting_id:       number;
+    tenant_id:        number;
+    subject:          string;
+    responsible_id?:  number;
+    responsible_name?: string;
+    glpi_ticket_id?:  number;
+    due_date?:        Date;
+    status?:          string;
+    comment?:         string;
+    created_by?:      number;
   }) {
     return prisma.meetingActionItem.create({
       data,
@@ -210,11 +215,13 @@ export class MeetingService {
   }
 
   static async updateActionItem(id: number, data: {
-    subject?:       string;
-    responsible_id?: number | null;
-    due_date?:      Date | null;
-    status?:        string;
-    comment?:       string;
+    subject?:          string;
+    responsible_id?:   number | null;
+    responsible_name?: string | null;
+    glpi_ticket_id?:   number | null;
+    due_date?:         Date | null;
+    status?:           string;
+    comment?:          string;
   }) {
     if (data.due_date && typeof data.due_date === 'string') {
       data.due_date = new Date(data.due_date as any);

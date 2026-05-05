@@ -153,10 +153,10 @@ export default function ContractDetailDrawer({
                   </div>
                 </div>
                 <div className="flex gap-2 shrink-0">
-                  {contract.document_url && (
-                    <a href={contract.document_url} target="_blank" rel="noreferrer"
+                  {contract.document?.file_url && (
+                    <a href={contract.document.file_url} target="_blank" rel="noreferrer"
                        className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-gb-app border border-gb-border text-xs font-bold hover:bg-gb-border transition-colors">
-                      <Download size={13} /> PDF
+                      <Download size={13} /> {contract.document.file_name || "Document"}
                     </a>
                   )}
                 </div>

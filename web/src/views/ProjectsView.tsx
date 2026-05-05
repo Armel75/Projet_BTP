@@ -1,11 +1,13 @@
 import React, { useState, useEffect, useCallback } from "react";
-import { FolderKanban, Plus, MapPin, Loader2, AlertCircle, Calendar, FileDown } from "lucide-react";
+import { FolderKanban, Plus, MapPin, Loader2, AlertCircle, Calendar, FileDown, PencilLine, Filter, X } from "lucide-react";
 import { ProjectDetail } from "../components/projects/ProjectDetail";
-import { CreateProjectDialog } from "../components/projects/CreateProjectDialog";
+import { CreateProjectDialog } from "../components/projects/CreateProjectDialog.tsx";
+import { ProjectFilterPanel } from "../components/filters/ProjectFilterPanel";
 import { motion } from "motion/react";
 import { Badge } from "../components/ui/badge";
 import { apiFetch, API_BASE } from "../lib/api";
 import { usePermissions } from "../contexts/AuthContext";
+import { QueryPayload } from "../components/filters/types";
 
 // ─── Status helpers ────────────────────────────────────────────────────────────
 
@@ -33,7 +35,12 @@ export default function ProjectsView() {
   const [loading,     setLoading]     = useState(true);
   const [error,       setError]       = useState<string | null>(null);
   const [dialogOpen,  setDialogOpen]  = useState(false);
+  const [editingProject, setEditingProject] = useState<any | null>(null);
   const [selectedId,  setSelectedId]  = useState<number | null>(null);
+  
+  // ─── Filter states ────────────────────────────────────────────────────────────
+  const [filterOpen, setFilterOpen] = useState(false);
+  const [appliedPayload, setAppliedPayload] = useState<QueryPayload | null>(null);
 
   const handleExportProjectsExcel = async () => {
     try {
@@ -57,6 +64,29 @@ export default function ProjectsView() {
     }
   };
 
+  const handleExportProjectsPdf = async () => {
+    try {
+      const res = await apiFetch(`${API_BASE}/projects/export/pdf`);
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || "Impossible d'exporter le portefeuille projets en PDF.");
+      }
+
+      const buffer = await res.arrayBuffer();
+      const blob = new Blob([buffer], { type: "application/pdf" });
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `projets-${new Date().toISOString().slice(0, 10)}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.setTimeout(() => window.URL.revokeObjectURL(url), 60_000);
+    } catch (err: any) {
+      setError(err.message || "Impossible d'exporter le portefeuille projets en PDF.");
+    }
+  };
+
   // ── Fetch ────────────────────────────────────────────────────────────────────
 
   const fetchProjects = useCallback(async (page = 1) => {
@@ -75,7 +105,60 @@ export default function ProjectsView() {
     }
   }, [pagination.limit]);
 
+  /**
+   * Applique les filtres et récupère les résultats filtrés
+   */
+  const handleApplyFilters = useCallback(async (payload: QueryPayload) => {
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await apiFetch(`${API_BASE}/projects/query`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || 'Erreur lors du filtrage');
+      }
+      const json = await res.json();
+      setProjects(json.data ?? []);
+      setAppliedPayload(payload);
+      setPagination({
+        page: json.page ?? 1,
+        limit: json.limit ?? 20,
+        total: json.total ?? 0,
+        pages: Math.ceil((json.total ?? 0) / (json.limit ?? 20)),
+      });
+      setFilterOpen(false); // Fermer le panel après application
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  /**
+   * Réinitialise les filtres
+   */
+  const handleResetFilters = useCallback(() => {
+    setAppliedPayload(null);
+    setPagination({ page: 1, limit: 20, total: 0, pages: 1 });
+    fetchProjects(1);
+  }, [fetchProjects]);
+
   useEffect(() => { fetchProjects(); }, []);
+
+  const openCreateDialog = () => {
+    setEditingProject(null);
+    setDialogOpen(true);
+  };
+
+  const openEditDialog = (event: React.MouseEvent, project: any) => {
+    event.stopPropagation();
+    setEditingProject(project);
+    setDialogOpen(true);
+  };
 
   // ── Render : Project Detail ──────────────────────────────────────────────────
 
@@ -112,7 +195,32 @@ export default function ProjectsView() {
               : "Suivi et pilotage de l'ensemble de vos opérations BTP."}
           </p>
         </div>
-        <div className="flex items-center gap-2 shrink-0">
+        <div className="flex items-center gap-2 shrink-0 flex-wrap justify-end">
+          {/* Filter button */}
+          <button
+            onClick={() => setFilterOpen(true)}
+            className={`flex items-center justify-center gap-2 px-5 py-3 rounded-full font-bold text-sm transition-all active:scale-95 border ${
+              appliedPayload
+                ? 'bg-blue-50 border-blue-300 text-blue-700 hover:bg-blue-100'
+                : 'border-gb-border text-gb-text hover:bg-gb-surface-hover'
+            }`}
+          >
+            <Filter size={16} />
+            <span>Filtrer</span>
+            {appliedPayload && appliedPayload.filters.length > 0 && (
+              <Badge variant="default" className="ml-1 bg-blue-600 text-white">
+                {appliedPayload.filters.length}
+              </Badge>
+            )}
+          </button>
+
+          <button
+            onClick={handleExportProjectsPdf}
+            className="flex items-center justify-center gap-2 border border-gb-border text-gb-text px-5 py-3 rounded-full font-bold hover:bg-gb-surface-hover transition-all text-sm active:scale-95"
+          >
+            <FileDown size={16} />
+            <span>Exporter les projets (PDF)</span>
+          </button>
           <button
             onClick={handleExportProjectsExcel}
             className="flex items-center justify-center gap-2 border border-gb-border text-gb-text px-5 py-3 rounded-full font-bold hover:bg-gb-surface-hover transition-all text-sm active:scale-95"
@@ -123,7 +231,7 @@ export default function ProjectsView() {
 
           {can("project:create") && (
             <button
-              onClick={() => setDialogOpen(true)}
+              onClick={openCreateDialog}
               className="flex items-center justify-center space-x-2 bg-gb-primary text-gb-inverse px-6 py-3 rounded-full font-bold hover:bg-gb-primary/90 transition-all shadow-lg shadow-gb-primary/20 text-sm active:scale-95"
             >
               <Plus size={18} />
@@ -216,6 +324,26 @@ export default function ProjectsView() {
                   </div>
                 )}
               </div>
+
+              {can("project:update") && (
+                <div className="flex items-center justify-between gap-3">
+                  <p className="text-[11px] text-gb-muted">
+                    {(prj._count?.tasks ?? 0) > 0
+                      ? "Edition verrouillee: des taches existent deja sur ce projet."
+                      : "Vous pouvez ajuster les informations du projet avant le lancement detaille."}
+                  </p>
+                  <button
+                    type="button"
+                    onClick={(event) => openEditDialog(event, prj)}
+                    disabled={(prj._count?.tasks ?? 0) > 0}
+                    title={(prj._count?.tasks ?? 0) > 0 ? "Modification indisponible: le projet contient deja des taches." : "Modifier le projet"}
+                    className="inline-flex items-center gap-2 rounded-full border border-gb-border px-3 py-2 text-xs font-semibold text-gb-text transition-colors hover:bg-gb-surface-hover disabled:cursor-not-allowed disabled:opacity-45 disabled:hover:bg-transparent"
+                  >
+                    <PencilLine size={14} />
+                    Modifier
+                  </button>
+                </div>
+              )}
             </div>
           </motion.div>
         ))}
@@ -227,7 +355,7 @@ export default function ProjectsView() {
             <p className="text-gb-muted font-medium">Aucun projet trouvé.</p>
             {can("project:create") && (
               <button
-                onClick={() => setDialogOpen(true)}
+                onClick={openCreateDialog}
                 className="mt-4 text-gb-primary text-sm font-semibold underline underline-offset-4"
               >
                 Créer votre premier projet →
@@ -260,12 +388,53 @@ export default function ProjectsView() {
       {/* Dialog */}
       <CreateProjectDialog
         open={dialogOpen}
-        onClose={() => setDialogOpen(false)}
-        onCreated={(project) => {
-          setProjects(prev => [project, ...prev]);
-          setPagination(prev => ({ ...prev, total: prev.total + 1 }));
+        project={editingProject}
+        onClose={() => {
+          setDialogOpen(false);
+          setEditingProject(null);
+        }}
+        onSaved={() => {
+          setDialogOpen(false);
+          setEditingProject(null);
+          if (appliedPayload) {
+            // Réappliquer les filtres si des filtres sont actifs
+            handleApplyFilters(appliedPayload);
+          } else {
+            fetchProjects(pagination.page);
+          }
         }}
       />
+
+      {/* Filter Panel */}
+      {filterOpen && (
+        <ProjectFilterPanel
+          onApply={handleApplyFilters}
+          onClose={() => setFilterOpen(false)}
+        />
+      )}
+
+      {/* Active filters display */}
+      {appliedPayload && appliedPayload.filters.length > 0 && (
+        <div className="flex items-center gap-3 p-4 bg-blue-50 border border-blue-200 rounded-lg flex-wrap">
+          <span className="text-sm font-medium text-blue-900">
+            {appliedPayload.filters.length} filtre{appliedPayload.filters.length > 1 ? 's' : ''} appliqué{appliedPayload.filters.length > 1 ? 's' : ''} ({appliedPayload.logic}) :
+          </span>
+          <div className="flex flex-wrap gap-2">
+            {appliedPayload.filters.map((f, idx) => (
+              <Badge key={idx} variant="secondary" className="text-xs">
+                {f.field}
+              </Badge>
+            ))}
+          </div>
+          <button
+            onClick={handleResetFilters}
+            className="ml-auto flex items-center gap-1 px-3 py-1 text-sm text-blue-700 hover:bg-blue-100 rounded transition"
+          >
+            <X size={14} />
+            Réinitialiser
+          </button>
+        </div>
+      )}
     </motion.div>
   );
 }

@@ -34,7 +34,8 @@ interface WorkAcceptance {
   attendees?: string;
   signed_by_owner: boolean;
   signed_by_contractor: boolean;
-  document_url?: string;
+  document_id?: number;
+  document?: { id: number; name?: string; file_url?: string; file_name?: string } | null;
   created_at: string;
   updated_at: string;
   project?: { id: number; code: string; title: string };
@@ -88,7 +89,7 @@ const EMPTY_FORM = {
   title: "", reference: "", type: "PROVISIONAL", status: "PENDING",
   lot_id: "", planned_date: "", notes: "", observations: "",
   reserves_text: "", amount_accepted: "", penalty_amount: "",
-  reserve_count: "0", warranty_months: "12", document_url: "",
+  reserve_count: "0", warranty_months: "12", document_id: "",
 };
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -341,11 +342,11 @@ function ReceptionDetailDrawer({
           )}
 
           {/* Document PV */}
-          {wa.document_url && (
+          {wa.document?.file_url && (
             <Section title="PV signé">
-              <a href={wa.document_url} target="_blank" rel="noopener noreferrer"
+              <a href={wa.document.file_url} target="_blank" rel="noopener noreferrer"
                 className="inline-flex items-center gap-2 text-sm font-semibold text-gb-primary hover:underline">
-                <Link2 size={14} /> Ouvrir le PV (PDF)
+                <Link2 size={14} /> {wa.document.file_name || wa.document.name || "Ouvrir le PV"}
               </a>
             </Section>
           )}
@@ -431,6 +432,8 @@ function ReceptionFormDialog({
 }) {
   const [form, setForm] = useState({ ...EMPTY_FORM });
   const [saving, setSaving] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
   const [error, setError]   = useState<string | null>(null);
 
   useEffect(() => {
@@ -450,19 +453,45 @@ function ReceptionFormDialog({
         penalty_amount:  wa.penalty_amount  != null ? String(wa.penalty_amount)  : "",
         reserve_count:   String(wa.reserve_count ?? 0),
         warranty_months: String(wa.warranty_months ?? 12),
-        document_url:    wa.document_url    ?? "",
+        document_id:     wa.document_id != null ? String(wa.document_id) : "",
       });
     } else {
       setForm({ ...EMPTY_FORM });
     }
+    setSelectedFiles([]);
     setError(null);
   }, [open, wa]);
 
   const set = (k: string, v: string) => setForm(f => ({ ...f, [k]: v }));
 
+  const uploadDocuments = async () => {
+    if (selectedFiles.length === 0) return [] as number[];
+    const fd = new FormData();
+    selectedFiles.forEach((f) => fd.append("files", f));
+    fd.append("project_id", String(projectId));
+    fd.append("category", "QUALITY");
+    fd.append("phase", "RECEPTION");
+    setUploading(true);
+    try {
+      const res = await apiFetch(`${API_BASE}/documents/uploads`, { method: "POST", body: fd });
+      if (!res.ok) {
+        const e = await res.json().catch(() => ({}));
+        throw new Error(e.error || `Erreur upload (${res.status})`);
+      }
+      const body = await res.json().catch(() => ({}));
+      const files = Array.isArray(body?.files) ? body.files : [];
+      return files
+        .map((f: any) => Number(f.documentId ?? f.id))
+        .filter((id: number) => Number.isFinite(id) && id > 0);
+    } finally {
+      setUploading(false);
+    }
+  };
+
   const save = async () => {
     setSaving(true); setError(null);
     try {
+      const uploadedIds = await uploadDocuments();
       const body: Record<string, any> = {
         type:            form.type,
         status:          form.status,
@@ -479,7 +508,7 @@ function ReceptionFormDialog({
       if (form.reserves_text)  body.reserves_text  = form.reserves_text;
       if (form.amount_accepted)body.amount_accepted= Number(form.amount_accepted);
       if (form.penalty_amount) body.penalty_amount = Number(form.penalty_amount);
-      if (form.document_url)   body.document_url   = form.document_url;
+      body.document_id = uploadedIds[0] || (form.document_id ? Number(form.document_id) : undefined);
 
       const url    = wa ? `${API_BASE}/work-acceptances/${wa.id}` : `${API_BASE}/work-acceptances`;
       const method = wa ? "PUT" : "POST";
@@ -629,11 +658,21 @@ function ReceptionFormDialog({
               value={form.notes} onChange={e => set("notes", e.target.value)} />
           </div>
 
-          {/* Document URL */}
+          {/* Document upload */}
           <div>
-            <label className={labelCls}>URL du PV signé (PDF)</label>
-            <input className={inputCls} placeholder="https://..."
-              value={form.document_url} onChange={e => set("document_url", e.target.value)} />
+            <label className={labelCls}>Pièces jointes (multiple)</label>
+            <input
+              type="file"
+              multiple
+              className={inputCls}
+              onChange={e => setSelectedFiles(Array.from(e.target.files || []))}
+            />
+            {selectedFiles.length > 0 && <p className="text-[11px] text-gb-muted mt-1">{selectedFiles.length} fichier(s) prêt(s) à l'upload.</p>}
+            {!selectedFiles.length && wa?.document?.file_url && (
+              <a href={wa.document.file_url} target="_blank" rel="noreferrer" className="text-[11px] text-gb-primary hover:underline mt-1 inline-block">
+                Document actuel: {wa.document.file_name || wa.document.name || "ouvrir"}
+              </a>
+            )}
           </div>
 
           {error && (
@@ -649,10 +688,10 @@ function ReceptionFormDialog({
             className="px-5 py-2.5 rounded-xl text-sm font-semibold text-gb-muted hover:text-gb-text hover:bg-gb-surface-hover transition-colors">
             Annuler
           </button>
-          <button onClick={save} disabled={saving}
+          <button onClick={save} disabled={saving || uploading}
             className="flex items-center gap-2 px-6 py-2.5 rounded-xl bg-gb-primary text-gb-inverse font-bold text-sm hover:bg-gb-primary/90 transition-colors disabled:opacity-50">
             {saving ? <Loader2 size={15} className="animate-spin" /> : <ClipboardSignature size={15} />}
-            {saving ? "Enregistrement..." : wa ? "Mettre à jour" : "Créer le PV"}
+            {saving || uploading ? (uploading ? "Upload des fichiers..." : "Enregistrement...") : wa ? "Mettre à jour" : "Créer le PV"}
           </button>
         </div>
       </motion.div>

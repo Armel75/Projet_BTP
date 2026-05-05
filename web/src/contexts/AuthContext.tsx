@@ -30,6 +30,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
 
+  // Écoute l'événement émis par apiFetch quand le token est expiré et non-renouvelable.
+  // On met user à null → ProtectedRoute redirige vers /login via React Router (pas de reload).
+  useEffect(() => {
+    const onSessionExpired = () => setUser(null);
+    window.addEventListener('auth:session-expired', onSessionExpired);
+    return () => window.removeEventListener('auth:session-expired', onSessionExpired);
+  }, []);
+
   useEffect(() => {
     const token = localStorage.getItem("token");
     if (token) {

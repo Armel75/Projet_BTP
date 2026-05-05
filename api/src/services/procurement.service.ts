@@ -13,6 +13,19 @@ const TENDER_INCLUDE = {
     },
     orderBy: { total_score: 'desc' as const },
   },
+  documents: {
+    where: { is_archived: false },
+    select: {
+      id: true,
+      name: true,
+      file_url: true,
+      file_name: true,
+      file_size: true,
+      file_type: true,
+      category: true,
+    },
+    orderBy: { created_at: 'asc' as const },
+  },
 };
 
 export class ProcurementService {
@@ -202,13 +215,13 @@ export class ProcurementService {
     opening_date?: Date;
     lot_id?: number;
     wbs_id?: number;
-    document_url?: string;
+    document_ids?: number[];
     notes?: string;
     created_by: number;
   }) {
     const tenantId = TenantContext.getTenantId();
     if (!tenantId) throw new Error("Tenant session required");
-    return await prisma.tender.create({
+    const tender = await prisma.tender.create({
       data: {
         project_id: data.project_id,
         title: data.title,
@@ -223,21 +236,48 @@ export class ProcurementService {
         opening_date: data.opening_date,
         lot_id: data.lot_id ?? null,
         wbs_id: data.wbs_id ?? null,
-        document_url: data.document_url,
         notes: data.notes,
         tenant_id: tenantId,
         created_by: data.created_by,
       },
       include: TENDER_INCLUDE,
     });
+
+    if (data.document_ids && data.document_ids.length > 0) {
+      await prisma.document.updateMany({
+        where: { id: { in: data.document_ids } },
+        data: { tender_id: tender.id },
+      });
+      return await prisma.tender.findUnique({ where: { id: tender.id }, include: TENDER_INCLUDE });
+    }
+
+    return tender;
   }
 
   static async updateTender(id: number, data: Record<string, any>) {
-    return await prisma.tender.update({
+    const { document_ids, ...updateData } = data;
+
+    await prisma.tender.update({
       where: { id },
-      data,
-      include: TENDER_INCLUDE,
+      data: updateData,
     });
+
+    if (Array.isArray(document_ids)) {
+      // Détacher les anciens documents de cet AO
+      await prisma.document.updateMany({
+        where: { tender_id: id },
+        data: { tender_id: null },
+      });
+      // Rattacher les nouveaux
+      if ((document_ids as number[]).length > 0) {
+        await prisma.document.updateMany({
+          where: { id: { in: document_ids as number[] } },
+          data: { tender_id: id },
+        });
+      }
+    }
+
+    return await prisma.tender.findUnique({ where: { id }, include: TENDER_INCLUDE });
   }
 
   static async deleteTender(id: number) {
@@ -253,7 +293,7 @@ export class ProcurementService {
     supplier_id: number;
     amount: number;
     notes?: string;
-    document_url?: string;
+    document_id?: number;
     submitted_at?: Date;
     validity_period?: number;
     is_compliant?: boolean;
@@ -271,7 +311,7 @@ export class ProcurementService {
         amount: data.amount,
         status: 'SUBMITTED',
         notes: data.notes,
-        document_url: data.document_url,
+        document_id: data.document_id,
         submitted_at: data.submitted_at || new Date(),
         validity_period: data.validity_period,
         is_compliant: data.is_compliant ?? true,
@@ -291,7 +331,7 @@ export class ProcurementService {
     total_score?: number;
     rank?: number;
     notes?: string;
-    document_url?: string;
+    document_id?: number | null;
     is_compliant?: boolean;
     validity_period?: number;
   }) {

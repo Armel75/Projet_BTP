@@ -57,7 +57,7 @@ export class ContractController {
         advance_payment_amount: body.advance_payment_amount ? Number(body.advance_payment_amount) : undefined,
         price_revision_index: body.price_revision_index,
         payment_terms: body.payment_terms ? Number(body.payment_terms) : undefined,
-        document_url: body.document_url,
+        document_id: body.document_id ? Number(body.document_id) : undefined,
         created_by: userId!,
       });
       res.status(201).json(contract);
@@ -83,7 +83,7 @@ export class ContractController {
       if (body.advance_payment_amount !== undefined) data.advance_payment_amount = body.advance_payment_amount ? Number(body.advance_payment_amount) : null;
       if (body.payment_terms !== undefined) data.payment_terms = body.payment_terms ? Number(body.payment_terms) : null;
       if (body.price_revision_index !== undefined) data.price_revision_index = body.price_revision_index || null;
-      if (body.document_url !== undefined) data.document_url = body.document_url || null;
+      if (body.document_id !== undefined) data.document_id = body.document_id ? Number(body.document_id) : null;
       if (body.start_date !== undefined) data.start_date = body.start_date ? new Date(body.start_date) : null;
       if (body.end_date !== undefined)   data.end_date = body.end_date ? new Date(body.end_date) : null;
       if (body.signed_at !== undefined)  data.signed_at = body.signed_at ? new Date(body.signed_at) : null;

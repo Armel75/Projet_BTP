@@ -3,6 +3,16 @@ import { ResourceService } from "../services/resource.service.js";
 import { AuthRequest } from "../middlewares/auth.middleware.js";
 
 export class ResourceController {
+  static async getGlpiUsers(req: Request, res: Response): Promise<void> {
+    try {
+      const limit = req.query.limit ? Number(req.query.limit) : 200;
+      const users = await ResourceService.getGlpiUsers(limit);
+      res.json(users);
+    } catch (error: any) {
+      res.status(400).json({ error: error.message ?? "Failed to fetch GLPI users" });
+    }
+  }
+
   static async getResources(req: Request, res: Response): Promise<void> {
     try {
       const resources = await ResourceService.getResources();
@@ -86,8 +96,28 @@ export class ResourceController {
     try {
       const taskId = Number(req.params.id);
       const userId = (req as AuthRequest).user?.id;
+      const body = req.body ?? {};
+
+      const resource_id = Number(body.resource_id ?? body.resourceId);
+      const planned_hours = Number(body.planned_hours ?? body.plannedHours);
+      const startDateRaw = body.start_date ?? body.startDate;
+      const endDateRaw = body.end_date ?? body.endDate;
+
+      if (!Number.isFinite(resource_id) || resource_id <= 0) {
+        res.status(400).json({ error: "resource_id is required" });
+        return;
+      }
+
+      if (!Number.isFinite(planned_hours) || planned_hours < 0) {
+        res.status(400).json({ error: "planned_hours must be >= 0" });
+        return;
+      }
+
       const assignment = await ResourceService.assignToTask({
-        ...req.body,
+        resource_id,
+        planned_hours,
+        start_date: startDateRaw ? new Date(startDateRaw) : undefined,
+        end_date: endDateRaw ? new Date(endDateRaw) : undefined,
         task_id: taskId,
         created_by: userId
       });
