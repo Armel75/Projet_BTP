@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { apiFetch } from "../../lib/api";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle,
@@ -8,6 +8,57 @@ import { Loader2, FileSignature, Building2, Calendar, Banknote, Save, X } from "
 import { motion } from "motion/react";
 
 const API_BASE = import.meta.env.VITE_API_URL;
+
+const resolveContractDocumentUrl = (fileUrl?: string) => {
+  if (!fileUrl) return "";
+  if (/^https?:\/\//i.test(fileUrl)) return fileUrl;
+
+  if (fileUrl.startsWith("/uploads/documents/")) {
+    const filename = fileUrl.split("/").pop();
+    return filename ? `${API_BASE}/documents/files/${filename}` : "";
+  }
+
+  if (fileUrl.startsWith("/api/v1/")) {
+    return `${API_BASE}${fileUrl.slice("/api/v1".length)}`;
+  }
+
+  if (fileUrl.startsWith("/")) {
+    return fileUrl;
+  }
+
+  return `${API_BASE}/${fileUrl}`;
+};
+
+const downloadContractDocument = async (fileUrl: string | undefined, fileName?: string) => {
+  const resolvedUrl = resolveContractDocumentUrl(fileUrl);
+  if (!resolvedUrl) return;
+
+  const res = await apiFetch(resolvedUrl);
+  if (!res.ok) {
+    let message = "Impossible de telecharger la piece jointe.";
+    try {
+      const err = await res.json();
+      if (err?.error) message = String(err.error);
+    } catch {
+      // ignore body parse errors
+    }
+    throw new Error(message);
+  }
+
+  const blob = await res.blob();
+  if (!blob.size) {
+    throw new Error("Le fichier telecharge est vide.");
+  }
+
+  const objectUrl = window.URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = objectUrl;
+  link.download = fileName || "piece-jointe";
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  window.URL.revokeObjectURL(objectUrl);
+};
 
 interface ContractFormDialogProps {
   open: boolean;
@@ -61,6 +112,7 @@ export default function ContractFormDialog({
   open, onOpenChange, contract, onSaved,
 }: ContractFormDialogProps) {
   const isEdit = !!contract;
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const [projects, setProjects] = useState<any[]>([]);
   const [suppliers, setSuppliers] = useState<any[]>([]);
@@ -71,7 +123,6 @@ export default function ContractFormDialog({
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
 
   const [form, setForm] = useState({
-    reference: "",
     title: "",
     type: "SUBCONTRACT",
     category: "",
@@ -109,7 +160,6 @@ export default function ContractFormDialog({
     if (contract) {
       const toDate = (v: any) => v ? new Date(v).toISOString().slice(0, 10) : "";
       setForm({
-        reference:           contract.reference || "",
         title:               contract.title || "",
         type:                contract.type || "SUBCONTRACT",
         category:            contract.category || "",
@@ -130,7 +180,7 @@ export default function ContractFormDialog({
       });
     } else {
       setForm({
-        reference: "", title: "", type: "SUBCONTRACT", category: "",
+        title: "", type: "SUBCONTRACT", category: "",
         status: "DRAFT", currency: "EUR", project_id: "", supplier_id: "",
         amount: "", retention_pct: "", advance_payment_pct: "", payment_terms: "",
         price_revision_index: "", document_id: "", signed_at: "", start_date: "",
@@ -138,7 +188,54 @@ export default function ContractFormDialog({
       });
     }
     setError(null);
+    setSelectedFiles([]);
+    if (fileInputRef.current) {
+      fileInputRef.current.value = "";
+    }
   }, [contract, open]);
+
+  const handleFilesSelected = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const incomingFiles = Array.from(event.target.files || []);
+    if (incomingFiles.length === 0) return;
+
+    setSelectedFiles((currentFiles) => {
+      const nextFiles = [...currentFiles];
+
+      incomingFiles.forEach((file) => {
+        const alreadySelected = nextFiles.some(
+          (currentFile) =>
+            currentFile.name === file.name &&
+            currentFile.size === file.size &&
+            currentFile.lastModified === file.lastModified,
+        );
+
+        if (!alreadySelected) {
+          nextFiles.push(file);
+        }
+      });
+
+      return nextFiles;
+    });
+
+    event.target.value = "";
+  };
+
+  const removeSelectedFile = (fileToRemove: File) => {
+    setSelectedFiles((currentFiles) =>
+      currentFiles.filter(
+        (file) =>
+          !(
+            file.name === fileToRemove.name &&
+            file.size === fileToRemove.size &&
+            file.lastModified === fileToRemove.lastModified
+          ),
+      ),
+    );
+
+    if (fileInputRef.current) {
+      fileInputRef.current.value = "";
+    }
+  };
 
   const uploadDocuments = async (projectId: number) => {
     if (selectedFiles.length === 0) return [] as number[];
@@ -179,7 +276,6 @@ export default function ContractFormDialog({
       const projectId = Number(form.project_id);
       const uploadedIds = await uploadDocuments(projectId);
       const payload: any = {
-        reference:    form.reference || undefined,
         title:        form.title,
         type:         form.type,
         category:     form.category || undefined,
@@ -193,6 +289,7 @@ export default function ContractFormDialog({
         payment_terms:       form.payment_terms ? Number(form.payment_terms) : undefined,
         price_revision_index: form.price_revision_index || undefined,
         document_id: uploadedIds[0] || (form.document_id ? Number(form.document_id) : undefined),
+        document_ids: uploadedIds,
         signed_at:    form.signed_at || undefined,
         start_date:   form.start_date || undefined,
         end_date:     form.end_date || undefined,
@@ -234,7 +331,9 @@ export default function ContractFormDialog({
                 {isEdit ? "Modifier le contrat" : "Nouveau contrat"}
               </DialogTitle>
               <p className="text-xs text-gb-muted mt-0.5">
-                {isEdit ? `Référence ${contract.reference}` : "Enregistrez un nouveau marché dans le registre"}
+                {isEdit
+                  ? `Référence ${contract.reference}`
+                  : "La référence sera générée automatiquement à l'enregistrement"}
               </p>
             </div>
           </div>
@@ -252,9 +351,6 @@ export default function ContractFormDialog({
               {/* Section: Identification */}
               <SectionTitle icon={FileSignature} label="Identification" />
               <div className="grid grid-cols-2 gap-4">
-                <Field label="Référence">
-                  <input type="text" placeholder="C-2024-001" className={inputCls} value={form.reference} onChange={set("reference")} />
-                </Field>
                 <Field label="Titre" required>
                   <input type="text" placeholder="Lot 3 — Gros œuvre" className={inputCls} value={form.title} onChange={set("title")} required />
                 </Field>
@@ -321,19 +417,49 @@ export default function ContractFormDialog({
                   <input type="text" placeholder="ex: BT01, TP09…" className={inputCls} value={form.price_revision_index} onChange={set("price_revision_index")} />
                 </Field>
                 <Field label="Pièces jointes (multiple)">
-                  <input
-                    type="file"
-                    multiple
-                    className={`${inputCls} py-2`}
-                    onChange={(e) => setSelectedFiles(Array.from(e.target.files || []))}
-                  />
+                  <div className="space-y-2">
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      multiple
+                      className={`${inputCls} py-2`}
+                      onChange={handleFilesSelected}
+                    />
+                    {selectedFiles.length > 0 && (
+                      <div className="rounded-xl border border-gb-border bg-gb-app/30 p-2.5 space-y-2">
+                        {selectedFiles.map((file) => (
+                          <div
+                            key={`${file.name}-${file.size}-${file.lastModified}`}
+                            className="flex items-center justify-between gap-3 rounded-lg border border-gb-border/70 bg-gb-surface-solid px-3 py-2"
+                          >
+                            <div className="min-w-0">
+                              <p className="text-xs font-semibold text-gb-text truncate">{file.name}</p>
+                              <p className="text-[11px] text-gb-muted">{Math.max(1, Math.round(file.size / 1024))} Ko</p>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => removeSelectedFile(file)}
+                              className="inline-flex items-center justify-center w-7 h-7 rounded-md text-gb-muted hover:text-gb-danger hover:bg-gb-danger/10 transition-colors"
+                              aria-label={`Retirer ${file.name}`}
+                            >
+                              <X size={14} />
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
                   {selectedFiles.length > 0 && (
                     <p className="text-[11px] text-gb-muted mt-1">{selectedFiles.length} fichier(s) prêt(s) à l'upload.</p>
                   )}
                   {!selectedFiles.length && contract?.document?.file_url && (
-                    <a href={contract.document.file_url} target="_blank" rel="noreferrer" className="text-[11px] text-gb-primary hover:underline mt-1 inline-block">
+                    <button
+                      type="button"
+                      onClick={() => void downloadContractDocument(contract.document.file_url, contract.document.file_name || contract.document.name || "ouvrir")}
+                      className="text-[11px] text-gb-primary hover:underline mt-1 inline-block text-left"
+                    >
                       Document actuel: {contract.document.file_name || contract.document.name || "ouvrir"}
-                    </a>
+                    </button>
                   )}
                 </Field>
               </div>

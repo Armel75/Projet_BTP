@@ -95,7 +95,9 @@ export interface CreateTaskInput {
   lot_id: number;
   wbs_id?: number | null;
   title: string;
+  description?: string | null;
   status: string;
+  priority?: string;
   progress: number;
   tenant_id: number;
   planned_start?: string | null;

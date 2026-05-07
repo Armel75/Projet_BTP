@@ -23,6 +23,11 @@ export class DailyLogController {
       if (req.query.project_id) filters.project_id = Number(req.query.project_id);
       if (req.query.date) filters.date = new Date(req.query.date as string);
       if (req.query.created_by) filters.created_by = Number(req.query.created_by);
+      if (req.query.is_archived !== undefined) {
+        filters.is_archived = req.query.is_archived === 'true';
+      } else {
+        filters.is_archived = false;
+      }
 
       const logs = await DailyLogService.getDailyLogs(filters);
       res.json(logs);
@@ -43,7 +48,10 @@ export class DailyLogController {
 
   static async update(req: Request, res: Response) {
     try {
-      const log = await DailyLogService.updateDailyLog(Number(req.params.id), req.body);
+      const log = await DailyLogService.updateDailyLog(Number(req.params.id), {
+        ...req.body,
+        date: req.body.date ? new Date(req.body.date) : undefined,
+      });
       res.json(log);
     } catch (error: any) {
       res.status(400).json({ error: error.message });
@@ -54,6 +62,18 @@ export class DailyLogController {
     try {
       await DailyLogService.deleteDailyLog(Number(req.params.id));
       res.status(204).send();
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  }
+
+  static async archive(req: Request, res: Response) {
+    try {
+      const { archived } = req.body;
+      const log = archived === false
+        ? await DailyLogService.restoreDailyLog(Number(req.params.id))
+        : await DailyLogService.deleteDailyLog(Number(req.params.id));
+      res.json(log);
     } catch (error: any) {
       res.status(400).json({ error: error.message });
     }

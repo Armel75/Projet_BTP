@@ -6,6 +6,18 @@ export class RFIController {
 
   // ─── RFIs ─────────────────────────────────────────────────────────────────
 
+  // GET /rfis/next-number
+  static async nextNumber(req: Request, res: Response) {
+    try {
+      const user = (req as AuthRequest).user;
+      if (!user?.tenant_id) return res.status(401).json({ error: 'Tenant non identifié' });
+      const number = await RFIService.generateNextNumber(user.tenant_id);
+      res.json({ number });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  }
+
   // GET /rfis
   static async list(req: Request, res: Response) {
     try {
@@ -41,12 +53,16 @@ export class RFIController {
       const body = req.body;
 
       if (!body.project_id) return res.status(400).json({ error: 'project_id est obligatoire' });
-      if (!body.number)     return res.status(400).json({ error: 'number est obligatoire' });
       if (!body.subject)    return res.status(400).json({ error: 'subject est obligatoire' });
       if (!body.question)   return res.status(400).json({ error: 'question est obligatoire' });
 
       // Auto-assign submitted_by si non fourni
       if (!body.submitted_by && user?.id) body.submitted_by = user.id;
+
+      // Génération automatique du numéro séquentiel
+      if (user?.tenant_id) {
+        body.number = await RFIService.generateNextNumber(user.tenant_id);
+      }
 
       const rfi = await RFIService.createRFI(body);
       res.status(201).json(rfi);

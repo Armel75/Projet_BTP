@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { BrowserRouter as Router, Routes, Route, Link, useLocation } from "react-router-dom";
-import { LayoutDashboard, FolderKanban, CheckSquare, Settings, Bell, Search, ShieldCheck, Users, ShoppingCart, ClipboardList, Banknote, LogOut, ShieldAlert, ClipboardCheck, ListTodo, ClipboardSignature, FolderOpen, CalendarDays, HelpCircle } from "lucide-react";
+import { LayoutDashboard, FolderKanban, CheckSquare, Settings, Bell, Search, ShieldCheck, Users, ShoppingCart, ClipboardList, Banknote, LogOut, ShieldAlert, ClipboardCheck, ListTodo, ClipboardSignature, FolderOpen, CalendarDays, HelpCircle, BookCheck } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "./components/ui/avatar";
 import DashboardView from "./views/DashboardView";
 import ProjectsView from "./views/ProjectsView";
@@ -21,6 +21,7 @@ import WorkAcceptanceView from "./views/WorkAcceptanceView";
 import DocumentsView from "./views/DocumentsView";
 import MeetingsView from "./views/MeetingsView";
 import RFIsView from "./views/RFIsView";
+import ControlReportsView from "./views/ControlReportsView";
 import { ThemeProvider } from "./components/ThemeProvider";
 import { ThemeToggle } from "./components/ThemeToggle";
 import { AuthProvider, useAuth } from "./contexts/AuthContext";
@@ -45,6 +46,7 @@ const MAIN_LINKS = [
   { path: "/documents",  icon: <FolderOpen size={20} />,   label: "Documents" },
   { path: "/meetings",   icon: <CalendarDays size={20} />, label: "Réunions" },
   { path: "/rfi",        icon: <HelpCircle size={20} />,   label: "RFI" },
+  { path: "/control-reports", icon: <BookCheck size={20} />, label: "Contrôle" },
 ];
 
 function Sidebar() {
@@ -210,6 +212,7 @@ function MainLayout() {
             <Route path="/documents" element={<ProtectedRoute><DocumentsView /></ProtectedRoute>} />
             <Route path="/meetings"  element={<ProtectedRoute><MeetingsView /></ProtectedRoute>} />
             <Route path="/rfi"       element={<ProtectedRoute><RFIsView /></ProtectedRoute>} />
+                        <Route path="/control-reports" element={<ProtectedRoute><ControlReportsView /></ProtectedRoute>} />
             <Route path="/settings" element={<ProtectedRoute><SettingsView /></ProtectedRoute>} />
             <Route path="/settings/rbac" element={<ProtectedRoute><RbacAdminView /></ProtectedRoute>} />
             <Route path="/settings/tenants" element={<ProtectedRoute><TenantAdminView /></ProtectedRoute>} />

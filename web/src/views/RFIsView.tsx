@@ -168,7 +168,7 @@ function KpiCard({ label, value, icon: Icon, accent, alert, sub }: {
 // ─── Form Dialog ──────────────────────────────────────────────────────────────
 
 const EMPTY_FORM = {
-  number: "", reference: "", category: "CLARIFICATION", discipline: "",
+  reference: "", category: "CLARIFICATION", discipline: "",
   subject: "", question: "", drawing_ref: "", spec_section: "",
   status: "OPEN", priority: "NORMAL",
   submitted_by: "", assigned_to: "", reviewed_by: "",
@@ -195,21 +195,20 @@ function RFIFormDialog({ open, onClose, rfi, onSaved }: {
 
   useEffect(() => {
     if (!open) return;
-    apiFetch(`${API_BASE}/projects?limit=100`).then(r => r.json()).then(d => setProjects(Array.isArray(d) ? d : [])).catch(() => {});
-    apiFetch(`${API_BASE}/resources/users?limit=200`).then(r => r.json()).then(d => setUsers(Array.isArray(d) ? d : [])).catch(() => {});
+    apiFetch(`${API_BASE}/projects?limit=100`).then(r => r.json()).then(d => setProjects(Array.isArray(d) ? d : Array.isArray(d?.data) ? d.data : [])).catch(() => {});
+    apiFetch(`${API_BASE}/resources/users?limit=200`).then(r => r.json()).then(d => setUsers(Array.isArray(d) ? d : Array.isArray(d?.data) ? d.data : [])).catch(() => {});
   }, [open]);
 
   useEffect(() => {
     if (!form.project_id) { setLots([]); return; }
-    apiFetch(`${API_BASE}/project-management/lots?projectId=${form.project_id}`)
-      .then(r => r.json()).then(d => setLots(Array.isArray(d) ? d : [])).catch(() => {});
+    apiFetch(`${API_BASE}/projects/${form.project_id}/lots`)
+      .then(r => r.json()).then(d => setLots(Array.isArray(d) ? d : Array.isArray(d?.data) ? d.data : [])).catch(() => {});
   }, [form.project_id]);
 
   useEffect(() => {
     if (!open) return;
     if (rfi) {
       setForm({
-        number:       rfi.number,
         reference:    rfi.reference    ?? "",
         category:     rfi.category,
         discipline:   rfi.discipline   ?? "",
@@ -242,7 +241,6 @@ function RFIFormDialog({ open, onClose, rfi, onSaved }: {
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!form.number.trim())    { setError("Le numéro est obligatoire"); return; }
     if (!form.project_id)       { setError("Le projet est obligatoire"); return; }
     if (!form.subject.trim())   { setError("Le sujet est obligatoire"); return; }
     if (!form.question.trim())  { setError("La question est obligatoire"); return; }
@@ -366,9 +364,6 @@ function RFIFormDialog({ open, onClose, rfi, onSaved }: {
                     <option value="">Tous lots</option>
                     {lots.map(l => <option key={l.id} value={l.id}>Lot {l.lot_number} — {l.name}</option>)}
                   </select>
-                </F>
-                <F label="Numéro de demande de renseignements" req>
-                  <input value={form.number} onChange={e => set("number", e.target.value)} placeholder="RFI-001" className={inputCls} />
                 </F>
                 <F label="Référence client / MOE">
                   <input value={form.reference} onChange={e => set("reference", e.target.value)} placeholder="MOE-RFI-042" className={inputCls} />
@@ -1039,7 +1034,7 @@ export default function RFIsView() {
   useEffect(() => { fetchRFIs(); }, [fetchRFIs]);
 
   useEffect(() => {
-    apiFetch(`${API_BASE}/projects?limit=100`).then(r => r.json()).then(d => setProjects(Array.isArray(d) ? d : [])).catch(() => {});
+    apiFetch(`${API_BASE}/projects?limit=100`).then(r => r.json()).then(d => setProjects(Array.isArray(d) ? d : Array.isArray(d?.data) ? d.data : [])).catch(() => {});
   }, []);
 
   const filtered = rfis.filter(r =>

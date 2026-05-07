@@ -202,12 +202,23 @@ function KpiCard({ label, value, icon: Icon, accent, alert }: {
 // ─── Form Dialog ──────────────────────────────────────────────────────────────
 
 const EMPTY_FORM = {
-  title: "", reference: "", type: "CHANTIER", date: "", end_date: "",
+  title: "", type: "CHANTIER", date: "", end_date: "",
   location: "", status: "PLANNED", agenda: "",
   minutes: "", conclusion: "", next_meeting_date: "",
   next_meeting_location: "", distribution_list: "",
   project_id: "", lot_id: "",
 };
+
+function MeetingField({ label, req, children }: { label: string; req?: boolean; children: React.ReactNode }) {
+  return (
+    <div className="flex flex-col gap-1.5">
+      <label className="text-[10px] font-black uppercase tracking-widest text-gb-muted">
+        {label}{req && <span className="text-gb-danger ml-0.5">*</span>}
+      </label>
+      {children}
+    </div>
+  );
+}
 
 function MeetingFormDialog({ open, onClose, meeting, onSaved }: {
   open: boolean; onClose: () => void;
@@ -221,7 +232,7 @@ function MeetingFormDialog({ open, onClose, meeting, onSaved }: {
   const [glpiTickets, setGlpiTickets] = useState<GLPITicketRef[]>([]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [tab, setTab] = useState<"info" | "content" | "next">("info");
+  const [tab, setTab] = useState<"info" | "content" | "attendees" | "next">("info");
 
   // ─── Tâches locales (staging avant création) ──────────────────────────────
   type LocalTask = {
@@ -243,8 +254,61 @@ function MeetingFormDialog({ open, onClose, meeting, onSaved }: {
   const [newTaskDue, setNewTaskDue] = useState("");
   const [pilotMode, setPilotMode] = useState<"internal" | "glpi" | "external">("internal");
 
+  type LocalAttendee = {
+    id: number;
+    user_id: string;
+    name: string;
+    company: string;
+    role_title: string;
+  };
+  const [localAttendees, setLocalAttendees] = useState<LocalAttendee[]>([]);
+  const [newAttUserId, setNewAttUserId] = useState("");
+  const [newAttName, setNewAttName] = useState("");
+  const [newAttCompany, setNewAttCompany] = useState("");
+  const [newAttRole, setNewAttRole] = useState("");
+
+  const addLocalAttendee = () => {
+    if (!newAttUserId && !newAttName.trim()) {
+      setError("Sélectionnez un utilisateur interne ou renseignez un nom externe.");
+      return;
+    }
+
+    setLocalAttendees((prev) => [...prev, {
+      id: Date.now(),
+      user_id: newAttUserId,
+      name: newAttName.trim(),
+      company: newAttCompany.trim(),
+      role_title: newAttRole.trim(),
+    }]);
+    setError(null);
+    setNewAttUserId("");
+    setNewAttName("");
+    setNewAttCompany("");
+    setNewAttRole("");
+  };
+
+  const removeLocalAttendee = (id: number) => {
+    setLocalAttendees((prev) => prev.filter((attendee) => attendee.id !== id));
+  };
+
   const addLocalTask = () => {
-    if (!newTaskSubject.trim()) return;
+    if (!newTaskSubject.trim()) {
+      setError("La description de la tâche est obligatoire.");
+      return;
+    }
+    if (pilotMode === "internal" && !newTaskResponsible.trim()) {
+      setError("Sélectionnez un pilote interne pour cette tâche.");
+      return;
+    }
+    if (pilotMode === "glpi" && !newTaskGlpiUser.trim()) {
+      setError("Sélectionnez un pilote GLPI pour cette tâche.");
+      return;
+    }
+    if (pilotMode === "external" && !newTaskResponsibleName.trim()) {
+      setError("Renseignez le nom du pilote externe pour cette tâche.");
+      return;
+    }
+
     const selectedGlpi = glpiUsers.find((u) => u.id === Number(newTaskGlpiUser));
     const selectedTicket = glpiTickets.find((t) => t.id === Number(newTaskGlpiTicket));
     const glpiDisplayName = selectedGlpi
@@ -267,6 +331,7 @@ function MeetingFormDialog({ open, onClose, meeting, onSaved }: {
       glpi_ticket_label: ticketLabel,
       due_date: newTaskDue,
     }]);
+    setError(null);
     setNewTaskSubject(""); setNewTaskResponsible(""); setNewTaskGlpiUser(""); setNewTaskGlpiTicket(""); setNewTaskResponsibleName(""); setNewTaskDue("");
   };
   const removeLocalTask = (id: number) => setLocalTasks(prev => prev.filter(t => t.id !== id));
@@ -289,7 +354,7 @@ function MeetingFormDialog({ open, onClose, meeting, onSaved }: {
 
   useEffect(() => {
     if (!form.project_id) { setLots([]); return; }
-    apiFetch(`${API_BASE}/project-management/lots?projectId=${form.project_id}`)
+    apiFetch(`${API_BASE}/projects/${form.project_id}/lots`)
       .then(r => r.json()).then(d => setLots(Array.isArray(d) ? d : [])).catch(() => {});
   }, [form.project_id]);
 
@@ -298,7 +363,6 @@ function MeetingFormDialog({ open, onClose, meeting, onSaved }: {
     if (meeting) {
       setForm({
         title:                 meeting.title,
-        reference:             meeting.reference ?? "",
         type:                  meeting.type,
         date:                  meeting.date        ? meeting.date.slice(0, 16)             : "",
         end_date:              meeting.end_date    ? meeting.end_date.slice(0, 16)         : "",
@@ -317,6 +381,8 @@ function MeetingFormDialog({ open, onClose, meeting, onSaved }: {
       setForm({ ...EMPTY_FORM });
       setLocalTasks([]);
     }
+    setLocalAttendees([]);
+    setNewAttUserId(""); setNewAttName(""); setNewAttCompany(""); setNewAttRole("");
     setNewTaskSubject(""); setNewTaskResponsible(""); setNewTaskGlpiUser(""); setNewTaskGlpiTicket(""); setNewTaskResponsibleName(""); setNewTaskDue("");
     setPilotMode("internal");
     setError(null);
@@ -349,6 +415,18 @@ function MeetingFormDialog({ open, onClose, meeting, onSaved }: {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(payload),
         });
+        for (const attendee of localAttendees) {
+          await apiFetch(`${API_BASE}/meetings/${meeting.id}/attendees`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              user_id: attendee.user_id ? Number(attendee.user_id) : undefined,
+              name: attendee.name || undefined,
+              company: attendee.company || undefined,
+              role_title: attendee.role_title || undefined,
+            }),
+          });
+        }
         // Ajouter les nouvelles tâches si saisies dans l'onglet Contenu
         for (const task of localTasks) {
           await apiFetch(`${API_BASE}/meetings/${meeting.id}/action-items`, {
@@ -371,7 +449,20 @@ function MeetingFormDialog({ open, onClose, meeting, onSaved }: {
           body: JSON.stringify(payload),
         });
         const created = await res.json().catch(() => null);
-        if (created?.id && localTasks.length > 0) {
+        if (created?.id) {
+          for (const attendee of localAttendees) {
+            await apiFetch(`${API_BASE}/meetings/${created.id}/attendees`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                user_id: attendee.user_id ? Number(attendee.user_id) : undefined,
+                name: attendee.name || undefined,
+                company: attendee.company || undefined,
+                role_title: attendee.role_title || undefined,
+              }),
+            });
+          }
+
           for (const task of localTasks) {
             await apiFetch(`${API_BASE}/meetings/${created.id}/action-items`, {
               method: "POST",
@@ -404,18 +495,10 @@ function MeetingFormDialog({ open, onClose, meeting, onSaved }: {
   const selectedProject = projects.find((p) => p.id === Number(form.project_id));
   const canMutateSelectedProject = !selectedProject || isMeetingPhaseAllowed(selectedProject.phase);
 
-  const F = ({ label, req, children }: { label: string; req?: boolean; children: React.ReactNode }) => (
-    <div className="flex flex-col gap-1.5">
-      <label className="text-[10px] font-black uppercase tracking-widest text-gb-muted">
-        {label}{req && <span className="text-gb-danger ml-0.5">*</span>}
-      </label>
-      {children}
-    </div>
-  );
-
   const TABS = [
     { id: "info",    label: "Informations" },
     { id: "content", label: "Contenu" },
+    { id: "attendees", label: `Participants${localAttendees.length > 0 ? ` (${localAttendees.length})` : ""}` },
     { id: "next",    label: "Suivi" },
   ];
 
@@ -424,7 +507,6 @@ function MeetingFormDialog({ open, onClose, meeting, onSaved }: {
       <motion.div
         initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
         className="fixed inset-0 z-50 flex items-center justify-center p-4"
-        onClick={onClose}
       >
         <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" />
         <motion.div
@@ -468,33 +550,30 @@ function MeetingFormDialog({ open, onClose, meeting, onSaved }: {
               <div className="space-y-4">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div className="md:col-span-2">
-                    <F label="Titre" req>
+                    <MeetingField label="Titre" req>
                       <input value={form.title} onChange={e => set("title", e.target.value)} placeholder="Réunion de chantier — Semaine 18" className={inputCls} />
-                    </F>
+                    </MeetingField>
                   </div>
-                  <F label="Référence">
-                    <input value={form.reference} onChange={e => set("reference", e.target.value)} placeholder="CR-2026-042" className={inputCls} />
-                  </F>
-                  <F label="Type">
+                  <MeetingField label="Type">
                     <select value={form.type} onChange={e => set("type", e.target.value)} className={selectCls}>
                       {MEETING_TYPES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
                     </select>
-                  </F>
-                  <F label="Date de début" req>
+                  </MeetingField>
+                  <MeetingField label="Date de début" req>
                     <input type="datetime-local" value={form.date} onChange={e => set("date", e.target.value)} className={inputCls} />
-                  </F>
-                  <F label="Date de fin">
+                  </MeetingField>
+                  <MeetingField label="Date de fin">
                     <input type="datetime-local" value={form.end_date} onChange={e => set("end_date", e.target.value)} className={inputCls} />
-                  </F>
-                  <F label="Lieu">
+                  </MeetingField>
+                  <MeetingField label="Lieu">
                     <input value={form.location} onChange={e => set("location", e.target.value)} placeholder="Salle de chantier, Zone A…" className={inputCls} />
-                  </F>
-                  <F label="Statut">
+                  </MeetingField>
+                  <MeetingField label="Statut">
                     <select value={form.status} onChange={e => set("status", e.target.value)} className={selectCls}>
                       {MEETING_STATUSES.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
                     </select>
-                  </F>
-                  <F label="Projet" req>
+                  </MeetingField>
+                  <MeetingField label="Projet" req>
                     <select value={form.project_id} onChange={e => set("project_id", e.target.value)} className={selectCls}>
                       <option value="">Sélectionner…</option>
                       {projects.map(p => (
@@ -503,18 +582,18 @@ function MeetingFormDialog({ open, onClose, meeting, onSaved }: {
                         </option>
                       ))}
                     </select>
-                  </F>
-                  <F label="Lot (optionnel)">
+                  </MeetingField>
+                  <MeetingField label="Lot (optionnel)">
                     <select value={form.lot_id} onChange={e => set("lot_id", e.target.value)} className={selectCls} disabled={!form.project_id}>
                       <option value="">Tous lots</option>
                       {lots.map(l => <option key={l.id} value={l.id}>Lot {l.lot_number} — {l.name}</option>)}
                     </select>
-                  </F>
+                  </MeetingField>
                   <div className="md:col-span-2">
-                    <F label="Liste de diffusion (emails séparés par virgule)">
+                    <MeetingField label="Liste de diffusion (emails séparés par virgule)">
                       <input value={form.distribution_list} onChange={e => set("distribution_list", e.target.value)}
                         placeholder="john@bntp.fr, marie@architecte.fr" className={inputCls} />
-                    </F>
+                    </MeetingField>
                   </div>
                 </div>
               </div>
@@ -522,21 +601,21 @@ function MeetingFormDialog({ open, onClose, meeting, onSaved }: {
 
             {tab === "content" && (
               <div className="space-y-4">
-                <F label="Ordre du jour">
+                <MeetingField label="Ordre du jour">
                   <textarea value={form.agenda} onChange={e => set("agenda", e.target.value)} rows={4}
                     placeholder={"1. Avancement lots Gros Œuvre\n2. Revue planning\n3. Points sécurité…"}
                     className={areaCls} />
-                </F>
-                <F label="Compte-rendu / Procès-verbal">
+                </MeetingField>
+                <MeetingField label="Compte-rendu / Procès-verbal">
                   <textarea value={form.minutes} onChange={e => set("minutes", e.target.value)} rows={5}
                     placeholder={"Présents : …\nDiscussion : …"}
                     className={areaCls} />
-                </F>
-                <F label="Conclusions & décisions">
+                </MeetingField>
+                <MeetingField label="Conclusions & décisions">
                   <textarea value={form.conclusion} onChange={e => set("conclusion", e.target.value)} rows={3}
                     placeholder="Décisions prises, points validés…"
                     className={areaCls} />
-                </F>
+                </MeetingField>
 
                 {/* ─── Tâches arrêtées ──────────────────────────────────── */}
                 <div className="border border-gb-border rounded-2xl p-4 space-y-4 bg-gb-surface-solid/30">
@@ -728,8 +807,7 @@ function MeetingFormDialog({ open, onClose, meeting, onSaved }: {
                     <button
                       type="button"
                       onClick={addLocalTask}
-                      disabled={!newTaskSubject.trim()}
-                      className="w-full h-10 rounded-xl bg-gb-primary text-white text-sm font-bold shadow-sm shadow-gb-primary/20 hover:opacity-90 transition-all disabled:opacity-40 flex items-center justify-center gap-2"
+                      className="w-full h-10 rounded-xl bg-gb-primary text-white text-sm font-bold shadow-sm shadow-gb-primary/20 hover:opacity-90 transition-all flex items-center justify-center gap-2"
                     >
                       <Plus size={14} /> Ajouter cette tâche
                     </button>
@@ -744,17 +822,89 @@ function MeetingFormDialog({ open, onClose, meeting, onSaved }: {
               </div>
             )}
 
+            {tab === "attendees" && (
+              <div className="space-y-4">
+                <div className="bg-gb-surface-solid border border-gb-border rounded-2xl p-4 space-y-3">
+                  <p className="text-[10px] font-black uppercase tracking-widest text-gb-muted">Ajouter un participant</p>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                    <select
+                      value={newAttUserId}
+                      onChange={e => { setNewAttUserId(e.target.value); if (e.target.value) setNewAttName(""); }}
+                      className={`${selectCls} md:col-span-2`}
+                    >
+                      <option value="">Utilisateur interne…</option>
+                      {users.map(u => <option key={u.id} value={u.id}>{u.firstname} {u.lastname}</option>)}
+                    </select>
+                    {!newAttUserId && (
+                      <input value={newAttName} onChange={e => setNewAttName(e.target.value)} placeholder="Nom (externe)" className={inputCls} />
+                    )}
+                    <input value={newAttCompany} onChange={e => setNewAttCompany(e.target.value)} placeholder="Entreprise" className={inputCls} />
+                    <input value={newAttRole} onChange={e => setNewAttRole(e.target.value)} placeholder="Fonction / Qualité" className={`${inputCls} ${!newAttUserId ? "md:col-span-2" : ""}`} />
+                  </div>
+                  <button
+                    type="button"
+                    onClick={addLocalAttendee}
+                    className="w-full h-9 rounded-xl bg-gb-primary text-white text-xs font-bold flex items-center justify-center gap-2 hover:opacity-90 transition-all"
+                  >
+                    <UserPlus size={13} /> Ajouter ce participant
+                  </button>
+                </div>
+
+                {meeting && meeting.attendees && meeting.attendees.length > 0 && (
+                  <p className="text-[10px] text-gb-muted/70 italic">
+                    {meeting.attendees.length} participant{meeting.attendees.length > 1 ? "s" : ""} existant{meeting.attendees.length > 1 ? "s" : ""} déjà enregistré{meeting.attendees.length > 1 ? "s" : ""} — vous pouvez en ajouter d'autres ici, puis gérer le détail depuis la fiche réunion.
+                  </p>
+                )}
+
+                <div className="space-y-2">
+                  {localAttendees.length === 0 ? (
+                    <div className="p-8 text-center bg-gb-surface-solid border border-gb-border border-dashed rounded-2xl">
+                      <p className="text-sm text-gb-muted">Aucun participant ajouté dans ce formulaire pour l'instant.</p>
+                    </div>
+                  ) : localAttendees.map((attendee, index) => {
+                    const internalUser = users.find((user) => user.id === Number(attendee.user_id));
+                    const displayName = internalUser
+                      ? `${internalUser.firstname} ${internalUser.lastname}`
+                      : attendee.name;
+
+                    return (
+                      <div key={attendee.id} className="flex items-center gap-3 p-3 rounded-xl border border-gb-border bg-gb-surface-solid">
+                        <div className="w-8 h-8 rounded-full bg-gb-surface-hover flex items-center justify-center shrink-0">
+                          <span className="text-xs font-black text-gb-muted">{index + 1}</span>
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-bold text-gb-text truncate">{displayName || "Participant"}</p>
+                          <p className="text-[11px] text-gb-muted">
+                            {attendee.role_title && <span>{attendee.role_title}</span>}
+                            {attendee.role_title && attendee.company && <span> · </span>}
+                            {attendee.company && <span>{attendee.company}</span>}
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => removeLocalAttendee(attendee.id)}
+                          className="p-1.5 rounded-lg text-gb-muted hover:text-gb-danger hover:bg-gb-danger/10 transition-colors"
+                        >
+                          <X size={12} />
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
             {tab === "next" && (
               <div className="space-y-4">
                 <div className="bg-gb-surface-solid border border-gb-border rounded-2xl p-4 space-y-4">
                   <p className="text-[10px] font-black uppercase tracking-widest text-gb-muted">Prochaine réunion</p>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <F label="Date">
+                    <MeetingField label="Date">
                       <input type="datetime-local" value={form.next_meeting_date} onChange={e => set("next_meeting_date", e.target.value)} className={inputCls} />
-                    </F>
-                    <F label="Lieu">
+                    </MeetingField>
+                    <MeetingField label="Lieu">
                       <input value={form.next_meeting_location} onChange={e => set("next_meeting_location", e.target.value)} placeholder="Même lieu…" className={inputCls} />
-                    </F>
+                    </MeetingField>
                   </div>
                 </div>
               </div>
@@ -1027,19 +1177,22 @@ function MeetingDetailDrawer({
               <span className="text-gb-muted/30">·</span>
               <span className="text-xs font-mono text-gb-muted">#{meeting.id}</span>
             </div>
-            <div className="flex items-center gap-1">
+            <div className="flex items-center gap-2">
               <button onClick={() => onEdit(meeting)}
                 disabled={!canMutate}
-                className="p-2 rounded-xl text-gb-muted hover:text-gb-primary hover:bg-gb-primary/10 transition-colors disabled:opacity-50 disabled:cursor-not-allowed" title="Modifier">
+                className="inline-flex items-center gap-2 h-9 px-3 rounded-xl border border-gb-border text-sm font-semibold text-gb-muted hover:text-gb-primary hover:bg-gb-primary/10 hover:border-gb-primary/20 transition-colors disabled:opacity-50 disabled:cursor-not-allowed" title="Modifier la réunion">
                 <Pencil size={15} />
+                <span>Modifier</span>
               </button>
               <button onClick={() => { if (confirm("Supprimer cette réunion ?")) onDelete(meeting.id); }}
                 disabled={!canMutate}
-                className="p-2 rounded-xl text-gb-muted hover:text-gb-danger hover:bg-gb-danger/10 transition-colors disabled:opacity-50 disabled:cursor-not-allowed" title="Supprimer">
+                className="inline-flex items-center gap-2 h-9 px-3 rounded-xl border border-gb-border text-sm font-semibold text-gb-muted hover:text-gb-danger hover:bg-gb-danger/10 hover:border-gb-danger/20 transition-colors disabled:opacity-50 disabled:cursor-not-allowed" title="Supprimer la réunion">
                 <Trash2 size={15} />
+                <span>Supprimer</span>
               </button>
-              <button onClick={onClose} className="p-2 rounded-xl text-gb-muted hover:text-gb-text hover:bg-gb-surface-hover transition-colors">
-                <X size={18} />
+              <button onClick={onClose} className="inline-flex items-center gap-2 h-9 px-3 rounded-xl border border-gb-border text-sm font-semibold text-gb-muted hover:text-gb-text hover:bg-gb-surface-hover transition-colors" title="Fermer le panneau">
+                <X size={16} />
+                <span>Fermer</span>
               </button>
             </div>
           </div>

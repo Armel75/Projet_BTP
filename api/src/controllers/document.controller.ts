@@ -1,9 +1,13 @@
 import { Request, Response } from 'express';
 import path from 'path';
 import fs from 'fs';
+import jwt from 'jsonwebtoken';
 import { DocumentService } from '../services/document.service.js';
 import { AuthRequest } from '../middlewares/auth.middleware.js';
 import { UPLOADS_ROOT } from '../middlewares/upload.middleware.js';
+import { TenantContext } from '../config/tenant-context.js';
+import { env } from '../config/env.js';
+import { prisma } from '../config/prisma.js';
 
 // Déduire le type de fichier depuis le mimetype
 function detectFileType(mimetype: string): string {
@@ -19,13 +23,49 @@ function detectFileType(mimetype: string): string {
   return 'other';
 }
 
+function cleanupUploadedFiles(files: Express.Multer.File[]) {
+  for (const file of files) {
+    const filePath = path.join(UPLOADS_ROOT, path.basename(file.filename));
+    if (fs.existsSync(filePath)) {
+      fs.unlinkSync(filePath);
+    }
+  }
+}
+
 export class DocumentController {
+
+  private static resolveUser(req: Request): { id: number; tenant_id: number } {
+    const requestUser = (req as AuthRequest).user;
+    if (requestUser?.id && requestUser?.tenant_id) {
+      return { id: Number(requestUser.id), tenant_id: Number(requestUser.tenant_id) };
+    }
+
+    const authHeader = req.headers.authorization;
+    const token = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : null;
+    if (!token) {
+      throw new Error('Unauthorized');
+    }
+
+    const decoded = jwt.verify(token, env.JWT_SECRET) as jwt.JwtPayload;
+    const userId = Number(decoded?.id);
+    const tenantId = Number(decoded?.tenant_id);
+    if (!userId || !tenantId) {
+      throw new Error('Unauthorized');
+    }
+
+    return { id: userId, tenant_id: tenantId };
+  }
+
+  private static runWithTenant<T>(req: Request, fn: () => Promise<T>): Promise<T> {
+    const user = DocumentController.resolveUser(req);
+    return TenantContext.run(user.tenant_id, fn);
+  }
 
   // POST /documents/uploads (multipart/form-data, field: files[])
   static async uploadMany(req: Request, res: Response) {
+    const files = Array.isArray((req as any).files) ? ((req as any).files as Express.Multer.File[]) : [];
     try {
-      const user = (req as AuthRequest).user;
-      const files = Array.isArray((req as any).files) ? ((req as any).files as Express.Multer.File[]) : [];
+      const user = DocumentController.resolveUser(req);
       const body = req.body;
 
       if (files.length === 0) {
@@ -37,32 +77,52 @@ export class DocumentController {
         return res.status(400).json({ error: 'project_id requis pour l\'upload de documents.' });
       }
 
-      const docs = await Promise.all(
+      const docs = await DocumentController.runWithTenant(req, async () => Promise.all(
         files.map(async (file) => {
           const fileUrl = `/api/v1/documents/files/${file.filename}`;
-          const doc = await DocumentService.createDocument({
-            project_id: projectId,
-            lot_id: body.lot_id ? Number(body.lot_id) : undefined,
-            category: body.category ?? 'SPEC',
-            name: file.originalname,
-            description: body.description,
-            reference: body.reference,
-            discipline: body.discipline ?? 'GENERAL',
-            phase: body.phase ?? 'EXE',
-            status: body.status ?? 'APPROVED',
-            approval_status: body.approval_status,
-            revision: body.revision ?? 'A',
-            confidentiality: body.confidentiality ?? 'INTERNAL',
-            security_clearance_level: body.security_clearance_level,
-            supersedes_document_id: body.supersedes_document_id ? Number(body.supersedes_document_id) : undefined,
-            document_change_log: body.document_change_log,
-            expiry_date: body.expiry_date ? new Date(body.expiry_date) : undefined,
-            tags: body.tags,
-            file_url: fileUrl,
-            file_name: file.originalname,
-            file_size: file.size,
-            file_type: detectFileType(file.mimetype),
-            created_by: user!.id,
+          const fileType = detectFileType(file.mimetype);
+          const doc = await prisma.document.create({
+            data: {
+              project_id: projectId,
+              lot_id: body.lot_id ? Number(body.lot_id) : undefined,
+              category: body.category ?? 'SPEC',
+              name: file.originalname,
+              description: body.description,
+              reference: body.reference,
+              discipline: body.discipline ?? 'GENERAL',
+              phase: body.phase ?? 'EXE',
+              status: body.status ?? 'APPROVED',
+              approval_status: body.approval_status,
+              revision: body.revision ?? 'A',
+              confidentiality: body.confidentiality ?? 'INTERNAL',
+              security_clearance_level: body.security_clearance_level,
+              supersedes_document_id: body.supersedes_document_id ? Number(body.supersedes_document_id) : undefined,
+              document_change_log: body.document_change_log,
+              expiry_date: body.expiry_date ? new Date(body.expiry_date) : undefined,
+              tags: body.tags,
+              file_url: fileUrl,
+              file_name: file.originalname,
+              file_size: file.size,
+              file_type: fileType,
+              tenant_id: user.tenant_id,
+              created_by: user.id,
+            },
+          });
+
+          await prisma.documentVersion.create({
+            data: {
+              document_id: doc.id,
+              tenant_id: user.tenant_id,
+              version: 1,
+              file_url: fileUrl,
+              file_name: file.originalname,
+              file_size: file.size,
+              file_type: fileType,
+              revision: body.revision ?? 'A',
+              is_current: true,
+              status: body.status ?? 'APPROVED',
+              created_by: user.id,
+            },
           });
 
           return {
@@ -73,10 +133,11 @@ export class DocumentController {
             size: file.size,
           };
         })
-      );
+      ));
 
       res.status(201).json({ files: docs });
     } catch (err: any) {
+      cleanupUploadedFiles(files);
       res.status(400).json({ error: err.message });
     }
   }
@@ -120,7 +181,7 @@ export class DocumentController {
   // POST /documents  (multipart/form-data avec fichier optionnel)
   static async create(req: Request, res: Response) {
     try {
-      const user = (req as AuthRequest).user;
+      const user = DocumentController.resolveUser(req);
       const body = req.body;
       const file = (req as any).file as Express.Multer.File | undefined;
 
@@ -143,7 +204,7 @@ export class DocumentController {
         file_type = body.file_type;
       }
 
-      const doc = await DocumentService.createDocument({
+      const doc = await DocumentController.runWithTenant(req, () => DocumentService.createDocument({
         project_id:      Number(body.project_id),
         lot_id:          body.lot_id           ? Number(body.lot_id)  : undefined,
         category:        body.category         ?? 'PLAN',
@@ -165,8 +226,8 @@ export class DocumentController {
         file_name,
         file_size,
         file_type,
-        created_by:      user!.id,
-      });
+        created_by:      user.id,
+      }));
 
       res.status(201).json(doc);
     } catch (err: any) {
@@ -225,7 +286,7 @@ export class DocumentController {
   // POST /documents/:id/versions  (upload nouvelle version)
   static async addVersion(req: Request, res: Response) {
     try {
-      const user = (req as AuthRequest).user;
+      const user = DocumentController.resolveUser(req);
       const body = req.body;
       const file = (req as any).file as Express.Multer.File | undefined;
 
@@ -248,7 +309,7 @@ export class DocumentController {
         return res.status(400).json({ error: 'Un fichier ou une URL est requis' });
       }
 
-      const version = await DocumentService.addVersion({
+      const version = await DocumentController.runWithTenant(req, () => DocumentService.addVersion({
         document_id: Number(req.params.id),
         file_url,
         file_name,
@@ -257,8 +318,8 @@ export class DocumentController {
         revision:    body.revision,
         status:      body.status,
         comment:     body.comment,
-        created_by:  user!.id,
-      });
+        created_by:  user.id,
+      }));
 
       res.status(201).json(version);
     } catch (err: any) {

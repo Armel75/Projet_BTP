@@ -69,6 +69,7 @@ procurementRouter.post(
 procurementRouter.get("/tenders",                          authenticateToken, ProcurementController.getTenders);
 procurementRouter.post("/tenders",                         authenticateToken, ProcurementController.createTender);
 procurementRouter.get("/tenders/:id",                      authenticateToken, ProcurementController.getTender);
+procurementRouter.get("/tenders/:id/pdf",                  authenticateToken, ProcurementController.generateTenderPdf);
 procurementRouter.put("/tenders/:id",                      authenticateToken, ProcurementController.updateTender);
 procurementRouter.delete("/tenders/:id",                   authenticateToken, ProcurementController.deleteTender);
 procurementRouter.post("/tenders/:id/award",               authenticateToken, ProcurementController.awardTender);
@@ -81,6 +82,8 @@ procurementRouter.delete("/tenders/:id/bids/:bidId",       authenticateToken, Pr
 // Suppliers
 procurementRouter.get("/suppliers",                        authenticateToken, ProcurementController.getSuppliers);
 procurementRouter.post("/suppliers",                       authenticateToken, ProcurementController.createSupplier);
+procurementRouter.put("/suppliers/:id",                    authenticateToken, ProcurementController.updateSupplier);
+procurementRouter.delete("/suppliers/:id",                 authenticateToken, ProcurementController.deleteSupplier);
 
 // Purchase Orders
 procurementRouter.get("/purchase-orders",                  authenticateToken, ProcurementController.getPurchaseOrders);

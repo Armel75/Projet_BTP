@@ -3,6 +3,7 @@ export const env = {
   DATABASE_URL: process.env.DATABASE_URL,
   PORT: process.env.PORT,
   NODE_ENV: process.env.NODE_ENV,
+  API_BODY_LIMIT: process.env.API_BODY_LIMIT || "20mb",
   SAGE_X3_SERVER: process.env.SAGE_X3_SERVER,
   SAGE_X3_DATABASE: process.env.SAGE_X3_DATABASE,
   SAGE_X3_USER: process.env.SAGE_X3_USER,
@@ -18,4 +19,7 @@ export const env = {
   GLPI_DB_USER: process.env.GLPI_DB_USER,
   GLPI_DB_PASSWORD: process.env.GLPI_DB_PASSWORD,
   GLPI_DB_NAME: process.env.GLPI_DB_NAME,
+  SMTP_USER: process.env.SMTP_USER,
+  SMTP_PASS: process.env.SMTP_PASS,
+  WEB_ORIGIN: process.env.WEB_ORIGIN,
 };

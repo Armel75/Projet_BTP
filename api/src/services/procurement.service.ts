@@ -6,6 +6,13 @@ const TENDER_INCLUDE = {
   lot:       { select: { id: true, lot_number: true, name: true } },
   createdBy: { select: { id: true, firstname: true, lastname: true } },
   awardedSupplier: { select: { id: true, name: true, email: true } },
+  invitedSuppliers: {
+    include: {
+      supplier: { select: { id: true, name: true, email: true, contact_name: true, specialty: true } },
+      createdBy: { select: { id: true, firstname: true, lastname: true } },
+    },
+    orderBy: { invited_at: 'asc' as const },
+  },
   bids: {
     include: {
       supplier: { select: { id: true, name: true, email: true, contact_name: true } },
@@ -29,6 +36,62 @@ const TENDER_INCLUDE = {
 };
 
 export class ProcurementService {
+  private static async buildInvitationRows(params: {
+    supplierIds: number[];
+    tenantId: number;
+    tenderId: number;
+    createdBy: number;
+  }): Promise<Array<{
+    tender_id: number;
+    supplier_id: number;
+    tenant_id: number;
+    contact_email: string | null;
+    created_by: number;
+  }>> {
+    if (params.supplierIds.length === 0) return [];
+
+    const suppliers: Array<{ id: number; email: string | null }> = await prisma.supplier.findMany({
+      where: {
+        tenant_id: params.tenantId,
+        id: { in: params.supplierIds },
+      },
+      select: {
+        id: true,
+        email: true,
+      },
+    });
+
+    return suppliers.map((supplier) => ({
+      tender_id: params.tenderId,
+      supplier_id: supplier.id,
+      tenant_id: params.tenantId,
+      contact_email: supplier.email ?? null,
+      created_by: params.createdBy,
+    }));
+  }
+
+  private static async generateTenderReference(tenantId: number, date = new Date()) {
+    const year = date.getFullYear();
+    const start = new Date(year, 0, 1);
+    const end = new Date(year + 1, 0, 1);
+    const count = await prisma.tender.count({
+      where: {
+        tenant_id: tenantId,
+        created_at: {
+          gte: start,
+          lt: end,
+        },
+      },
+    });
+
+    return `AO-${year}-${String(count + 1).padStart(3, '0')}`;
+  }
+
+  private static normalizeInvitationSupplierIds(supplierIds?: number[]) {
+    if (!Array.isArray(supplierIds)) return [];
+    return Array.from(new Set(supplierIds.filter((id) => Number.isFinite(id) && id > 0)));
+  }
+
   private static async postInboundStock(params: {
     tenantId: number;
     projectId: number;
@@ -213,20 +276,32 @@ export class ProcurementService {
     budget_estimate?: number;
     submission_deadline?: Date;
     opening_date?: Date;
+    publication_date?: Date;
+    clarification_deadline?: Date;
+    site_visit_date?: Date;
+    site_visit_location?: string;
+    submission_mode?: string;
+    evaluation_method?: string;
+    technical_weight?: number;
+    financial_weight?: number;
+    commercial_weight?: number;
     lot_id?: number;
     wbs_id?: number;
     document_ids?: number[];
+    invited_supplier_ids?: number[];
     notes?: string;
+    award_notes?: string;
     created_by: number;
   }) {
     const tenantId = TenantContext.getTenantId();
     if (!tenantId) throw new Error("Tenant session required");
+    const reference = data.reference?.trim() || await this.generateTenderReference(tenantId);
     const tender = await prisma.tender.create({
       data: {
         project_id: data.project_id,
         title: data.title,
         status: data.status || 'DRAFT',
-        reference: data.reference,
+        reference,
         description: data.description,
         type: data.type || 'OPEN',
         category: data.category || 'TRAVAUX',
@@ -234,9 +309,19 @@ export class ProcurementService {
         budget_estimate: data.budget_estimate,
         submission_deadline: data.submission_deadline,
         opening_date: data.opening_date,
+        publication_date: data.publication_date,
+        clarification_deadline: data.clarification_deadline,
+        site_visit_date: data.site_visit_date,
+        site_visit_location: data.site_visit_location,
+        submission_mode: data.submission_mode || 'PLATFORM',
+        evaluation_method: data.evaluation_method || 'WEIGHTED',
+        technical_weight: data.technical_weight ?? 60,
+        financial_weight: data.financial_weight ?? 40,
+        commercial_weight: data.commercial_weight ?? 0,
         lot_id: data.lot_id ?? null,
         wbs_id: data.wbs_id ?? null,
         notes: data.notes,
+        award_notes: data.award_notes,
         tenant_id: tenantId,
         created_by: data.created_by,
       },
@@ -248,14 +333,29 @@ export class ProcurementService {
         where: { id: { in: data.document_ids } },
         data: { tender_id: tender.id },
       });
-      return await prisma.tender.findUnique({ where: { id: tender.id }, include: TENDER_INCLUDE });
     }
 
-    return tender;
+    const invitedSupplierIds = this.normalizeInvitationSupplierIds(data.invited_supplier_ids);
+    const invitationRows = await this.buildInvitationRows({
+      supplierIds: invitedSupplierIds,
+      tenantId,
+      tenderId: tender.id,
+      createdBy: data.created_by,
+    });
+
+    if (invitationRows.length > 0) {
+      await prisma.tenderInvitation.createMany({
+        data: invitationRows,
+      });
+    }
+
+    return await prisma.tender.findUnique({ where: { id: tender.id }, include: TENDER_INCLUDE });
   }
 
   static async updateTender(id: number, data: Record<string, any>) {
-    const { document_ids, ...updateData } = data;
+    const { document_ids, invited_supplier_ids, invitation_created_by, ...updateData } = data;
+
+    const tenantId = TenantContext.getTenantId();
 
     await prisma.tender.update({
       where: { id },
@@ -273,6 +373,25 @@ export class ProcurementService {
         await prisma.document.updateMany({
           where: { id: { in: document_ids as number[] } },
           data: { tender_id: id },
+        });
+      }
+    }
+
+    if (Array.isArray(invited_supplier_ids) && tenantId) {
+      await prisma.tenderInvitation.deleteMany({
+        where: { tender_id: id },
+      });
+
+      const invitationRows = await this.buildInvitationRows({
+        supplierIds: this.normalizeInvitationSupplierIds(invited_supplier_ids),
+        tenantId,
+        tenderId: id,
+        createdBy: Number(invitation_created_by),
+      });
+
+      if (invitationRows.length > 0) {
+        await prisma.tenderInvitation.createMany({
+          data: invitationRows,
         });
       }
     }
@@ -388,16 +507,89 @@ export class ProcurementService {
   // ==========================
 
   static async createSupplier(data: {
+    tenant_id: number;
     name: string;
+    email?: string;
+    phone?: string;
+    address?: string;
+    siret?: string;
+    contact_name?: string;
+    specialty?: string;
+    status?: string;
     created_by: number;
   }) {
     return await prisma.supplier.create({
-      data
+      data: {
+        tenant_id: data.tenant_id,
+        name: data.name.trim(),
+        email: data.email?.trim() || null,
+        phone: data.phone?.trim() || null,
+        address: data.address?.trim() || null,
+        siret: data.siret?.trim() || null,
+        contact_name: data.contact_name?.trim() || null,
+        specialty: data.specialty?.trim() || null,
+        status: data.status?.trim() || undefined,
+        created_by: data.created_by,
+      }
     });
   }
 
-  static async getSuppliers() {
-    return await prisma.supplier.findMany();
+  static async getSuppliers(tenantId: number) {
+    return await prisma.supplier.findMany({
+      where: { tenant_id: tenantId },
+      orderBy: [{ name: "asc" }],
+    });
+  }
+
+  static async updateSupplier(
+    supplierId: number,
+    tenantId: number,
+    data: {
+      name?: string;
+      email?: string;
+      phone?: string;
+      address?: string;
+      siret?: string;
+      contact_name?: string;
+      specialty?: string;
+      status?: string;
+    }
+  ) {
+    const existing = await prisma.supplier.findFirst({
+      where: { id: supplierId, tenant_id: tenantId },
+      select: { id: true },
+    });
+
+    if (!existing) {
+      throw new Error("SUPPLIER_NOT_FOUND");
+    }
+
+    return await prisma.supplier.update({
+      where: { id: supplierId },
+      data: {
+        ...(typeof data.name === "string" ? { name: data.name.trim() } : {}),
+        ...(typeof data.email === "string" ? { email: data.email.trim() || null } : {}),
+        ...(typeof data.phone === "string" ? { phone: data.phone.trim() || null } : {}),
+        ...(typeof data.address === "string" ? { address: data.address.trim() || null } : {}),
+        ...(typeof data.siret === "string" ? { siret: data.siret.trim() || null } : {}),
+        ...(typeof data.contact_name === "string" ? { contact_name: data.contact_name.trim() || null } : {}),
+        ...(typeof data.specialty === "string" ? { specialty: data.specialty.trim() || null } : {}),
+        ...(typeof data.status === "string" ? { status: data.status.trim() || "ACTIVE" } : {}),
+      },
+    });
+  }
+
+  static async deleteSupplier(supplierId: number, tenantId: number) {
+    const existing = await prisma.supplier.findFirst({
+      where: { id: supplierId, tenant_id: tenantId },
+      select: { id: true },
+    });
+
+    if (!existing) {
+      throw new Error("SUPPLIER_NOT_FOUND");
+    }
+
+    return await prisma.supplier.delete({ where: { id: supplierId } });
   }
 
   // ==========================

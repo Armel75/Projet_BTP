@@ -10,6 +10,13 @@ interface TaskDetailProps {
   onClose: () => void;
 }
 
+function formatTaskDate(value?: string | null) {
+  if (!value) return "Non définie";
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return "Non définie";
+  return parsed.toLocaleDateString("fr-FR");
+}
+
 export function TaskDetail({ task, onClose }: TaskDetailProps) {
   const [assignments, setAssignments] = useState<any[]>([]);
   const [loadingAssignments, setLoadingAssignments] = useState(false);
@@ -87,19 +94,26 @@ export function TaskDetail({ task, onClose }: TaskDetailProps) {
             <span className="text-sm font-semibold text-gb-text/80">{task.progress}% achevé</span>
           </div>
 
+          {task.description && (
+            <div className="space-y-2 rounded-lg border border-gb-border/50 bg-gb-app/40 p-4">
+              <p className="text-[10px] font-bold uppercase tracking-wider text-gb-muted">Description</p>
+              <p className="text-sm text-gb-text leading-relaxed whitespace-pre-wrap">{task.description}</p>
+            </div>
+          )}
+
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
              <div className="flex items-center space-x-2 text-gb-muted bg-gb-app/50 p-3 rounded-lg border border-gb-border/50">
                 <Clock size={16} />
                 <div className="text-[10px]">
-                  <p className="uppercase font-bold tracking-wider">Début</p>
-                  <p className="text-gb-text font-medium">{task.planned_start ? new Date(task.planned_start).toLocaleDateString() : 'N/A'}</p>
+                  <p className="uppercase font-bold tracking-wider">Début prévu</p>
+                  <p className="text-gb-text font-medium">{formatTaskDate(task.planned_start)}</p>
                 </div>
               </div>
               <div className="flex items-center space-x-2 text-gb-muted bg-gb-app/50 p-3 rounded-lg border border-gb-border/50">
                 <Clock size={16} />
                 <div className="text-[10px]">
-                  <p className="uppercase font-bold tracking-wider">Fin</p>
-                  <p className="text-gb-text font-medium">{task.planned_end ? new Date(task.planned_end).toLocaleDateString() : 'N/A'}</p>
+                  <p className="uppercase font-bold tracking-wider">Échéance</p>
+                  <p className="text-gb-text font-medium">{formatTaskDate(task.planned_end)}</p>
                 </div>
               </div>
           </div>

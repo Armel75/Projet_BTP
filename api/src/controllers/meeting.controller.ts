@@ -1,4 +1,6 @@
 import { Request, Response } from 'express';
+import path from 'node:path';
+import { readFile } from 'node:fs/promises';
 import { MeetingService } from '../services/meeting.service.js';
 import { AuthRequest } from '../middlewares/auth.middleware.js';
 import { TenantContext } from '../config/tenant-context.js';
@@ -19,6 +21,7 @@ type PuppeteerLike = {
 };
 
 let puppeteerLoader: Promise<PuppeteerLike | null> | null = null;
+let logoLoader: Promise<string | null> | null = null;
 
 async function getPuppeteer(): Promise<PuppeteerLike | null> {
   if (!puppeteerLoader) {
@@ -35,6 +38,31 @@ async function getPuppeteer(): Promise<PuppeteerLike | null> {
     })();
   }
   return puppeteerLoader;
+}
+
+async function getCompanyLogoDataUrl(): Promise<string | null> {
+  if (!logoLoader) {
+    logoLoader = (async () => {
+      const candidates = [
+        path.resolve(process.cwd(), 'assets/branding/logo.png'),
+        path.resolve(process.cwd(), '../api/assets/branding/logo.png'),
+        new URL('../../assets/branding/logo.png', import.meta.url),
+      ].filter(Boolean) as Array<string | URL>;
+
+      for (const candidate of candidates) {
+        try {
+          const logoBuffer = await readFile(candidate);
+          return `data:image/png;base64,${logoBuffer.toString('base64')}`;
+        } catch {
+          continue;
+        }
+      }
+
+      return null;
+    })();
+  }
+
+  return logoLoader;
 }
 
 function esc(v?: string | null): string {
@@ -93,7 +121,7 @@ function meetingStatusLabel(status?: string): string {
   return labels[status ?? ''] ?? (status || '—');
 }
 
-function buildMeetingHtml(meeting: any): string {
+function buildMeetingHtml(meeting: any, logoDataUrl?: string | null): string {
   const reference = meeting.reference || `CR-${meeting.id}`;
   const attendees = (meeting.attendees ?? []) as any[];
   const actions = (meeting.actionItems ?? []) as any[];
@@ -138,6 +166,12 @@ function buildMeetingHtml(meeting: any): string {
     @page { size: A4; margin: 12mm; }
     body { font-family: 'Segoe UI', Arial, sans-serif; color: #0f172a; margin: 0; font-size: 11px; }
     .head { border: 1px solid #cbd5e1; border-radius: 8px; padding: 10px 12px; margin-bottom: 10px; }
+    .brand-row { display: flex; align-items: center; gap: 12px; margin-bottom: 10px; }
+    .logo-wrap { width: 52px; height: 52px; border-radius: 14px; border: 1px solid #dbe5f0; display: flex; align-items: center; justify-content: center; background: #f8fafc; overflow: hidden; flex: 0 0 auto; }
+    .logo-wrap img { max-width: 40px; max-height: 40px; display: block; }
+    .brand { font-size: 10px; text-transform: uppercase; letter-spacing: .7px; color: #64748b; font-weight: 800; }
+    .brand-name { font-size: 18px; font-weight: 800; color: #0f172a; margin-top: 2px; }
+    .brand-meta { font-size: 11px; color: #475569; margin-top: 4px; }
     .title { margin: 0; font-size: 16px; font-weight: 900; }
     .sub { margin-top: 3px; color: #475569; font-size: 11px; }
     .meta { margin-top: 8px; display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
@@ -155,6 +189,16 @@ function buildMeetingHtml(meeting: any): string {
 </head>
 <body>
   <div class="head">
+    <div class="brand-row">
+      <div class="logo-wrap">
+        ${logoDataUrl ? `<img src="${logoDataUrl}" alt="Logo entreprise" />` : ''}
+      </div>
+      <div>
+        <div class="brand">BTP ERP · Compte-rendu de reunion</div>
+        <div class="brand-name">Compte-rendu de reunion</div>
+        <div class="brand-meta">Document de suivi, coordination et pilotage de reunion chantier</div>
+      </div>
+    </div>
     <h1 class="title">Compte-rendu de reunion</h1>
     <div class="sub">Reference ${esc(reference)}</div>
     <div class="meta">
@@ -302,7 +346,8 @@ export class MeetingController {
         return;
       }
 
-      const html = buildMeetingHtml(meeting);
+      const logoDataUrl = await getCompanyLogoDataUrl();
+      const html = buildMeetingHtml(meeting, logoDataUrl);
       const fileName = `${(meeting.reference || `CR-${meeting.id}`).replace(/[^a-zA-Z0-9-_]/g, '_')}.pdf`;
 
       browser = await puppeteer.launch({
@@ -369,7 +414,6 @@ export class MeetingController {
         project_id:            Number(body.project_id),
         lot_id:                body.lot_id             ? Number(body.lot_id)          : undefined,
         title:                 body.title,
-        reference:             body.reference,
         type:                  body.type               ?? 'CHANTIER',
         date:                  new Date(body.date),
         end_date:              body.end_date           ? new Date(body.end_date)      : undefined,

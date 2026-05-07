@@ -78,11 +78,11 @@ export function ProjectFilterRow({
     <div className="flex gap-2 items-end flex-wrap">
       {/* Champ */}
       <div className="flex-1 min-w-[140px]">
-        <label className="block text-xs font-medium text-gray-600 mb-1">Champ</label>
+        <label className="block text-xs font-medium text-gray-600 dark:text-gb-muted mb-1">Champ</label>
         <select
           value={row.field}
           onChange={handleFieldChange}
-          className="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500"
+          className="w-full px-2 py-1 text-sm border border-gray-300 dark:border-gb-border rounded focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white dark:bg-gb-app text-gray-900 dark:text-gb-text"
         >
           <option value="">Sélectionner...</option>
           {availableColumns.map((col) => (
@@ -96,11 +96,11 @@ export function ProjectFilterRow({
       {/* Opérateur */}
       {row.field && (
         <div className="flex-1 min-w-[120px]">
-          <label className="block text-xs font-medium text-gray-600 mb-1">Opérateur</label>
+          <label className="block text-xs font-medium text-gray-600 dark:text-gb-muted mb-1">Opérateur</label>
           <select
             value={row.op}
             onChange={handleOpChange}
-            className="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500"
+            className="w-full px-2 py-1 text-sm border border-gray-300 dark:border-gb-border rounded focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white dark:bg-gb-app text-gray-900 dark:text-gb-text"
           >
             {operators.map((op) => (
               <option key={op} value={op}>
@@ -127,7 +127,7 @@ export function ProjectFilterRow({
       {/* Bouton supprimer */}
       <button
         onClick={onRemove}
-        className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded transition"
+        className="p-1.5 text-gray-400 hover:text-red-500 hover:bg-red-50 dark:text-gb-muted dark:hover:text-red-400 dark:hover:bg-red-500/10 rounded transition"
         title="Supprimer ce filtre"
       >
         <X size={18} />
@@ -148,13 +148,13 @@ function ProjectFilterValueInput({ row, column, userOptions, loading, onChange }
   if (fieldType === 'string') {
     return (
       <div>
-        <label className="block text-xs font-medium text-gray-600 mb-1">Valeur</label>
+        <label className="block text-xs font-medium text-gray-600 dark:text-gb-muted mb-1">Valeur</label>
         <input
           type="text"
           value={row.value || ''}
           onChange={(e) => onChange(e.target.value)}
           placeholder="Entrer la valeur..."
-          className="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500"
+          className="w-full px-2 py-1 text-sm border border-gray-300 dark:border-gb-border rounded focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white dark:bg-gb-app text-gray-900 dark:text-gb-text placeholder:text-gray-400 dark:placeholder:text-gb-muted"
         />
       </div>
     );
@@ -166,7 +166,7 @@ function ProjectFilterValueInput({ row, column, userOptions, loading, onChange }
       return (
         <div className="flex gap-1">
           <div className="flex-1">
-            <label className="block text-xs font-medium text-gray-600 mb-1">De</label>
+            <label className="block text-xs font-medium text-gray-600 dark:text-gb-muted mb-1">De</label>
             <input
               type="number"
               value={Array.isArray(row.value) ? row.value[0] ?? '' : ''}
@@ -177,11 +177,11 @@ function ProjectFilterValueInput({ row, column, userOptions, loading, onChange }
                 ])
               }
               placeholder="Min"
-              className="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500"
+              className="w-full px-2 py-1 text-sm border border-gray-300 dark:border-gb-border rounded focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white dark:bg-gb-app text-gray-900 dark:text-gb-text"
             />
           </div>
           <div className="flex-1">
-            <label className="block text-xs font-medium text-gray-600 mb-1">À</label>
+            <label className="block text-xs font-medium text-gray-600 dark:text-gb-muted mb-1">À</label>
             <input
               type="number"
               value={Array.isArray(row.value) ? row.value[1] ?? '' : ''}
@@ -192,7 +192,7 @@ function ProjectFilterValueInput({ row, column, userOptions, loading, onChange }
                 ])
               }
               placeholder="Max"
-              className="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500"
+              className="w-full px-2 py-1 text-sm border border-gray-300 dark:border-gb-border rounded focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white dark:bg-gb-app text-gray-900 dark:text-gb-text"
             />
           </div>
         </div>
@@ -200,13 +200,13 @@ function ProjectFilterValueInput({ row, column, userOptions, loading, onChange }
     }
     return (
       <div>
-        <label className="block text-xs font-medium text-gray-600 mb-1">Valeur</label>
+        <label className="block text-xs font-medium text-gray-600 dark:text-gb-muted mb-1">Valeur</label>
         <input
           type="number"
           value={row.value ?? ''}
           onChange={(e) => onChange(e.target.value ? Number(e.target.value) : null)}
           placeholder="Entrer le nombre..."
-          className="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500"
+          className="w-full px-2 py-1 text-sm border border-gray-300 dark:border-gb-border rounded focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white dark:bg-gb-app text-gray-900 dark:text-gb-text"
         />
       </div>
     );
@@ -218,7 +218,7 @@ function ProjectFilterValueInput({ row, column, userOptions, loading, onChange }
       return (
         <div className="flex gap-1">
           <div className="flex-1">
-            <label className="block text-xs font-medium text-gray-600 mb-1">Du</label>
+            <label className="block text-xs font-medium text-gray-600 dark:text-gb-muted mb-1">Du</label>
             <input
               type="date"
               value={
@@ -232,11 +232,11 @@ function ProjectFilterValueInput({ row, column, userOptions, loading, onChange }
                   Array.isArray(row.value) ? row.value[1] : null,
                 ])
               }
-              className="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500"
+              className="w-full px-2 py-1 text-sm border border-gray-300 dark:border-gb-border rounded focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white dark:bg-gb-app text-gray-900 dark:text-gb-text"
             />
           </div>
           <div className="flex-1">
-            <label className="block text-xs font-medium text-gray-600 mb-1">Au</label>
+            <label className="block text-xs font-medium text-gray-600 dark:text-gb-muted mb-1">Au</label>
             <input
               type="date"
               value={
@@ -250,7 +250,7 @@ function ProjectFilterValueInput({ row, column, userOptions, loading, onChange }
                   e.target.value,
                 ])
               }
-              className="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500"
+              className="w-full px-2 py-1 text-sm border border-gray-300 dark:border-gb-border rounded focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white dark:bg-gb-app text-gray-900 dark:text-gb-text"
             />
           </div>
         </div>
@@ -258,12 +258,12 @@ function ProjectFilterValueInput({ row, column, userOptions, loading, onChange }
     }
     return (
       <div>
-        <label className="block text-xs font-medium text-gray-600 mb-1">Date</label>
+        <label className="block text-xs font-medium text-gray-600 dark:text-gb-muted mb-1">Date</label>
         <input
           type="date"
           value={row.value ? row.value.split('T')[0] : ''}
           onChange={(e) => onChange(e.target.value)}
-          className="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500"
+          className="w-full px-2 py-1 text-sm border border-gray-300 dark:border-gb-border rounded focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white dark:bg-gb-app text-gray-900 dark:text-gb-text"
         />
       </div>
     );
@@ -277,10 +277,10 @@ function ProjectFilterValueInput({ row, column, userOptions, loading, onChange }
       // Multi-select pour 'in'
       return (
         <div>
-          <label className="block text-xs font-medium text-gray-600 mb-1">Valeurs</label>
+          <label className="block text-xs font-medium text-gray-600 dark:text-gb-muted mb-1">Valeurs</label>
           <div className="space-y-1">
             {opts.map((opt: { label: string; value: string | number }) => (
-              <label key={opt.value} className="flex items-center gap-2 text-sm cursor-pointer">
+              <label key={opt.value} className="flex items-center gap-2 text-sm cursor-pointer text-gray-900 dark:text-gb-text">
                 <input
                   type="checkbox"
                   checked={Array.isArray(row.value) ? row.value.includes(opt.value) : false}
@@ -304,12 +304,12 @@ function ProjectFilterValueInput({ row, column, userOptions, loading, onChange }
 
     return (
       <div>
-        <label className="block text-xs font-medium text-gray-600 mb-1">Valeur</label>
+        <label className="block text-xs font-medium text-gray-600 dark:text-gb-muted mb-1">Valeur</label>
         <select
           value={row.value ?? ''}
           onChange={(e) => onChange(e.target.value ? Number(e.target.value) : e.target.value)}
           disabled={loading}
-          className="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500"
+          className="w-full px-2 py-1 text-sm border border-gray-300 dark:border-gb-border rounded focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white dark:bg-gb-app text-gray-900 dark:text-gb-text"
         >
           <option value="">Sélectionner...</option>
           {opts.map((opt: { label: string; value: string | number }) => (

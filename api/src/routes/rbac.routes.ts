@@ -23,6 +23,9 @@ rbacRouter.delete("/roles/:id/permissions/:permissionId", requirePermission("rol
 
 // Users <=> Role assignment
 rbacRouter.get("/users", requirePermission("user:read"), RbacController.getAllUsers);
+rbacRouter.post("/users", requirePermission("user:create"), RbacController.createUser);
+rbacRouter.put("/users/:id", requirePermission("user:update"), RbacController.updateUser);
+rbacRouter.delete("/users/:id", requirePermission("user:delete"), RbacController.deleteUser);
 rbacRouter.post("/users/:id/roles", requirePermission("user:assign-role"), RbacController.assignRoleToUser);
 rbacRouter.delete("/users/:id/roles/:roleId", requirePermission("user:assign-role"), RbacController.removeRoleFromUser);
 

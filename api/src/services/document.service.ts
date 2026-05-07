@@ -111,7 +111,8 @@ export class DocumentService {
       });
     }
 
-    return prisma.document.findUnique({ where: { id: doc.id }, include: DOCUMENT_INCLUDE });
+    const hydratedDoc = await prisma.document.findUnique({ where: { id: doc.id }, include: DOCUMENT_INCLUDE });
+    return hydratedDoc ?? doc;
   }
 
   // ─── UPDATE ──────────────────────────────────────────────────────────────

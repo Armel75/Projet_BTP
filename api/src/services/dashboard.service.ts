@@ -280,7 +280,11 @@ export class DashboardService {
         where: { project_id: safeProjectFilter, date: { gte: start, lte: end } },
       }),
       prisma.weeklyReport.findMany({
-        where: { project_id: safeProjectFilter, week_start: { gte: addDays(end, -56) } },
+        where: {
+          project_id: safeProjectFilter,
+          week_start: { gte: addDays(end, -56) },
+          status: { not: 'DELETED' }
+        },
         select: { week_start: true, overall_progress: true },
         orderBy: { week_start: "asc" },
       }),
@@ -309,6 +313,7 @@ export class DashboardService {
       prisma.controlReport.count({
         where: {
           project_id: safeProjectFilter,
+          is_archived: false,
           status: { in: ["OPEN", "UNDER_REVIEW", "ACTION_REQUIRED"] },
         },
       }),
@@ -459,7 +464,7 @@ export class DashboardService {
       },
       {
         code: "op-open-punch",
-        title: "Fermer les reserves punch list",
+        title: "Fermer les réserves de la liste de contrôle",
         description: "Elements de reserve non verifies ou non clotures.",
         severity: openPunchItems > 10 ? "high" : "medium",
         metric: openPunchItems,

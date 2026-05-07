@@ -16,9 +16,12 @@ import {
   ExternalLink,
   Target,
   BarChart3,
-  MessageSquare
+  MessageSquare,
+  Download,
+  Printer
 } from "lucide-react";
 import { Badge } from "../ui/badge";
+import { Button } from "../ui/button";
 import { format } from "date-fns";
 import { fr } from "date-fns/locale";
 import { apiFetch } from "../../lib/api";
@@ -34,6 +37,8 @@ interface WeeklyReportDetailDrawerProps {
 export default function WeeklyReportDetailDrawer({ open, onOpenChange, reportId }: WeeklyReportDetailDrawerProps) {
   const [report, setReport] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  const [downloadingPdf, setDownloadingPdf] = useState(false);
+  const [previewingPdf, setPreviewingPdf] = useState(false);
 
   useEffect(() => {
     if (open) {
@@ -52,6 +57,64 @@ export default function WeeklyReportDetailDrawer({ open, onOpenChange, reportId 
       console.error(err);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const downloadPdf = async () => {
+    if (!report || downloadingPdf) return;
+
+    setDownloadingPdf(true);
+    try {
+      const res = await apiFetch(`${API_BASE}/weekly-reports/${report.id}/pdf`);
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        alert(err.error || "Impossible de générer le rapport hebdomadaire PDF.");
+        return;
+      }
+
+      const blob = await res.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `WR-${report.id}-${new Date(report.week_start).toISOString().slice(0, 10)}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(url);
+    } catch {
+      alert("Impossible de générer le rapport hebdomadaire PDF.");
+    } finally {
+      setDownloadingPdf(false);
+    }
+  };
+
+  const previewPrintPdf = async () => {
+    if (!report || previewingPdf) return;
+
+    setPreviewingPdf(true);
+    try {
+      const res = await apiFetch(`${API_BASE}/weekly-reports/${report.id}/pdf?disposition=inline`);
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        alert(err.error || "Impossible d'ouvrir la previsualisation d'impression.");
+        return;
+      }
+
+      const blob = await res.blob();
+      const url = window.URL.createObjectURL(blob);
+      const previewWindow = window.open(url, "_blank");
+      if (!previewWindow) {
+        window.URL.revokeObjectURL(url);
+        alert("La previsualisation d'impression a ete bloquee par le navigateur.");
+        return;
+      }
+
+      previewWindow.focus();
+      window.setTimeout(() => window.URL.revokeObjectURL(url), 60000);
+    } catch {
+      alert("Impossible d'ouvrir la previsualisation d'impression.");
+    } finally {
+      setPreviewingPdf(false);
     }
   };
 
@@ -74,7 +137,7 @@ export default function WeeklyReportDetailDrawer({ open, onOpenChange, reportId 
         ) : report ? (
           <>
             <DialogHeader className="p-8 border-b border-gb-border bg-gb-app/30 shrink-0">
-               <div className="flex justify-between items-start">
+               <div className="flex justify-between items-start gap-4">
                   <div>
                     <div className="flex items-center gap-4 mb-2">
                       <h2 className="text-3xl font-black tracking-tighter text-gb-text">Revue Hebdomadaire</h2>
@@ -86,9 +149,33 @@ export default function WeeklyReportDetailDrawer({ open, onOpenChange, reportId 
                     </div>
                   </div>
                   
-                  <div className="flex flex-col items-end gap-1 bg-gb-surface-solid p-4 rounded-2xl border border-gb-border shadow-sm">
-                     <span className="text-[10px] font-black text-gb-muted uppercase tracking-widest leading-none">Avancement Global</span>
-                     <span className="text-3xl font-black text-gb-primary tracking-tighter">{report.overall_progress}%</span>
+                  <div className="flex flex-col items-end gap-3 shrink-0">
+                    <div className="flex items-center gap-2">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className="rounded-xl h-10 px-4 font-bold"
+                        onClick={previewPrintPdf}
+                        disabled={previewingPdf}
+                      >
+                        {previewingPdf ? <Loader2 size={14} className="mr-2 animate-spin" /> : <Printer size={14} className="mr-2" />}
+                        {previewingPdf ? "Ouverture..." : "Imprimer"}
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className="rounded-xl h-10 px-4 font-bold"
+                        onClick={downloadPdf}
+                        disabled={downloadingPdf}
+                      >
+                        {downloadingPdf ? <Loader2 size={14} className="mr-2 animate-spin" /> : <Download size={14} className="mr-2" />}
+                        {downloadingPdf ? "Generation PDF..." : "Telecharger PDF"}
+                      </Button>
+                    </div>
+                    <div className="flex flex-col items-end gap-1 bg-gb-surface-solid p-4 rounded-2xl border border-gb-border shadow-sm">
+                       <span className="text-[10px] font-black text-gb-muted uppercase tracking-widest leading-none">Avancement Global</span>
+                       <span className="text-3xl font-black text-gb-primary tracking-tighter">{report.overall_progress}%</span>
+                    </div>
                   </div>
                </div>
             </DialogHeader>

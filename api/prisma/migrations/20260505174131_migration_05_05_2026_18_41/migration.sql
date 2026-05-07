@@ -14,18 +14,45 @@ BEGIN TRY
 BEGIN TRAN;
 
 -- DropForeignKey
-ALTER TABLE [dbo].[DailyLogTaskProgress] DROP CONSTRAINT [FK_DailyLogTaskProgress_daily_log_id];
+IF OBJECT_ID(N'[dbo].[DailyLogTaskProgress]', N'U') IS NOT NULL
+  AND OBJECT_ID(N'[dbo].[FK_DailyLogTaskProgress_daily_log_id]', N'F') IS NOT NULL
+BEGIN
+  ALTER TABLE [dbo].[DailyLogTaskProgress] DROP CONSTRAINT [FK_DailyLogTaskProgress_daily_log_id];
+END;
 
 -- AlterTable
 ALTER TABLE [dbo].[Contract] DROP COLUMN [document_url];
 ALTER TABLE [dbo].[Contract] ADD [document_id] INT;
 
 -- AlterTable
-ALTER TABLE [dbo].[DailyLogTaskProgress] DROP CONSTRAINT [DF_DailyLogTaskProgress_task_type],
-[DF_DailyLogTaskProgress_updated_at];
-EXEC SP_RENAME N'dbo.PK_DailyLogTaskProgress', N'DailyLogTaskProgress_pkey';
-ALTER TABLE [dbo].[DailyLogTaskProgress] ALTER COLUMN [task_type] NVARCHAR(1000) NOT NULL;
-ALTER TABLE [dbo].[DailyLogTaskProgress] ADD CONSTRAINT [DailyLogTaskProgress_task_type_df] DEFAULT 'planned' FOR [task_type];
+IF OBJECT_ID(N'[dbo].[DailyLogTaskProgress]', N'U') IS NOT NULL
+BEGIN
+  IF OBJECT_ID(N'[dbo].[DF_DailyLogTaskProgress_task_type]', N'D') IS NOT NULL
+  BEGIN
+    ALTER TABLE [dbo].[DailyLogTaskProgress] DROP CONSTRAINT [DF_DailyLogTaskProgress_task_type];
+  END;
+
+  IF OBJECT_ID(N'[dbo].[DF_DailyLogTaskProgress_updated_at]', N'D') IS NOT NULL
+  BEGIN
+    ALTER TABLE [dbo].[DailyLogTaskProgress] DROP CONSTRAINT [DF_DailyLogTaskProgress_updated_at];
+  END;
+
+  IF OBJECT_ID(N'[dbo].[PK_DailyLogTaskProgress]', N'PK') IS NOT NULL
+  BEGIN
+    EXEC SP_RENAME N'dbo.PK_DailyLogTaskProgress', N'DailyLogTaskProgress_pkey';
+  END;
+
+  IF COL_LENGTH(N'dbo.DailyLogTaskProgress', N'task_type') IS NOT NULL
+  BEGIN
+    ALTER TABLE [dbo].[DailyLogTaskProgress] ALTER COLUMN [task_type] NVARCHAR(1000) NOT NULL;
+  END;
+
+  IF OBJECT_ID(N'[dbo].[DailyLogTaskProgress_task_type_df]', N'D') IS NULL
+     AND COL_LENGTH(N'dbo.DailyLogTaskProgress', N'task_type') IS NOT NULL
+  BEGIN
+    ALTER TABLE [dbo].[DailyLogTaskProgress] ADD CONSTRAINT [DailyLogTaskProgress_task_type_df] DEFAULT 'planned' FOR [task_type];
+  END;
+END;
 
 -- AlterTable
 ALTER TABLE [dbo].[Document] ADD [tender_id] INT;
@@ -60,7 +87,10 @@ ALTER TABLE [dbo].[WorkAcceptance] ADD [document_id] INT;
 CREATE NONCLUSTERED INDEX [Document_tender_id_idx] ON [dbo].[Document]([tender_id]);
 
 -- RenameForeignKey
-EXEC sp_rename 'dbo.FK_DailyLogTaskProgress_task_id', 'DailyLogTaskProgress_task_id_fkey', 'OBJECT';
+IF OBJECT_ID(N'[dbo].[FK_DailyLogTaskProgress_task_id]', N'F') IS NOT NULL
+BEGIN
+  EXEC sp_rename 'dbo.FK_DailyLogTaskProgress_task_id', 'DailyLogTaskProgress_task_id_fkey', 'OBJECT';
+END;
 
 -- AddForeignKey
 ALTER TABLE [dbo].[TenderBid] ADD CONSTRAINT [TenderBid_document_id_fkey] FOREIGN KEY ([document_id]) REFERENCES [dbo].[Document]([id]) ON DELETE NO ACTION ON UPDATE NO ACTION;
@@ -81,13 +111,33 @@ ALTER TABLE [dbo].[WorkAcceptance] ADD CONSTRAINT [WorkAcceptance_document_id_fk
 ALTER TABLE [dbo].[Document] ADD CONSTRAINT [Document_tender_id_fkey] FOREIGN KEY ([tender_id]) REFERENCES [dbo].[Tender]([id]) ON DELETE NO ACTION ON UPDATE NO ACTION;
 
 -- AddForeignKey
-ALTER TABLE [dbo].[DailyLogTaskProgress] ADD CONSTRAINT [DailyLogTaskProgress_daily_log_id_fkey] FOREIGN KEY ([daily_log_id]) REFERENCES [dbo].[DailyLog]([id]) ON DELETE CASCADE ON UPDATE CASCADE;
+IF OBJECT_ID(N'[dbo].[DailyLogTaskProgress]', N'U') IS NOT NULL
+  AND OBJECT_ID(N'[dbo].[DailyLogTaskProgress_daily_log_id_fkey]', N'F') IS NULL
+BEGIN
+  ALTER TABLE [dbo].[DailyLogTaskProgress] ADD CONSTRAINT [DailyLogTaskProgress_daily_log_id_fkey] FOREIGN KEY ([daily_log_id]) REFERENCES [dbo].[DailyLog]([id]) ON DELETE CASCADE ON UPDATE CASCADE;
+END;
 
 -- RenameIndex
-EXEC SP_RENAME N'dbo.DailyLogTaskProgress.IX_DailyLogTaskProgress_daily_log_id', N'DailyLogTaskProgress_daily_log_id_idx', N'INDEX';
+IF EXISTS (
+  SELECT 1
+  FROM sys.indexes
+  WHERE name = 'IX_DailyLogTaskProgress_daily_log_id'
+    AND object_id = OBJECT_ID(N'[dbo].[DailyLogTaskProgress]')
+)
+BEGIN
+  EXEC SP_RENAME N'dbo.DailyLogTaskProgress.IX_DailyLogTaskProgress_daily_log_id', N'DailyLogTaskProgress_daily_log_id_idx', N'INDEX';
+END;
 
 -- RenameIndex
-EXEC SP_RENAME N'dbo.DailyLogTaskProgress.IX_DailyLogTaskProgress_task_id', N'DailyLogTaskProgress_task_id_idx', N'INDEX';
+IF EXISTS (
+  SELECT 1
+  FROM sys.indexes
+  WHERE name = 'IX_DailyLogTaskProgress_task_id'
+    AND object_id = OBJECT_ID(N'[dbo].[DailyLogTaskProgress]')
+)
+BEGIN
+  EXEC SP_RENAME N'dbo.DailyLogTaskProgress.IX_DailyLogTaskProgress_task_id', N'DailyLogTaskProgress_task_id_idx', N'INDEX';
+END;
 
 COMMIT TRAN;
 

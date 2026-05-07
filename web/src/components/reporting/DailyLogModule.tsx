@@ -11,7 +11,9 @@ import {
   Thermometer,
   ChevronRight,
   BookOpen,
-  Calendar as CalendarIcon
+  Calendar as CalendarIcon,
+  Archive,
+  RotateCcw
 } from "lucide-react";
 import { Button } from "../ui/button";
 import { Badge } from "../ui/badge";
@@ -30,6 +32,8 @@ export default function DailyLogModule() {
   const [selectedLog, setSelectedLog] = useState<any>(null);
   const [isDetailOpen, setIsDetailOpen] = useState(false);
   const [isCreateOpen, setIsCreateOpen] = useState(false);
+  const [editingLog, setEditingLog] = useState<any>(null);
+  const [showArchived, setShowArchived] = useState(false);
 
   const fetchProjects = async () => {
     try {
@@ -45,11 +49,15 @@ export default function DailyLogModule() {
     }
   };
 
-  const fetchLogs = async (projectId: string) => {
+  const fetchLogs = async (projectId: string, archived = showArchived) => {
     setLoading(true);
     setError(null);
     try {
-      const res = await apiFetch(`${API_BASE}/daily-logs?project_id=${projectId}`);
+      const params = new URLSearchParams({
+        project_id: projectId,
+        is_archived: archived ? "true" : "false",
+      });
+      const res = await apiFetch(`${API_BASE}/daily-logs?${params.toString()}`);
       if (res.ok) {
         setLogs(await res.json());
       } else {
@@ -67,24 +75,72 @@ export default function DailyLogModule() {
   }, []);
 
   useEffect(() => {
-    if (selectedProjectId) fetchLogs(selectedProjectId);
-  }, [selectedProjectId]);
+    if (selectedProjectId) fetchLogs(selectedProjectId, showArchived);
+  }, [selectedProjectId, showArchived]);
+
+  const handleArchiveToggle = async (log: any, archived: boolean) => {
+    const message = archived
+      ? "Confirmer la suppression logique de ce rapport journalier ?"
+      : "Confirmer la restauration de ce rapport journalier ?";
+
+    if (!window.confirm(message)) return;
+
+    try {
+      const endpoint = archived
+        ? `${API_BASE}/daily-logs/${log.id}`
+        : `${API_BASE}/daily-logs/${log.id}/archive`;
+      const res = await apiFetch(endpoint, archived ? {
+        method: "DELETE",
+      } : {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ archived: false }),
+      });
+
+      if (!res.ok) {
+        const payload = await res.json().catch(() => null);
+        throw new Error(payload?.error || (archived ? "Impossible de supprimer ce rapport." : "Impossible de restaurer ce rapport."));
+      }
+
+      setIsDetailOpen(false);
+      setSelectedLog(null);
+      setEditingLog(null);
+      await fetchLogs(selectedProjectId, showArchived);
+    } catch (err: any) {
+      alert(err.message || "Une erreur est survenue.");
+    }
+  };
 
   return (
     <div className="space-y-6">
       <div className="flex flex-col md:flex-row gap-4 items-end justify-between bg-gb-surface-solid p-6 rounded-2xl border border-gb-border shadow-sm">
-        <div className="space-y-2 w-full md:w-64">
-          <label className="text-xs font-bold text-gb-muted uppercase tracking-wider">Chantier</label>
-          <select 
-            value={selectedProjectId}
-            onChange={(e) => setSelectedProjectId(e.target.value)}
-            className="w-full bg-gb-app border border-gb-border rounded-xl h-11 px-4 text-sm font-medium focus:ring-2 focus:ring-gb-primary transition-all outline-none"
-          >
-            <option value="">Sélectionner un chantier...</option>
-            {projects.map(p => (
-              <option key={p.id} value={p.id}>{p.title}</option>
-            ))}
-          </select>
+        <div className="flex flex-col md:flex-row gap-4 w-full">
+          <div className="space-y-2 w-full md:w-64">
+            <label className="text-xs font-bold text-gb-muted uppercase tracking-wider">Chantier</label>
+            <select 
+              value={selectedProjectId}
+              onChange={(e) => setSelectedProjectId(e.target.value)}
+              className="w-full bg-gb-app border border-gb-border rounded-xl h-11 px-4 text-sm font-medium focus:ring-2 focus:ring-gb-primary transition-all outline-none"
+            >
+              <option value="">Sélectionner un chantier...</option>
+              {projects.map(p => (
+                <option key={p.id} value={p.id}>{p.title}</option>
+              ))}
+            </select>
+          </div>
+
+          <div className="space-y-2">
+            <label className="text-xs font-bold text-gb-muted uppercase tracking-wider">Affichage</label>
+            <Button
+              type="button"
+              variant="outline"
+              className="h-11 px-4 rounded-xl"
+              onClick={() => setShowArchived((current) => !current)}
+            >
+              {showArchived ? <RotateCcw size={16} className="mr-2" /> : <Archive size={16} className="mr-2" />}
+              {showArchived ? "Voir les actifs" : "Voir les supprimés"}
+            </Button>
+          </div>
         </div>
 
         <Button 
@@ -109,7 +165,7 @@ export default function DailyLogModule() {
         <div className="p-20 text-center bg-gb-surface-solid border border-gb-border border-dashed rounded-3xl">
           <BookOpen className="mx-auto text-gb-muted/20 mb-6" size={64} />
           <h3 className="text-xl font-bold text-gb-text mb-2">Aucun rapport journalier</h3>
-          <p className="text-gb-muted italic">Commencez par documenter l'activité d'aujourd'hui.</p>
+          <p className="text-gb-muted italic">{showArchived ? "Aucun rapport supprimé pour ce chantier." : "Commencez par documenter l'activité d'aujourd'hui."}</p>
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -133,6 +189,9 @@ export default function DailyLogModule() {
                         </h4>
                       </div>
                    </div>
+                   {log.is_archived && (
+                     <Badge className="bg-gb-danger/10 text-gb-danger border-gb-danger/20">Archive</Badge>
+                   )}
                 </div>
 
                 <div className="flex items-center gap-4 mb-6">
@@ -178,15 +237,34 @@ export default function DailyLogModule() {
           open={isDetailOpen}
           onOpenChange={setIsDetailOpen}
           logId={selectedLog.id}
+          onArchive={(log) => handleArchiveToggle(log, true)}
+          onRestore={(log) => handleArchiveToggle(log, false)}
+          onEdit={(log) => {
+            if (log.is_archived) {
+              return;
+            }
+            setEditingLog(log);
+            setIsDetailOpen(false);
+            setIsCreateOpen(true);
+          }}
         />
       )}
 
       {isCreateOpen && (
         <CreateDailyLogDialog 
           open={isCreateOpen}
-          onOpenChange={setIsCreateOpen}
-          projectId={parseInt(selectedProjectId)}
-          onSuccess={() => fetchLogs(selectedProjectId)}
+          onOpenChange={(nextOpen) => {
+            setIsCreateOpen(nextOpen);
+            if (!nextOpen) {
+              setEditingLog(null);
+            }
+          }}
+          projectId={editingLog?.project_id ?? parseInt(selectedProjectId)}
+          initialData={editingLog}
+          onSuccess={() => {
+            setEditingLog(null);
+            fetchLogs(selectedProjectId);
+          }}
         />
       )}
     </div>

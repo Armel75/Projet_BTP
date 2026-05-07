@@ -1,5 +1,14 @@
 import { prisma } from '../config/prisma.js';
 import { TenantContext } from '../config/tenant-context.js';
+import { PhotoService } from './photo.service.js';
+
+function dedupeStrings(values: string[]) {
+  return Array.from(new Set(values.filter((value) => typeof value === 'string' && value.length > 0)));
+}
+
+function dedupePhotoIds(values: any[]) {
+  return Array.from(new Set(values.map((value) => Number(value)).filter(Boolean)));
+}
 
 export class DailyLogService {
   static async createDailyLog(data: {
@@ -17,49 +26,68 @@ export class DailyLogService {
     const tenantId = TenantContext.getTenantId();
     if (!tenantId) throw new Error("Tenant session required");
 
+    const taskProgressWithPhotos = await Promise.all((data.task_progress || []).map(async (tp: any) => {
+      const photoIds = Array.isArray(tp.photo_ids) ? dedupePhotoIds(tp.photo_ids) : [];
+      const photoUrls = photoIds.length > 0
+        ? await PhotoService.resolvePhotoUrls(photoIds)
+        : dedupeStrings(Array.isArray(tp.photos_url) ? tp.photos_url : (tp.photos_url ? [tp.photos_url] : []));
+
+      return {
+        ...tp,
+        photo_ids: photoIds,
+        photo_urls_resolved: photoUrls,
+      };
+    }));
+
     // Normalize task_progress: convert array fields to JSON strings for DB storage
-    const normalizedTaskProgress = (data.task_progress || []).map((tp: any) => ({
+    const normalizedTaskProgress = taskProgressWithPhotos.map((tp: any) => ({
       task_id: tp.task_id || null,
       task_type: tp.task_type || "planned",
       task_title_custom: tp.task_title_custom || null,
       progress_percentage: tp.progress_percentage != null ? Math.max(0, Math.min(100, parseInt(tp.progress_percentage))) : null,
       comment: tp.comment || null,
-      photos_url: Array.isArray(tp.photos_url) ? JSON.stringify(tp.photos_url) : (tp.photos_url || null),
+      photos_url: tp.photo_urls_resolved.length > 0 ? JSON.stringify(tp.photo_urls_resolved) : null,
       labor_data: tp.labor_data && tp.labor_data.length > 0 ? JSON.stringify(tp.labor_data) : null,
       equipment_data: tp.equipment_data && tp.equipment_data.length > 0 ? JSON.stringify(tp.equipment_data) : null,
       material_data: tp.material_data && tp.material_data.length > 0 ? JSON.stringify(tp.material_data) : null,
     }));
 
-    return await prisma.dailyLog.create({
-      data: {
-        project_id: data.project_id,
-        date: data.date,
-        weather: data.weather,
-        temperature: data.temperature,
-        notes: data.notes,
-        created_by: data.created_by,
-        tenant_id: tenantId,
-        labor_entries: {
-          create: data.labor_entries || []
+    const photoIdsToAttach = taskProgressWithPhotos.flatMap((tp: any) => tp.photo_ids || []);
+    return await prisma.$transaction(async (tx: any) => {
+      const createdLog = await tx.dailyLog.create({
+        data: {
+          project_id: data.project_id,
+          date: data.date,
+          weather: data.weather,
+          temperature: data.temperature,
+          notes: data.notes,
+          created_by: data.created_by,
+          tenant_id: tenantId,
+          labor_entries: {
+            create: data.labor_entries || []
+          },
+          equipment_entries: {
+            create: data.equipment_entries || []
+          },
+          material_entries: {
+            create: data.material_entries || []
+          },
+          task_progress: {
+            create: normalizedTaskProgress
+          }
         },
-        equipment_entries: {
-          create: data.equipment_entries || []
-        },
-        material_entries: {
-          create: data.material_entries || []
-        },
-        task_progress: {
-          create: normalizedTaskProgress
+        include: {
+          labor_entries: true,
+          equipment_entries: true,
+          material_entries: true,
+          task_progress: true,
+          createdBy: true,
+          project: true
         }
-      },
-      include: {
-        labor_entries: true,
-        equipment_entries: true,
-        material_entries: true,
-        task_progress: true,
-        createdBy: true,
-        project: true
-      }
+      });
+
+      await PhotoService.attachPhotosToDailyLog(photoIdsToAttach, createdLog.id, tx);
+      return createdLog;
     });
   }
 
@@ -67,6 +95,7 @@ export class DailyLogService {
     project_id?: number;
     date?: Date;
     created_by?: number;
+    is_archived?: boolean;
   }) {
     const tenantId = TenantContext.getTenantId();
     if (!tenantId) throw new Error("Tenant session required");
@@ -90,8 +119,11 @@ export class DailyLogService {
   }
 
   static async getDailyLogById(id: number) {
-    return await prisma.dailyLog.findUnique({
-      where: { id },
+    const tenantId = TenantContext.getTenantId();
+    if (!tenantId) throw new Error("Tenant session required");
+
+    return await prisma.dailyLog.findFirst({
+      where: { id, tenant_id: tenantId },
       include: {
         task_progress: {
           include: { task: true }
@@ -106,6 +138,7 @@ export class DailyLogService {
   }
 
   static async updateDailyLog(id: number, data: {
+    date?: Date;
     weather?: string;
     temperature?: number;
     notes?: string;
@@ -113,27 +146,43 @@ export class DailyLogService {
   }) {
     // Note: Delete all existing task_progress and recreate with new data
 
+    const taskProgressWithPhotos = await Promise.all((data.task_progress || []).map(async (tp: any) => {
+      const photoIds = Array.isArray(tp.photo_ids) ? dedupePhotoIds(tp.photo_ids) : [];
+      const photoUrls = photoIds.length > 0
+        ? await PhotoService.resolvePhotoUrls(photoIds)
+        : dedupeStrings(Array.isArray(tp.photos_url) ? tp.photos_url : (tp.photos_url ? [tp.photos_url] : []));
+
+      return {
+        ...tp,
+        photo_ids: photoIds,
+        photo_urls_resolved: photoUrls,
+      };
+    }));
+
     // Normalize task_progress: convert array fields to JSON strings for DB storage
-    const normalizedTaskProgress = (data.task_progress || []).map((tp: any) => ({
+    const normalizedTaskProgress = taskProgressWithPhotos.map((tp: any) => ({
       task_id: tp.task_id || null,
       task_type: tp.task_type || "planned",
       task_title_custom: tp.task_title_custom || null,
       progress_percentage: tp.progress_percentage != null ? Math.max(0, Math.min(100, parseInt(tp.progress_percentage))) : null,
       comment: tp.comment || null,
-      photos_url: Array.isArray(tp.photos_url) ? JSON.stringify(tp.photos_url) : (tp.photos_url || null),
+      photos_url: tp.photo_urls_resolved.length > 0 ? JSON.stringify(tp.photo_urls_resolved) : null,
       labor_data: tp.labor_data && tp.labor_data.length > 0 ? JSON.stringify(tp.labor_data) : null,
       equipment_data: tp.equipment_data && tp.equipment_data.length > 0 ? JSON.stringify(tp.equipment_data) : null,
       material_data: tp.material_data && tp.material_data.length > 0 ? JSON.stringify(tp.material_data) : null,
     }));
+
+    const photoIdsToAttach = taskProgressWithPhotos.flatMap((tp: any) => tp.photo_ids || []);
 
     return await prisma.$transaction(async (tx: any) => {
       // 1. Delete existing task progress entries
       await tx.dailyLogTaskProgress.deleteMany({ where: { daily_log_id: id } });
 
       // 2. Update log and create new task progress entries
-      return await tx.dailyLog.update({
+      const updatedLog = await tx.dailyLog.update({
         where: { id },
         data: {
+          date: data.date,
           weather: data.weather,
           temperature: data.temperature,
           notes: data.notes,
@@ -150,16 +199,47 @@ export class DailyLogService {
           }
         }
       });
+
+      await PhotoService.syncDailyLogPhotos(photoIdsToAttach, id, tx);
+      return updatedLog;
     });
   }
 
   static async deleteDailyLog(id: number) {
-    return await prisma.$transaction(async (tx: any) => {
-      await tx.dailyLogLabor.deleteMany({ where: { daily_log_id: id } });
-      await tx.dailyLogEquipment.deleteMany({ where: { daily_log_id: id } });
-      await tx.dailyLogMaterial.deleteMany({ where: { daily_log_id: id } });
-      await tx.dailyLogTaskProgress.deleteMany({ where: { daily_log_id: id } });
-      return await tx.dailyLog.delete({ where: { id } });
+    const tenantId = TenantContext.getTenantId();
+    if (!tenantId) throw new Error("Tenant session required");
+
+    const result = await prisma.dailyLog.updateMany({
+      where: { id, tenant_id: tenantId },
+      data: {
+        is_archived: true,
+        archived_at: new Date(),
+      },
     });
+
+    if (result.count === 0) {
+      throw new Error("Daily log not found");
+    }
+
+    return await this.getDailyLogById(id);
+  }
+
+  static async restoreDailyLog(id: number) {
+    const tenantId = TenantContext.getTenantId();
+    if (!tenantId) throw new Error("Tenant session required");
+
+    const result = await prisma.dailyLog.updateMany({
+      where: { id, tenant_id: tenantId },
+      data: {
+        is_archived: false,
+        archived_at: null,
+      },
+    });
+
+    if (result.count === 0) {
+      throw new Error("Daily log not found");
+    }
+
+    return await this.getDailyLogById(id);
   }
 }

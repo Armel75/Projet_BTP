@@ -7,6 +7,7 @@ import {
   FileText, Building2, Banknote, Target, Loader2, CheckCircle2,
   Clock, XCircle, AlertTriangle, Calendar, Edit3, Award,
   BarChart2, Layers, Hash, Download, Trash2, ChevronDown,
+  Users, Mail, MapPin, ShieldCheck,
 } from "lucide-react";
 import { Button } from "../ui/button";
 import { motion, AnimatePresence } from "motion/react";
@@ -40,6 +41,17 @@ interface TenderDocumentItem {
   category?: string;
 }
 
+interface TenderInvitationItem {
+  id: number;
+  supplier_id: number;
+  contact_email?: string;
+  response_status: string;
+  invited_at: string;
+  responded_at?: string;
+  notes?: string;
+  supplier: { id: number; name: string; email?: string; contact_name?: string; specialty?: string };
+}
+
 interface Tender {
   id: number;
   reference?: string;
@@ -52,8 +64,18 @@ interface Tender {
   submission_deadline?: string;
   opening_date?: string;
   award_date?: string;
+  publication_date?: string;
+  clarification_deadline?: string;
+  site_visit_date?: string;
+  site_visit_location?: string;
+  submission_mode?: string;
+  evaluation_method?: string;
+  technical_weight?: number;
+  financial_weight?: number;
+  commercial_weight?: number;
   description?: string;
   notes?: string;
+  award_notes?: string;
   awarded_supplier_id?: number;
   project_id: number;
   lot_id?: number;
@@ -62,6 +84,7 @@ interface Tender {
   awardedSupplier?: { id: number; name: string };
   bids: TenderBid[];
   documents?: TenderDocumentItem[];
+  invitedSuppliers?: TenderInvitationItem[];
   createdBy?: { firstname: string; lastname: string };
   created_at: string;
   updated_at: string;
@@ -95,8 +118,52 @@ const CAT_LABELS: Record<string, string> = {
   TRAVAUX: "Travaux", FOURNITURES: "Fournitures", SERVICES: "Services", MOE: "Maîtrise d'œuvre",
 };
 
-const fmt = (n: number, currency = "EUR") =>
-  new Intl.NumberFormat("fr-FR", { style: "currency", currency, maximumFractionDigits: 0 }).format(n);
+const SUBMISSION_MODE_LABELS: Record<string, string> = {
+  PLATFORM: "Plateforme sécurisée",
+  EMAIL: "Remise par email",
+  PHYSICAL: "Remise physique",
+};
+
+const EVALUATION_METHOD_LABELS: Record<string, string> = {
+  WEIGHTED: "Notation pondérée",
+  LOWEST_PRICE: "Prix le plus bas",
+  TECHNICAL_FIRST: "Technique puis financier",
+};
+
+const resolveTenderDocumentUrl = (fileUrl?: string) => {
+  if (!fileUrl) return "";
+  if (/^https?:\/\//i.test(fileUrl)) return fileUrl;
+
+  if (fileUrl.startsWith("/uploads/documents/")) {
+    const filename = fileUrl.split("/").pop();
+    return filename ? `${API_BASE}/documents/files/${filename}` : "";
+  }
+
+  if (fileUrl.startsWith("/api/v1/")) {
+    return `${API_BASE}${fileUrl.slice("/api/v1".length)}`;
+  }
+  if (fileUrl.startsWith("/")) {
+    return fileUrl;
+  }
+  return `${API_BASE}/${fileUrl}`;
+};
+
+const INVITATION_STATUS_LABELS: Record<string, string> = {
+  INVITED: "Invité",
+  ACKNOWLEDGED: "Accusé réception",
+  RESPONDED: "A répondu",
+  DECLINED: "A décliné",
+};
+
+// "FCFA" n'est pas un code ISO 4217 valide — on mappe vers XAF (compatibilité anciennes données)
+const resolveDisplayCurrency = (currency?: string): string => {
+  if (!currency) return "XAF";
+  if (currency.toUpperCase() === "FCFA") return "XAF";
+  return currency;
+};
+
+const fmt = (n: number, currency = "XAF") =>
+  new Intl.NumberFormat("fr-FR", { style: "currency", currency: resolveDisplayCurrency(currency), maximumFractionDigits: 0 }).format(n);
 
 const fmtDate = (d?: string) => d ? format(new Date(d), "dd MMM yyyy", { locale: fr }) : "—";
 
@@ -130,6 +197,7 @@ export default function TenderDetailDrawer({ open, onOpenChange, tenderId, onUpd
   const [awarding, setAwarding] = useState(false);
   const [awardingBidId, setAwardingBidId] = useState<number | null>(null);
   const [evaluatingBid, setEvaluatingBid] = useState<number | null>(null);
+  const [downloadingPdf, setDownloadingPdf] = useState(false);
   const [evalForm, setEvalForm] = useState<Record<number, { tech: string; fin: string; notes: string }>>({});
 
   const fetchTender = useCallback(async () => {
@@ -189,6 +257,84 @@ export default function TenderDetailDrawer({ open, onOpenChange, tenderId, onUpd
     fetchTender();
   };
 
+  const downloadTenderPdf = async () => {
+    if (!tender) return;
+    setDownloadingPdf(true);
+    try {
+      const res = await apiFetch(`${API_BASE}/procurement/tenders/${tender.id}/pdf`);
+      if (!res.ok) {
+        let message = "Impossible de generer le PDF de l'appel d'offres.";
+        try {
+          const err = await res.json();
+          if (err?.error) message = String(err.error);
+        } catch {
+          // ignore json parse failure
+        }
+        throw new Error(message);
+      }
+
+      const contentType = res.headers.get("content-type") || "";
+      if (!contentType.toLowerCase().includes("application/pdf")) {
+        let details = "Le serveur n'a pas retourne un document PDF.";
+        try {
+          const err = await res.json();
+          if (err?.error) details = String(err.error);
+        } catch {
+          // ignore body parse errors
+        }
+        throw new Error(details);
+      }
+
+      const blob = await res.blob();
+      if (!blob.size) throw new Error("Le PDF genere est vide.");
+
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${(tender.reference || `AO-${tender.id}`).replace(/[^a-zA-Z0-9-_]/g, "_")}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (error: any) {
+      alert(error?.message || "Impossible de generer le PDF de l'appel d'offres.");
+    } finally {
+      setDownloadingPdf(false);
+    }
+  };
+
+  const downloadTenderDocument = async (doc: { url: string; filename: string }) => {
+    try {
+      const resolvedUrl = resolveTenderDocumentUrl(doc.url);
+      const res = await apiFetch(resolvedUrl);
+
+      if (!res.ok) {
+        let message = "Impossible de telecharger la piece jointe.";
+        try {
+          const err = await res.json();
+          if (err?.error) message = String(err.error);
+        } catch {
+          // ignore body parse errors
+        }
+        throw new Error(message);
+      }
+
+      const blob = await res.blob();
+      if (!blob.size) throw new Error("Le fichier telecharge est vide.");
+
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = doc.filename || "piece-jointe";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (error: any) {
+      alert(error?.message || "Impossible de telecharger la piece jointe.");
+    }
+  };
+
   if (!open) return null;
 
   const tabs: { id: Tab; label: string; icon: React.ElementType }[] = [
@@ -235,11 +381,29 @@ export default function TenderDetailDrawer({ open, onOpenChange, tenderId, onUpd
                 )}
               </div>
             </div>
-            {tender && onEdit && (
-              <Button variant="outline" size="sm" className="shrink-0 h-8 rounded-lg border-gb-border text-xs"
-                onClick={() => onEdit(tender)}>
-                <Edit3 size={12} className="mr-1" /> Modifier
-              </Button>
+            {tender && (
+              <div className="flex items-center gap-2 shrink-0">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-8 rounded-lg border-gb-border text-xs"
+                  onClick={downloadTenderPdf}
+                  disabled={downloadingPdf}
+                >
+                  {downloadingPdf ? <Loader2 size={12} className="mr-1 animate-spin" /> : <Download size={12} className="mr-1" />}
+                  Telecharger PDF
+                </Button>
+                {onEdit && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-8 rounded-lg border-gb-border text-xs"
+                    onClick={() => onEdit(tender)}
+                  >
+                    <Edit3 size={12} className="mr-1" /> Modifier
+                  </Button>
+                )}
+              </div>
             )}
           </div>
           {/* Tabs */}
@@ -285,6 +449,10 @@ export default function TenderDetailDrawer({ open, onOpenChange, tenderId, onUpd
                         { icon: Banknote,  label: "Budget estimé",  value: tender.budget_estimate ? fmt(tender.budget_estimate, tender.currency) : "—" },
                         { icon: Calendar,  label: "Délai dépôt",    value: fmtDate(tender.submission_deadline) },
                         { icon: Calendar,  label: "Date ouverture", value: fmtDate(tender.opening_date) },
+                        { icon: Calendar,  label: "Publication",    value: fmtDate(tender.publication_date) },
+                        { icon: Calendar,  label: "Clarifications", value: fmtDate(tender.clarification_deadline) },
+                        { icon: Layers,    label: "Mode remise",    value: SUBMISSION_MODE_LABELS[tender.submission_mode ?? ""] ?? (tender.submission_mode ?? "—") },
+                        { icon: ShieldCheck, label: "Évaluation",   value: EVALUATION_METHOD_LABELS[tender.evaluation_method ?? ""] ?? (tender.evaluation_method ?? "—") },
                         { icon: Calendar,  label: "Date attribution",value: fmtDate(tender.award_date) },
                         { icon: Hash,      label: "Créé par",       value: tender.createdBy ? `${tender.createdBy.firstname} ${tender.createdBy.lastname}` : "—" },
                       ].map(({ icon: Icon, label, value }) => (
@@ -311,6 +479,44 @@ export default function TenderDetailDrawer({ open, onOpenChange, tenderId, onUpd
                         <p className="text-sm text-gb-text">{tender.notes}</p>
                       </div>
                     )}
+                    {(tender.technical_weight != null || tender.financial_weight != null || tender.commercial_weight != null) && (
+                      <div className="rounded-xl border border-gb-border bg-gb-surface-solid p-4">
+                        <div className="flex items-center gap-2 mb-3">
+                          <ShieldCheck size={14} className="text-gb-primary" />
+                          <p className="text-[9px] font-black uppercase tracking-widest text-gb-muted">Pondération cible</p>
+                        </div>
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                          <div className="rounded-lg border border-gb-border bg-gb-app px-3 py-2">
+                            <p className="text-[10px] font-black uppercase tracking-widest text-gb-muted">Technique</p>
+                            <p className="text-lg font-extrabold text-gb-text mt-1">{tender.technical_weight ?? 0}%</p>
+                          </div>
+                          <div className="rounded-lg border border-gb-border bg-gb-app px-3 py-2">
+                            <p className="text-[10px] font-black uppercase tracking-widest text-gb-muted">Financier</p>
+                            <p className="text-lg font-extrabold text-gb-text mt-1">{tender.financial_weight ?? 0}%</p>
+                          </div>
+                          <div className="rounded-lg border border-gb-border bg-gb-app px-3 py-2">
+                            <p className="text-[10px] font-black uppercase tracking-widest text-gb-muted">Commercial</p>
+                            <p className="text-lg font-extrabold text-gb-text mt-1">{tender.commercial_weight ?? 0}%</p>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                    {(tender.site_visit_date || tender.site_visit_location) && (
+                      <div className="rounded-xl border border-gb-border bg-gb-surface-solid p-4">
+                        <div className="flex items-center gap-2 mb-2">
+                          <MapPin size={14} className="text-gb-primary" />
+                          <p className="text-[9px] font-black uppercase tracking-widest text-gb-muted">Visite de site</p>
+                        </div>
+                        <p className="text-sm font-semibold text-gb-text">{fmtDate(tender.site_visit_date)}</p>
+                        {tender.site_visit_location && <p className="text-sm text-gb-muted mt-1">{tender.site_visit_location}</p>}
+                      </div>
+                    )}
+                    {tender.award_notes && (
+                      <div className="bg-gb-primary/5 border border-gb-primary/20 rounded-xl p-4">
+                        <p className="text-[9px] font-black uppercase tracking-widest text-gb-primary mb-2">Synthèse d'attribution</p>
+                        <p className="text-sm text-gb-text whitespace-pre-wrap leading-relaxed">{tender.award_notes}</p>
+                      </div>
+                    )}
                     {/* Documents */}
                     {(() => {
                       // New approach: tender.documents is Document[] (direct FK)
@@ -325,20 +531,49 @@ export default function TenderDetailDrawer({ open, onOpenChange, tenderId, onUpd
                       return (
                         <div className="space-y-2">
                           {docs.map((doc, idx) => (
-                            <a
+                            <button
                               key={`${doc.url}-${idx}`}
-                              href={doc.url}
-                              target="_blank"
-                              rel="noopener noreferrer"
+                              type="button"
+                              onClick={() => void downloadTenderDocument(doc)}
                               className="flex items-center gap-2 text-sm text-gb-primary hover:underline font-medium"
                             >
                               <Download size={14} />
                               {doc.filename}
-                            </a>
+                            </button>
                           ))}
                         </div>
                       );
                     })()}
+                    {Array.isArray(tender.invitedSuppliers) && tender.invitedSuppliers.length > 0 && (
+                      <div className="rounded-xl border border-gb-border bg-gb-surface-solid p-4">
+                        <div className="flex items-center gap-2 mb-3">
+                          <Users size={14} className="text-gb-primary" />
+                          <p className="text-[9px] font-black uppercase tracking-widest text-gb-muted">Fournisseurs invités</p>
+                        </div>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                          {tender.invitedSuppliers.map((invitation) => (
+                            <div key={invitation.id} className="rounded-lg border border-gb-border bg-gb-app p-3">
+                              <div className="flex items-start justify-between gap-3">
+                                <div className="min-w-0">
+                                  <p className="text-sm font-bold text-gb-text truncate">{invitation.supplier.name}</p>
+                                  {invitation.supplier.specialty && <p className="text-[11px] font-semibold text-gb-primary mt-1">{invitation.supplier.specialty}</p>}
+                                </div>
+                                <span className="inline-flex items-center rounded-full bg-gb-surface-hover px-2 py-1 text-[10px] font-bold text-gb-muted uppercase">
+                                  {INVITATION_STATUS_LABELS[invitation.response_status] ?? invitation.response_status}
+                                </span>
+                              </div>
+                              {invitation.supplier.contact_name && <p className="text-xs text-gb-muted mt-2">{invitation.supplier.contact_name}</p>}
+                              {(invitation.contact_email || invitation.supplier.email) && (
+                                <p className="text-xs text-gb-muted mt-1 flex items-center gap-1 truncate">
+                                  <Mail size={11} />{invitation.contact_email || invitation.supplier.email}
+                                </p>
+                              )}
+                              <p className="text-[11px] text-gb-muted mt-2">Invité le {fmtDate(invitation.invited_at)}</p>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
                   </div>
                 )}
 

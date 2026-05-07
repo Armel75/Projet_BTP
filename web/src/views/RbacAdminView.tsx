@@ -115,9 +115,15 @@ export default function RbacAdminView() {
         <TabsContent value="users" className="mt-0 focus-visible:outline-none">
           {can("user:read") ? (
             <UserTable 
-              users={users} 
+              users={users}
               roles={roles}
               canAssign={can("user:assign-role")}
+              canCreate={can("user:create")}
+              canUpdate={can("user:update")}
+              canDelete={can("user:delete")}
+              onCreateUser={(payload) => callApi("/rbac/users", "POST", payload)}
+              onUpdateUser={(uId, payload) => callApi(`/rbac/users/${uId}`, "PUT", payload)}
+              onDeleteUser={(uId) => callApi(`/rbac/users/${uId}`, "DELETE")}
               onAssignRole={(uId, rId) => callApi(`/rbac/users/${uId}/roles`, "POST", { roleId: rId })}
               onRemoveRole={(uId, rId) => callApi(`/rbac/users/${uId}/roles/${rId}`, "DELETE")}
             />

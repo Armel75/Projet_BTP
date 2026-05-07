@@ -2,6 +2,11 @@ import { Request, Response } from "express";
 import { RbacService } from "../services/rbac.service.js";
 
 export class RbacController {
+  private static handleError(res: Response, err: any) {
+    const status = Number(err?.status) || 500;
+    const message = err?.message || "Server error";
+    res.status(status).json({ error: message, details: status === 500 ? String(err) : undefined });
+  }
   
   // --- ROLES ---
   static async getRoles(req: Request, res: Response) {
@@ -126,6 +131,41 @@ export class RbacController {
       res.json({ success: true });
     } catch(err) {
       res.status(500).json({error: "Server error", details: String(err)});
+    }
+  }
+
+  static async createUser(req: Request, res: Response) {
+    try {
+      const user = await RbacService.createUser(req.body);
+      if (!user) return res.status(500).json({ error: "Unable to create user" });
+      const { password_hash, ...safe } = user as any;
+      res.status(201).json(safe);
+    } catch (err) {
+      return RbacController.handleError(res, err);
+    }
+  }
+
+  static async updateUser(req: Request, res: Response) {
+    try {
+      const userId = parseInt(req.params.id);
+      if (!Number.isFinite(userId)) return res.status(400).json({ error: "Invalid user id" });
+      const user = await RbacService.updateUser(userId, req.body);
+      if (!user) return res.status(404).json({ error: "Utilisateur introuvable." });
+      const { password_hash, ...safe } = user as any;
+      res.json(safe);
+    } catch (err) {
+      return RbacController.handleError(res, err);
+    }
+  }
+
+  static async deleteUser(req: Request, res: Response) {
+    try {
+      const userId = parseInt(req.params.id);
+      if (!Number.isFinite(userId)) return res.status(400).json({ error: "Invalid user id" });
+      await RbacService.deleteUser(userId);
+      res.json({ success: true });
+    } catch (err) {
+      return RbacController.handleError(res, err);
     }
   }
 }

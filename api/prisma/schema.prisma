@@ -39,6 +39,7 @@ model Tenant {
   taskAssignments TaskAssignment[]
   suppliers Supplier[]
   tenders Tender[]
+  tenderInvitations TenderInvitation[]
   purchaseOrders PurchaseOrder[]
   deliveries Delivery[]
   inventoryItems InventoryItem[]
@@ -63,6 +64,8 @@ model Tenant {
   controlReports ControlReport[]
   controlReportActions ControlReportAction[]
   controlReportAttachments ControlReportAttachment[]
+  controlReportStatusHistory ControlReportStatusHistory[]
+  controlReportChecklistItems ControlReportChecklistItem[]
   workAcceptances WorkAcceptance[]
   incidents Incident[]
   documents Document[]
@@ -148,6 +151,7 @@ model User {
   suppliersCreated Supplier[]
   tendersCreated Tender[] @relation("TenderCreatedBy")
   tenderBidsCreated TenderBid[] @relation("TenderBidCreatedBy")
+  tenderInvitationsCreated TenderInvitation[] @relation("TenderInvitationCreatedBy")
 
   purchaseOrdersCreated PurchaseOrder[]
   deliveriesCreated Delivery[]
@@ -582,8 +586,8 @@ model WBSNode {
 //////////////////////////////
 
 model Task {
-    incidents  Incident[]
-    punchItems PunchItem[]
+  incidents  Incident[]
+  punchItems PunchItem[]
   id         Int @id @default(autoincrement())
   project_id Int
   wbs_id     Int?
@@ -682,6 +686,7 @@ model Supplier {
 
   budgetLines BudgetLine[]
   tenders         TenderBid[]
+  tenderInvitations TenderInvitation[]
   tendersAwarded  Tender[] @relation("TenderAwardedSupplier")
   purchaseOrders  PurchaseOrder[]
   contracts       Contract[]
@@ -712,8 +717,18 @@ model Tender {
   submission_deadline DateTime?
   opening_date        DateTime?
   award_date          DateTime?
+  publication_date    DateTime?
+  clarification_deadline DateTime?
+  site_visit_date     DateTime?
+  site_visit_location String?
+  submission_mode     String  @default("PLATFORM") // PLATFORM | EMAIL | PHYSICAL
+  evaluation_method   String  @default("WEIGHTED") // WEIGHTED | LOWEST_PRICE | TECHNICAL_FIRST
+  technical_weight    Float?  @default(60)
+  financial_weight    Float?  @default(40)
+  commercial_weight   Float?  @default(0)
   awarded_supplier_id Int?
   notes               String? @db.NVarChar(Max)
+  award_notes         String? @db.NVarChar(Max)
 
   wbs             WBSNode?    @relation(fields: [wbs_id],              references: [id])
   project         Project     @relation(fields: [project_id],          references: [id], onUpdate: NoAction, onDelete: NoAction)
@@ -722,6 +737,7 @@ model Tender {
   awardedSupplier Supplier?   @relation("TenderAwardedSupplier",       fields: [awarded_supplier_id], references: [id], onUpdate: NoAction, onDelete: NoAction)
   bids            TenderBid[]
   documents       Document[]
+  invitedSuppliers TenderInvitation[]
 
   created_at DateTime @default(now())
   updated_at DateTime @updatedAt
@@ -762,6 +778,32 @@ model TenderBid {
 
   created_by   Int
   createdBy    User @relation("TenderBidCreatedBy", fields: [created_by], references: [id], onUpdate: NoAction, onDelete: NoAction)
+}
+
+model TenderInvitation {
+  id              Int    @id @default(autoincrement())
+  tender_id       Int
+  supplier_id     Int
+  tenant_id       Int
+  contact_email   String?
+  response_status String @default("INVITED") // INVITED | ACKNOWLEDGED | RESPONDED | DECLINED
+  invited_at      DateTime @default(now())
+  responded_at    DateTime?
+  notes           String? @db.NVarChar(Max)
+
+  tender   Tender   @relation(fields: [tender_id], references: [id], onUpdate: NoAction, onDelete: NoAction)
+  supplier Supplier @relation(fields: [supplier_id], references: [id], onUpdate: NoAction, onDelete: NoAction)
+  tenant   Tenant   @relation(fields: [tenant_id], references: [id], onUpdate: NoAction, onDelete: NoAction)
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  created_by Int
+  createdBy  User @relation("TenderInvitationCreatedBy", fields: [created_by], references: [id], onUpdate: NoAction, onDelete: NoAction)
+
+  @@unique([tender_id, supplier_id])
+  @@index([supplier_id])
+  @@index([tenant_id])
 }
 
 model PurchaseOrder {
@@ -1264,6 +1306,8 @@ model MaterialConsumption {
     termination_reason String? @db.NVarChar(Max)
 
     currency       String
+    is_archived    Boolean  @default(false)
+    archived_at    DateTime?
     tenant_id      Int
 
     supplier   Supplier  @relation(fields: [supplier_id], references: [id])
@@ -1283,6 +1327,7 @@ model MaterialConsumption {
     created_at DateTime @default(now())
     updated_at DateTime @updatedAt
 
+    @@unique([tenant_id, reference])
     @@index([tenant_id, project_id])
     @@index([status])
     @@index([created_at])
@@ -1640,18 +1685,55 @@ model ControlReport {
   reference   String
   title       String?
   type        String  @default("QUALITY") // QUALITY | SAFETY | COMPLIANCE | TECHNICAL
+  category    String? // INTERNAL_AUDIT | EXTERNAL_AUDIT | CLIENT_WALKDOWN | REGULATORY
   status      String  @default("DRAFT")
   // DRAFT | OPEN | UNDER_REVIEW | ACTION_REQUIRED | RESOLVED | APPROVED | REJECTED | CLOSED
+  initial_status String? // Statut initial au moment de la creation
   severity    String  @default("MEDIUM") // LOW | MEDIUM | HIGH | CRITICAL
+  priority    String  @default("MEDIUM") // LOW | MEDIUM | HIGH | URGENT
   discipline  String?
+  sub_discipline String?
   location    String?
+  zone_code   String?
+  latitude    Float?
+  longitude   Float?
+
+  source_channel String? @default("MANUAL") // MANUAL | MOBILE | IMPORT | API
+  inspection_method String? // VISUAL | MEASURED | TESTED | DOCUMENT_REVIEW
+
+  observed_by_name String?
+  observed_by_company String?
+
   report_date DateTime?
   due_date    DateTime?
+  target_response_at DateTime?
+  target_resolution_at DateTime?
+  first_response_at DateTime?
+  last_status_changed_at DateTime?
   resolved_at DateTime?
+  closed_at   DateTime?
   comment     String @db.NVarChar(Max)
+  root_cause  String? @db.NVarChar(Max)
+  corrective_action_summary String? @db.NVarChar(Max)
+  preventive_action_summary String? @db.NVarChar(Max)
+  closure_summary String? @db.NVarChar(Max)
+
+  assigned_to_id Int?
+
+  sla_breached Boolean @default(false)
+  escalation_level Int @default(0)
+
+  open_actions_count Int @default(0)
+  evidence_count Int @default(0)
+
+  revision_no Int @default(1)
+
+  is_archived Boolean @default(false)
+  archived_at DateTime?
 
   approved_by     Int?
   approved_at     DateTime?
+  approval_workflow_status String? @default("DRAFT") // DRAFT | IN_REVIEW | APPROVED | REJECTED | ARCHIVED
   rejected_reason String? @db.NVarChar(Max)
 
   budgetLines BudgetLine[]
@@ -1666,6 +1748,8 @@ model ControlReport {
 
   actions     ControlReportAction[]
   attachments ControlReportAttachment[]
+  status_history ControlReportStatusHistory[]
+  checklist_items ControlReportChecklistItem[]
 
   created_at DateTime @default(now())
   updated_at DateTime @updatedAt
@@ -1674,9 +1758,15 @@ model ControlReport {
   @@index([tenant_id, project_id])
   @@index([status])
   @@index([severity, status])
+  @@index([priority, status])
   @@index([report_date])
+  @@index([due_date])
+  @@index([target_resolution_at])
+  @@index([approval_workflow_status])
+  @@index([assigned_to_id, status])
   @@index([approved_by])
   @@index([lot_id])
+  @@index([is_archived])
 }
 
 model ControlReportAction {
@@ -1686,11 +1776,28 @@ model ControlReportAction {
 
   subject     String
   description String? @db.NVarChar(Max)
+  action_type String @default("CORRECTIVE") // CORRECTIVE | PREVENTIVE | VERIFICATION
+  priority    String @default("MEDIUM") // LOW | MEDIUM | HIGH | URGENT
   responsible_id Int?
+  owner_name  String?
   due_date    DateTime?
+  started_at  DateTime?
   status      String   @default("OPEN")
   // OPEN | IN_PROGRESS | DONE | CANCELLED
   completed_at DateTime?
+  verified_at DateTime?
+  verification_note String? @db.NVarChar(Max)
+  verified_by Int?
+  completion_evidence_url String?
+  is_overdue Boolean @default(false)
+  reopened_count Int @default(0)
+  sequence_no Int @default(0)
+  escalation_level Int @default(0)
+  escalated_at DateTime?
+  escalation_reason String? @db.NVarChar(Max)
+
+  is_archived Boolean @default(false)
+  archived_at DateTime?
 
   controlReport ControlReport @relation(fields: [control_report_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
   tenant        Tenant        @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
@@ -1701,6 +1808,7 @@ model ControlReportAction {
 
   @@index([control_report_id])
   @@index([tenant_id, status])
+  @@index([tenant_id, is_archived])
   @@index([responsible_id, status])
   @@index([due_date])
 }
@@ -1711,10 +1819,25 @@ model ControlReportAttachment {
   tenant_id         Int
 
   url       String
+  storage_key String?
   file_name String?
   file_type String?
+  mime_type String?
+  file_size_bytes Int?
+  checksum_sha256 String?
   source    String  @default("DOCUMENT") // DOCUMENT | PHOTO
   caption   String? @db.NVarChar(Max)
+  taken_at  DateTime?
+  latitude  Float?
+  longitude Float?
+  is_primary_evidence Boolean @default(false)
+  uploaded_by Int?
+  external_system String?
+  external_id String?
+  source_updated_at DateTime?
+
+  is_archived Boolean @default(false)
+  archived_at DateTime?
 
   controlReport ControlReport @relation(fields: [control_report_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
   tenant        Tenant        @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
@@ -1724,6 +1847,63 @@ model ControlReportAttachment {
 
   @@index([control_report_id])
   @@index([tenant_id, source])
+  @@index([tenant_id, is_archived])
+  @@index([is_primary_evidence])
+  @@index([tenant_id, external_system, external_id])
+}
+
+model ControlReportStatusHistory {
+  id Int @id @default(autoincrement())
+  control_report_id Int
+  tenant_id Int
+
+  from_status String?
+  to_status String
+  changed_at DateTime @default(now())
+  changed_by Int?
+  reason String? @db.NVarChar(Max)
+  comment String? @db.NVarChar(Max)
+  sla_breached Boolean @default(false)
+  snapshot_json String? @db.NVarChar(Max)
+
+  controlReport ControlReport @relation(fields: [control_report_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  tenant Tenant @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([control_report_id, changed_at])
+  @@index([tenant_id, changed_at])
+  @@index([to_status])
+}
+
+model ControlReportChecklistItem {
+  id Int @id @default(autoincrement())
+  control_report_id Int
+  tenant_id Int
+
+  item_code String?
+  label String
+  description String? @db.NVarChar(Max)
+  result String @default("PENDING") // PENDING | PASSED | FAILED | NA
+  value_text String?
+  value_number Float?
+  unit String?
+  tolerance_min Float?
+  tolerance_max Float?
+  is_mandatory Boolean @default(true)
+  evidence_required Boolean @default(false)
+  sequence_no Int @default(0)
+  checked_by Int?
+  checked_at DateTime?
+  note String? @db.NVarChar(Max)
+
+  controlReport ControlReport @relation(fields: [control_report_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  tenant Tenant @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  @@index([control_report_id, sequence_no])
+  @@index([tenant_id, result])
+  @@index([item_code])
 }
 
 model WorkAcceptance {
@@ -2091,6 +2271,8 @@ model WorkflowAction {
     material_entries DailyLogMaterial[]
     task_progress    DailyLogTaskProgress[]
     photos           Photo[]
+    is_archived      Boolean  @default(false)
+    archived_at      DateTime?
     created_at DateTime @default(now())
     updated_at DateTime @updatedAt
   }

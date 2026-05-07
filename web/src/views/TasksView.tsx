@@ -10,6 +10,7 @@ interface TaskLot { id: number; lot_number: string; name: string; trade_code?: s
 interface Task {
   id: number;
   title: string;
+  description?: string | null;
   status: string;
   progress: number;
   priority: string;
@@ -95,7 +96,7 @@ export default function TasksView() {
   // Create dialog
   const [showCreate, setShowCreate] = useState(false);
   const [saving, setSaving]         = useState(false);
-  const EMPTY = { title: "", status: "TODO", priority: "MEDIUM", progress: "0", project_id: "", lot_id: "", planned_start: "", planned_end: "" };
+  const EMPTY = { title: "", description: "", status: "TODO", priority: "MEDIUM", progress: "0", project_id: "", lot_id: "", planned_start: "", planned_end: "" };
   const [form, setForm] = useState(EMPTY);
 
   // ── Fetch ────────────────────────────────────────────────────────────────
@@ -173,6 +174,7 @@ export default function TasksView() {
     try {
       const payload: Record<string, any> = {
         title:      form.title.trim(),
+        description: form.description.trim() || null,
         status:     form.status,
         priority:   form.priority,
         progress:   Number(form.progress),
@@ -400,7 +402,7 @@ export default function TasksView() {
                           onClick={() => advanceStatus(task)}
                           disabled={!isTaskPhaseAllowed(task.project?.phase)}
                           title={!isTaskPhaseAllowed(task.project?.phase) ? TASK_WORKFLOW_GUARD.reason : undefined}
-                          className="mt-3 w-full flex items-center justify-center gap-1 text-[11px] font-semibold text-gb-muted hover:text-gb-primary border border-transparent hover:border-gb-primary/30 rounded-lg py-1 transition-all opacity-0 group-hover:opacity-100 disabled:cursor-not-allowed disabled:opacity-40"
+                          className="mt-3 w-full flex items-center justify-center gap-1 text-[11px] font-semibold text-gb-muted hover:text-gb-primary border border-transparent hover:border-gb-primary/30 rounded-lg py-1 transition-all disabled:cursor-not-allowed disabled:opacity-40"
                         >
                           {nextLabel} <ChevronRight size={11} />
                         </button>
@@ -488,6 +490,17 @@ export default function TasksView() {
                   onChange={e => setForm(p => ({ ...p, title: e.target.value }))}
                   placeholder="ex : Coulage fondations — Zone A"
                   className="w-full bg-gb-app border border-gb-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gb-primary"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-gb-text mb-1.5">Description</label>
+                <textarea
+                  value={form.description}
+                  onChange={e => setForm(p => ({ ...p, description: e.target.value }))}
+                  rows={3}
+                  placeholder="Décrivez le contexte, le périmètre ou les contraintes de cette tâche..."
+                  className="w-full bg-gb-app border border-gb-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gb-primary resize-none"
                 />
               </div>
 

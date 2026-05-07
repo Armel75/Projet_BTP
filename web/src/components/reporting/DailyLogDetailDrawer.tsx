@@ -19,8 +19,12 @@ import {
   FileText,
   CheckCircle,
   ImageIcon,
-  Download
+  Download,
+  Pencil,
+  Archive,
+  RotateCcw
 } from "lucide-react";
+import { Button } from "../ui/button";
 import { Badge } from "../ui/badge";
 import { format } from "date-fns";
 import { fr } from "date-fns/locale";
@@ -31,17 +35,90 @@ interface DailyLogDetailDrawerProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   logId: number;
+  onEdit?: (log: any) => void;
+  onArchive?: (log: any) => Promise<void> | void;
+  onRestore?: (log: any) => Promise<void> | void;
 }
 
-export default function DailyLogDetailDrawer({ open, onOpenChange, logId }: DailyLogDetailDrawerProps) {
+export default function DailyLogDetailDrawer({ open, onOpenChange, logId, onEdit, onArchive, onRestore }: DailyLogDetailDrawerProps) {
   const [log, setLog] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  const [resolvedPhotoUrls, setResolvedPhotoUrls] = useState<Record<string, string>>({});
+  const [actionLoading, setActionLoading] = useState(false);
+
+  const resolveFileUrl = (url?: string | null) => {
+    if (!url) return null;
+    if (url.startsWith("/api/v1/")) return `${API_BASE}/${url.slice("/api/v1/".length)}`;
+    return url;
+  };
+
+  const getDisplayPhotoUrl = (url?: string) => {
+    if (!url) return null;
+    if (url.startsWith("data:") || url.startsWith("blob:") || url.startsWith("http")) return url;
+    return resolvedPhotoUrls[url] ?? null;
+  };
 
   useEffect(() => {
     if (open) {
       fetchLog();
     }
   }, [open, logId]);
+
+  useEffect(() => {
+    const securedUrls: string[] = Array.from(new Set(
+      (log?.task_progress ?? []).flatMap((entry: any) => {
+        try {
+          const photos = entry.photos_url ? JSON.parse(entry.photos_url) : [];
+          return Array.isArray(photos)
+            ? photos.filter((photo): photo is string => typeof photo === "string" && photo.startsWith("/api/"))
+            : [];
+        } catch {
+          return [];
+        }
+      })
+    ));
+
+    if (!log || securedUrls.length === 0) {
+      setResolvedPhotoUrls({});
+      return;
+    }
+
+    let disposed = false;
+    const objectUrls: string[] = [];
+
+    const loadPhotos = async () => {
+      const entries = await Promise.all(
+        securedUrls.map(async (rawUrl) => {
+          try {
+            const resolvedUrl = resolveFileUrl(rawUrl);
+            if (!resolvedUrl) return null;
+            const response = await apiFetch(resolvedUrl);
+            if (!response.ok) return null;
+            const blob = await response.blob();
+            const objectUrl = URL.createObjectURL(blob);
+            objectUrls.push(objectUrl);
+            return [rawUrl, objectUrl] as const;
+          } catch {
+            return null;
+          }
+        })
+      );
+
+      if (disposed) {
+        objectUrls.forEach((url) => URL.revokeObjectURL(url));
+        return;
+      }
+
+      setResolvedPhotoUrls(Object.fromEntries(entries.filter(Boolean) as Array<readonly [string, string]>));
+    };
+
+    void loadPhotos();
+
+    return () => {
+      disposed = true;
+      objectUrls.forEach((url) => URL.revokeObjectURL(url));
+    };
+  }, [log]);
 
   const fetchLog = async () => {
     setLoading(true);
@@ -54,6 +131,26 @@ export default function DailyLogDetailDrawer({ open, onOpenChange, logId }: Dail
       console.error(err);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleArchive = async () => {
+    if (!log || !onArchive || actionLoading) return;
+    setActionLoading(true);
+    try {
+      await onArchive(log);
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const handleRestore = async () => {
+    if (!log || !onRestore || actionLoading) return;
+    setActionLoading(true);
+    try {
+      await onRestore(log);
+    } finally {
+      setActionLoading(false);
     }
   };
 
@@ -76,7 +173,50 @@ export default function DailyLogDetailDrawer({ open, onOpenChange, logId }: Dail
                       Enregistré par {log.createdBy?.firstname} {log.createdBy?.lastname}
                     </p>
                   </div>
+                  <div className="flex flex-wrap gap-2 w-full sm:w-auto">
+                    {!log.is_archived && onEdit && (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className="rounded-xl h-10 px-4 font-bold"
+                        onClick={() => onEdit(log)}
+                        disabled={actionLoading}
+                      >
+                        <Pencil size={14} className="mr-2" />
+                        Modifier
+                      </Button>
+                    )}
+                    {!log.is_archived && onArchive && (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className="rounded-xl h-10 px-4 font-bold text-gb-danger border-gb-danger/20 hover:bg-gb-danger/5"
+                        onClick={handleArchive}
+                        disabled={actionLoading}
+                      >
+                        <Archive size={14} className="mr-2" />
+                        {actionLoading ? "Suppression..." : "Supprimer"}
+                      </Button>
+                    )}
+                    {log.is_archived && onRestore && (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className="rounded-xl h-10 px-4 font-bold"
+                        onClick={handleRestore}
+                        disabled={actionLoading}
+                      >
+                        <RotateCcw size={14} className="mr-2" />
+                        {actionLoading ? "Restauration..." : "Restaurer"}
+                      </Button>
+                    )}
+                  </div>
                   <div className="flex gap-2 w-full sm:w-auto">
+                     {log.is_archived && (
+                       <Badge className="bg-gb-danger/10 text-gb-danger border-gb-danger/20 px-3 py-1 flex flex-1 sm:flex-none justify-center gap-1.5 items-center text-[10px] sm:text-xs">
+                         Archive
+                       </Badge>
+                     )}
                      {log.weather && (
                        <Badge className="bg-amber-500/10 text-amber-600 border-amber-500/20 px-3 py-1 flex flex-1 sm:flex-none justify-center gap-1.5 items-center text-[10px] sm:text-xs">
                          <CloudSun size={14} /> {log.weather}
@@ -219,9 +359,13 @@ export default function DailyLogDetailDrawer({ open, onOpenChange, logId }: Dail
                                 <div className="grid grid-cols-3 md:grid-cols-5 gap-2">
                                   {photosData.map((photo: string, pi: number) => (
                                     <div key={pi} className="relative group">
-                                      <img src={photo} alt={`Photo ${pi + 1}`} className="w-full h-20 object-cover rounded-lg border border-gb-border" />
-                                      {photo.startsWith("http") && (
-                                        <a href={photo} download className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-gb-primary text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity" title="Télécharger">
+                                      {getDisplayPhotoUrl(photo) ? (
+                                        <img src={getDisplayPhotoUrl(photo) || undefined} alt={`Photo ${pi + 1}`} className="w-full h-20 object-cover rounded-lg border border-gb-border" />
+                                      ) : (
+                                        <div className="w-full h-20 rounded-lg border border-gb-border bg-gb-app/40 animate-pulse" />
+                                      )}
+                                      {getDisplayPhotoUrl(photo) && (
+                                        <a href={getDisplayPhotoUrl(photo) || undefined} download={`photo-${pi + 1}.jpg`} className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-gb-primary text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity" title="Télécharger">
                                           <Download size={10} />
                                         </a>
                                       )}

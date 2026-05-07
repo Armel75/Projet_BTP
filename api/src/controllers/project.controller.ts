@@ -624,13 +624,13 @@ export class ProjectController {
 
   static async createTask(req: AuthRequest, res: Response): Promise<void> {
     try {
-      const { project_id, lot_id, wbs_id, title, status = 'TODO', progress = 0, planned_start, planned_end } = req.body;
+      const { project_id, lot_id, wbs_id, title, description, status = 'TODO', priority = 'MEDIUM', progress = 0, planned_start, planned_end } = req.body;
       if (!title?.trim())  { res.status(400).json({ error: 'Titre requis.' }); return; }
       if (!project_id)     { res.status(400).json({ error: 'project_id requis.' }); return; }
       if (!lot_id)         { res.status(400).json({ error: 'lot_id requis.' }); return; }
       const task = await ProjectManagementService.createTask({
         project_id: Number(project_id), lot_id: Number(lot_id), wbs_id: wbs_id ? Number(wbs_id) : null,
-        title: title.trim(), status, progress: Number(progress),
+        title: title.trim(), description: description?.trim() || null, status, priority, progress: Number(progress),
         tenant_id: req.user!.tenant_id, created_by: req.user!.id,
         planned_start: planned_start || null, planned_end: planned_end || null,
       });

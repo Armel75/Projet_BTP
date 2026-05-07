@@ -3,14 +3,11 @@ import { apiFetch } from "../../lib/api";
 const API_BASE = import.meta.env.VITE_API_URL;
 import { 
   ClipboardList, 
-  Plus, 
   Loader2, 
-  AlertCircle, 
   CalendarDays,
   ChevronRight,
-  TrendingUp,
-  FileCheck,
-  Zap
+  Zap,
+  Trash2
 } from "lucide-react";
 import { Button } from "../ui/button";
 import { Badge } from "../ui/badge";
@@ -19,6 +16,7 @@ import { format } from "date-fns";
 import { fr } from "date-fns/locale";
 import WeeklyReportDetailDrawer from "./WeeklyReportDetailDrawer";
 import GenerateWeeklyReportDialog from "./GenerateWeeklyReportDialog";
+import DeleteWeeklyReportDialog from "./DeleteWeeklyReportDialog";
 
 export default function WeeklyReportModule() {
   const [reports, setReports] = useState<any[]>([]);
@@ -29,6 +27,7 @@ export default function WeeklyReportModule() {
   const [selectedReportId, setSelectedReportId] = useState<number | null>(null);
   const [isDetailOpen, setIsDetailOpen] = useState(false);
   const [isGenerateOpen, setIsGenerateOpen] = useState(false);
+  const [reportToDelete, setReportToDelete] = useState<any | null>(null);
 
   const fetchProjects = async () => {
     try {
@@ -158,6 +157,20 @@ export default function WeeklyReportModule() {
                   </div>
                   
                   <div className="flex items-center gap-3">
+                    {report.status === "DRAFT" && (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className="rounded-xl h-9 px-3 border-gb-danger/30 text-gb-danger hover:bg-gb-danger/10"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          setReportToDelete(report);
+                        }}
+                      >
+                        <Trash2 size={14} className="mr-1.5" />
+                        Supprimer
+                      </Button>
+                    )}
                     <div className="flex flex-col items-end">
                        <span className="text-[9px] font-bold text-gb-muted uppercase">Préparé par</span>
                        <span className="text-xs font-bold">{report.preparedBy?.firstname} {report.preparedBy?.lastname}</span>
@@ -186,6 +199,21 @@ export default function WeeklyReportModule() {
           onSuccess={() => fetchReports(selectedProjectId)}
         />
       )}
+
+      <DeleteWeeklyReportDialog
+        open={!!reportToDelete}
+        onOpenChange={(open) => {
+          if (!open) setReportToDelete(null);
+        }}
+        report={reportToDelete}
+        onDeleted={async () => {
+          await fetchReports(selectedProjectId);
+          if (selectedReportId === reportToDelete?.id) {
+            setIsDetailOpen(false);
+            setSelectedReportId(null);
+          }
+        }}
+      />
     </div>
   );
 }

@@ -84,11 +84,7 @@ const PERSONA_LABELS: Record<Persona, string> = {
 
 function formatKpiValue(kpi: Kpi): string {
   if (kpi.unit === "currency") {
-    return new Intl.NumberFormat("fr-FR", {
-      style: "currency",
-      currency: "EUR",
-      maximumFractionDigits: 0,
-    }).format(kpi.value);
+    return `${new Intl.NumberFormat("fr-FR", { maximumFractionDigits: 0 }).format(kpi.value)} FCFA`;
   }
 
   if (kpi.unit === "percent") {

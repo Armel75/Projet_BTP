@@ -52,6 +52,25 @@ const MEETING_INCLUDE = {
 
 export class MeetingService {
 
+  private static async generateReference(tenantId: number, date?: Date) {
+    const year = (date ?? new Date()).getFullYear();
+
+    for (let attempt = 0; attempt < 30; attempt += 1) {
+      const rand = Math.floor(100 + Math.random() * 900);
+      const candidate = `CR-${year}-${rand}`;
+      const existing = await prisma.meeting.findFirst({
+        where: { tenant_id: tenantId, reference: candidate },
+        select: { id: true },
+      });
+
+      if (!existing) {
+        return candidate;
+      }
+    }
+
+    throw new Error('Impossible de generer une reference de reunion unique.');
+  }
+
   // ─── LIST ────────────────────────────────────────────────────────────────
   static async listMeetings(filters: {
     project_id?: number;
@@ -109,8 +128,10 @@ export class MeetingService {
     const tenantId = TenantContext.getTenantId();
     if (!tenantId) throw new Error('Tenant session required');
 
+    const reference = data.reference || await this.generateReference(tenantId, data.date);
+
     return prisma.meeting.create({
-      data: { ...data, tenant_id: tenantId },
+      data: { ...data, reference, tenant_id: tenantId },
       include: MEETING_INCLUDE,
     });
   }

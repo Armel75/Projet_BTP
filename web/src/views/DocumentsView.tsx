@@ -567,19 +567,20 @@ function DocDetailDrawer({ doc, onClose, onEdit, onDelete, onArchive, onVersionA
                 <p className="text-[10px] font-mono text-gb-muted/60">#{doc.id}</p>
               </div>
             </div>
-            <div className="flex items-center gap-1">
+            <div className="flex items-center gap-2">
               <button onClick={() => onEdit(doc)}
-                className="p-2 rounded-xl text-gb-muted hover:text-gb-primary hover:bg-gb-primary/10 transition-colors" title="Modifier">
-                <Pencil size={15} />
+                className="inline-flex items-center gap-1.5 px-3 h-8 rounded-xl text-xs font-semibold text-gb-muted hover:text-gb-primary hover:bg-gb-primary/10 transition-colors" title="Modifier">
+                <Pencil size={13} /><span>Modifier</span>
               </button>
               <button onClick={() => onArchive(doc.id, !doc.is_archived)}
-                className="p-2 rounded-xl text-gb-muted hover:text-amber-500 hover:bg-amber-500/10 transition-colors"
+                className="inline-flex items-center gap-1.5 px-3 h-8 rounded-xl text-xs font-semibold text-gb-muted hover:text-amber-500 hover:bg-amber-500/10 transition-colors"
                 title={doc.is_archived ? "Désarchiver" : "Archiver"}>
-                {doc.is_archived ? <ArchiveRestore size={15} /> : <Archive size={15} />}
+                {doc.is_archived ? <ArchiveRestore size={13} /> : <Archive size={13} />}
+                <span>{doc.is_archived ? "Désarchiver" : "Archiver"}</span>
               </button>
               <button onClick={() => { if (confirm("Supprimer ce document définitivement ?")) onDelete(doc.id); }}
-                className="p-2 rounded-xl text-gb-muted hover:text-gb-danger hover:bg-gb-danger/10 transition-colors" title="Supprimer">
-                <Trash2 size={15} />
+                className="inline-flex items-center gap-1.5 px-3 h-8 rounded-xl text-xs font-semibold text-gb-muted hover:text-gb-danger hover:bg-gb-danger/10 transition-colors" title="Supprimer">
+                <Trash2 size={13} /><span>Supprimer</span>
               </button>
               <button onClick={onClose} className="p-2 rounded-xl text-gb-muted hover:text-gb-text hover:bg-gb-surface-hover transition-colors">
                 <X size={18} />

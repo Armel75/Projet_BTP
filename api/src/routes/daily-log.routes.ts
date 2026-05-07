@@ -11,5 +11,6 @@ router.get('/', DailyLogController.list);
 router.get('/:id', DailyLogController.getById);
 router.put('/:id', DailyLogController.update);
 router.delete('/:id', DailyLogController.delete);
+router.patch('/:id/archive', DailyLogController.archive);
 
 export default router;

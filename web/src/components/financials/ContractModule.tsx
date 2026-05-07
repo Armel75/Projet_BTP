@@ -3,7 +3,7 @@ import { apiFetch } from "../../lib/api";
 import {
   FileSignature, Plus, Search, Loader2,
   Building2, Banknote, ChevronRight, TrendingUp, AlertCircle, X,
-  FileText, Calendar, Filter,
+  FileText, Calendar, Filter, Archive, RotateCcw,
 } from "lucide-react";
 import { Button } from "../ui/button";
 import { motion, AnimatePresence } from "motion/react";
@@ -35,6 +35,7 @@ interface Contract {
   change_orders?: any[];
   line_items?: any[];
   invoices?: any[];
+  is_archived?: boolean;
 }
 
 const TYPE_CONFIG: Record<string, { label: string; color: string; bar: string }> = {
@@ -93,6 +94,7 @@ export default function ContractModule() {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [formOpen, setFormOpen] = useState(false);
   const [editContract, setEditContract] = useState<Contract | null>(null);
+  const [showArchived, setShowArchived] = useState(false);
 
   const fetchContracts = useCallback(async () => {
     setLoading(true);
@@ -100,6 +102,7 @@ export default function ContractModule() {
       const params = new URLSearchParams();
       if (filterStatus !== "ALL") params.set("status", filterStatus);
       if (filterType !== "ALL") params.set("type", filterType);
+      params.set("is_archived", showArchived ? "true" : "false");
       const res = await apiFetch(`${API_BASE}/contracts?${params}`);
       if (res.ok) setContracts(await res.json());
     } catch (err) {
@@ -107,12 +110,18 @@ export default function ContractModule() {
     } finally {
       setLoading(false);
     }
-  }, [filterStatus, filterType]);
+  }, [filterStatus, filterType, showArchived]);
 
   useEffect(() => { fetchContracts(); }, [fetchContracts]);
 
   const openDetail = (id: number) => { setSelectedId(id); setDrawerOpen(true); };
   const openCreate = () => { setEditContract(null); setFormOpen(true); };
+  const openEdit = (contract: any) => {
+    if (contract?.is_archived) return;
+    setDrawerOpen(false);
+    setEditContract(contract);
+    setFormOpen(true);
+  };
   const onSaved = () => { setFormOpen(false); fetchContracts(); };
 
   const filtered = contracts.filter(c => {
@@ -155,6 +164,15 @@ export default function ContractModule() {
         </div>
         <div className="flex items-center gap-2">
           <Filter size={14} className="text-gb-muted hidden md:block" />
+          <Button
+            type="button"
+            variant="outline"
+            className="h-10 px-4 rounded-xl"
+            onClick={() => setShowArchived((current) => !current)}
+          >
+            {showArchived ? <RotateCcw size={16} className="mr-2" /> : <Archive size={16} className="mr-2" />}
+            {showArchived ? "Voir les actifs" : "Voir les supprimés"}
+          </Button>
           <select
             value={filterType}
             onChange={e => setFilterType(e.target.value)}
@@ -191,7 +209,7 @@ export default function ContractModule() {
         <div className="p-20 text-center bg-gb-surface-solid border border-dashed border-gb-border rounded-3xl">
           <FileSignature className="mx-auto text-gb-muted/20 mb-5" size={56} />
           <h3 className="text-lg font-bold text-gb-text mb-1">Aucun contrat trouve</h3>
-          <p className="text-gb-muted text-sm italic">Commencez par enregistrer un contrat client ou sous-traitant.</p>
+          <p className="text-gb-muted text-sm italic">{showArchived ? "Aucun contrat archive disponible." : "Commencez par enregistrer un contrat client ou sous-traitant."}</p>
         </div>
       ) : (
         <div className="bg-gb-surface-solid border border-gb-border rounded-2xl overflow-hidden">
@@ -224,6 +242,9 @@ export default function ContractModule() {
                   <div className="pl-3 min-w-0">
                     <div className="flex items-center gap-2">
                       <span className="text-sm font-black text-gb-text group-hover:text-gb-primary transition-colors truncate">{c.reference || "..."}</span>
+                      {c.is_archived && (
+                        <span className="shrink-0 px-1.5 py-0.5 rounded-full bg-red-500/15 text-red-600 text-[9px] font-black border border-red-500/20">Archive</span>
+                      )}
                       {hasPendingCO && (
                         <span className="shrink-0 px-1.5 py-0.5 rounded-full bg-amber-500/15 text-amber-600 text-[9px] font-black border border-amber-500/20">AV</span>
                       )}
@@ -295,6 +316,12 @@ export default function ContractModule() {
           onOpenChange={setDrawerOpen}
           contractId={selectedId}
           onContractUpdated={fetchContracts}
+          onEditContract={openEdit}
+          onContractDeleted={() => {
+            setDrawerOpen(false);
+            setSelectedId(null);
+            fetchContracts();
+          }}
         />
       )}
 

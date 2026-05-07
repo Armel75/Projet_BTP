@@ -78,14 +78,14 @@ export function ProjectFilterPanel({
       {/* Panel */}
       <div
         ref={panelRef}
-        className="fixed right-0 top-0 h-screen md:max-w-[720px] w-full bg-white shadow-lg z-50 flex flex-col md:rounded-l-lg overflow-hidden"
+        className="fixed right-0 top-0 h-screen md:max-w-[720px] w-full bg-white dark:bg-gb-surface-solid shadow-lg z-50 flex flex-col md:rounded-l-lg overflow-hidden"
       >
         {/* Header */}
-        <div className="flex items-center justify-between p-4 border-b border-gray-200">
-          <h2 className="text-lg font-semibold text-gray-900">Filtrer les projets</h2>
+        <div className="flex items-center justify-between p-4 border-b border-gray-200 dark:border-gb-border">
+          <h2 className="text-lg font-semibold text-gray-900 dark:text-gb-text">Filtrer les projets</h2>
           <button
             onClick={onClose}
-            className="p-1 text-gray-400 hover:text-gray-600 rounded hover:bg-gray-100 transition"
+            className="p-1 text-gray-400 hover:text-gray-600 dark:text-gb-muted dark:hover:text-gb-text rounded hover:bg-gray-100 dark:hover:bg-gb-app transition"
           >
             <X size={20} />
           </button>
@@ -94,8 +94,8 @@ export function ProjectFilterPanel({
         {/* Content */}
         <div className="flex-1 overflow-y-auto p-4 space-y-4">
           {/* Logic selector */}
-          <div className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg">
-            <span className="text-sm font-medium text-gray-700">Logique:</span>
+          <div className="flex items-center gap-3 p-3 bg-gray-50 dark:bg-gb-app rounded-lg">
+            <span className="text-sm font-medium text-gray-700 dark:text-gb-text">Logique:</span>
             <label className="flex items-center gap-2 cursor-pointer">
               <input
                 type="radio"
@@ -103,7 +103,7 @@ export function ProjectFilterPanel({
                 onChange={() => setLogic('AND')}
                 className="w-4 h-4 text-blue-600"
               />
-              <span className="text-sm text-gray-700">ET (tous les critères)</span>
+              <span className="text-sm text-gray-700 dark:text-gb-text">ET (tous les critères)</span>
             </label>
             <label className="flex items-center gap-2 cursor-pointer">
               <input
@@ -112,7 +112,7 @@ export function ProjectFilterPanel({
                 onChange={() => setLogic('OR')}
                 className="w-4 h-4 text-blue-600"
               />
-              <span className="text-sm text-gray-700">OU (au moins un)</span>
+              <span className="text-sm text-gray-700 dark:text-gb-text">OU (au moins un)</span>
             </label>
           </div>
 
@@ -121,10 +121,10 @@ export function ProjectFilterPanel({
             {rows.map((row, index) => (
               <div key={row.id}>
                 {index > 0 && (
-                  <div className="text-xs font-semibold text-gray-500 uppercase mb-2 flex items-center gap-2">
-                    <div className="flex-1 h-px bg-gray-300" />
+                  <div className="text-xs font-semibold text-gray-500 dark:text-gb-muted uppercase mb-2 flex items-center gap-2">
+                    <div className="flex-1 h-px bg-gray-300 dark:bg-gb-border" />
                     <span>{logic}</span>
-                    <div className="flex-1 h-px bg-gray-300" />
+                    <div className="flex-1 h-px bg-gray-300 dark:bg-gb-border" />
                   </div>
                 )}
                 <ProjectFilterRow
@@ -147,9 +147,9 @@ export function ProjectFilterPanel({
         </div>
 
         {/* Footer */}
-        <div className="border-t border-gray-200 p-4 space-y-3">
+        <div className="border-t border-gray-200 dark:border-gb-border p-4 space-y-3">
           {/* Export info */}
-          <div className="flex items-center gap-2 text-xs text-gray-500 bg-blue-50 p-2 rounded">
+          <div className="flex items-center gap-2 text-xs text-gray-500 dark:text-gb-muted bg-blue-50 dark:bg-gb-app p-2 rounded">
             <Download size={14} />
             <span>Les résultats filtrés peuvent être exportés en PDF ou Excel</span>
           </div>
@@ -159,7 +159,7 @@ export function ProjectFilterPanel({
             <button
               onClick={handleReset}
               disabled={!hasFilters}
-              className="flex items-center gap-1 px-3 py-2 text-sm font-medium text-gray-700 bg-gray-100 hover:bg-gray-200 disabled:opacity-50 disabled:cursor-not-allowed rounded transition"
+              className="flex items-center gap-1 px-3 py-2 text-sm font-medium text-gray-700 dark:text-gb-text bg-gray-100 dark:bg-gb-app hover:bg-gray-200 dark:hover:bg-gb-border disabled:opacity-50 disabled:cursor-not-allowed rounded transition"
             >
               <RotateCcw size={16} />
               Réinitialiser

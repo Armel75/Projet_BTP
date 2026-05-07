@@ -7,6 +7,7 @@ const rfiRouter = Router();
 rfiRouter.use(authenticateToken);
 
 // ─── CRUD RFIs ────────────────────────────────────────────────────────────────
+rfiRouter.get('/next-number', RFIController.nextNumber);
 rfiRouter.get('/',    RFIController.list);
 rfiRouter.post('/',   RFIController.create);
 rfiRouter.get('/:id', RFIController.getById);

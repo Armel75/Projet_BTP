@@ -69,6 +69,26 @@ const fileFilter = (
   }
 };
 
+const imageFileFilter = (
+  _req: Request,
+  file: Express.Multer.File,
+  cb: multer.FileFilterCallback,
+) => {
+  const allowedMime = [
+    'image/jpeg',
+    'image/png',
+    'image/gif',
+    'image/webp',
+    'image/svg+xml',
+  ];
+
+  if (allowedMime.includes(file.mimetype)) {
+    cb(null, true);
+  } else {
+    cb(new Error(`Type de fichier image non autorise : ${file.mimetype}`));
+  }
+};
+
 export const uploadDocument = multer({
   storage,
   fileFilter,
@@ -79,6 +99,12 @@ export const uploadDocuments = multer({
   storage,
   fileFilter,
   limits: { fileSize: 100 * 1024 * 1024 }, // 100 Mo max
+}).array('files', 10);
+
+export const uploadPhotos = multer({
+  storage,
+  fileFilter: imageFileFilter,
+  limits: { fileSize: 25 * 1024 * 1024 }, // 25 Mo max par photo avant optimisation serveur
 }).array('files', 10);
 
 export { UPLOADS_ROOT };

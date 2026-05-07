@@ -73,8 +73,19 @@ const STATUS_CONFIG: Record<string, { label: string; cls: string }> = {
   CLOSED:      { label: "Cloture",     cls: "bg-gb-surface-hover text-gb-muted border-gb-border" },
 };
 
-const fmt = (n: number, currency = "EUR") =>
-  new Intl.NumberFormat("fr-FR", { style: "currency", currency, maximumFractionDigits: 0 }).format(n);
+// "FCFA" n'est pas un code ISO 4217 valide pour Intl.NumberFormat — on mappe vers XAF
+const resolveDisplayCurrency = (currency?: string): string => {
+  if (!currency) return "XAF";
+  if (currency.toUpperCase() === "FCFA") return "XAF";
+  return currency;
+};
+
+const fmt = (n: number, currency = "XAF") =>
+  new Intl.NumberFormat("fr-FR", {
+    style: "currency",
+    currency: resolveDisplayCurrency(currency),
+    maximumFractionDigits: 0,
+  }).format(n);
 
 function KpiCard({ label, value, sub, icon: Icon, accent }: {
   label: string; value: string | number; sub?: string;
@@ -143,6 +154,13 @@ export default function TenderModule() {
 
   const total       = tenders.length;
   const totalBudget = tenders.reduce((s, t) => s + (t.budget_estimate ?? 0), 0);
+  // Devise dominante parmi les AOs chargés (pour la carte KPI)
+  const currencyCount = tenders.reduce<Record<string, number>>((acc, t) => {
+    const c = resolveDisplayCurrency(t.currency);
+    acc[c] = (acc[c] || 0) + 1;
+    return acc;
+  }, {});
+  const kpiCurrency = Object.keys(currencyCount).sort((a, b) => currencyCount[b] - currencyCount[a])[0] ?? "XAF";
   const inEval      = tenders.filter(t => t.status === "EVALUATION").length;
   const awarded     = tenders.filter(t => t.status === "AWARDED").length;
 
@@ -152,7 +170,7 @@ export default function TenderModule() {
     <div className="space-y-6">
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <KpiCard label="Total AOs" value={total} icon={ClipboardList} accent="bg-blue-500/10 text-blue-500" />
-        <KpiCard label="Budget estime" value={fmt(totalBudget)} icon={Banknote} accent="bg-emerald-500/10 text-emerald-600" sub="cumul tous AOs" />
+        <KpiCard label="Budget estime" value={fmt(totalBudget, kpiCurrency)} icon={Banknote} accent="bg-emerald-500/10 text-emerald-600" sub="cumul tous AOs" />
         <KpiCard label="En evaluation" value={inEval} icon={TrendingUp} accent="bg-amber-500/10 text-amber-600" />
         <KpiCard label="Attribues" value={awarded} icon={CheckCircle2} accent="bg-gb-primary/10 text-gb-primary" />
       </div>

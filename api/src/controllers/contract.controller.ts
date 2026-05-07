@@ -13,6 +13,7 @@ export class ContractController {
         project_id: req.query.projectId ? Number(req.query.projectId) : undefined,
         status: req.query.status as string | undefined,
         type: req.query.type as string | undefined,
+        is_archived: req.query.is_archived !== undefined ? req.query.is_archived === 'true' : false,
       });
       res.json(contracts);
     } catch (error) {
@@ -58,6 +59,9 @@ export class ContractController {
         price_revision_index: body.price_revision_index,
         payment_terms: body.payment_terms ? Number(body.payment_terms) : undefined,
         document_id: body.document_id ? Number(body.document_id) : undefined,
+        document_ids: Array.isArray(body.document_ids)
+          ? body.document_ids.map((id: any) => Number(id)).filter((id: number) => Number.isFinite(id) && id > 0)
+          : undefined,
         created_by: userId!,
       });
       res.status(201).json(contract);
@@ -84,6 +88,11 @@ export class ContractController {
       if (body.payment_terms !== undefined) data.payment_terms = body.payment_terms ? Number(body.payment_terms) : null;
       if (body.price_revision_index !== undefined) data.price_revision_index = body.price_revision_index || null;
       if (body.document_id !== undefined) data.document_id = body.document_id ? Number(body.document_id) : null;
+      if (body.document_ids !== undefined) {
+        data.document_ids = Array.isArray(body.document_ids)
+          ? body.document_ids.map((id: any) => Number(id)).filter((id: number) => Number.isFinite(id) && id > 0)
+          : [];
+      }
       if (body.start_date !== undefined) data.start_date = body.start_date ? new Date(body.start_date) : null;
       if (body.end_date !== undefined)   data.end_date = body.end_date ? new Date(body.end_date) : null;
       if (body.signed_at !== undefined)  data.signed_at = body.signed_at ? new Date(body.signed_at) : null;
@@ -103,6 +112,18 @@ export class ContractController {
     try {
       await ContractService.deleteContract(Number(req.params.id));
       res.status(204).send();
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  }
+
+  static async archiveContract(req: Request, res: Response): Promise<void> {
+    try {
+      const { archived } = req.body;
+      const contract = archived === false
+        ? await ContractService.restoreContract(Number(req.params.id))
+        : await ContractService.deleteContract(Number(req.params.id));
+      res.json(contract);
     } catch (error: any) {
       res.status(400).json({ error: error.message });
     }
@@ -201,6 +222,33 @@ export class ContractController {
       const userId = (req as AuthRequest).user?.id;
       const co = await ContractService.updateChangeOrderStatus(Number(req.params.id), 'REJECTED', userId!);
       res.json(co);
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  }
+
+  static async updateChangeOrder(req: Request, res: Response): Promise<void> {
+    try {
+      const body = req.body;
+      const data: Record<string, any> = {};
+      if (body.number !== undefined) data.number = String(body.number).trim();
+      if (body.title !== undefined) data.title = body.title;
+      if (body.description !== undefined) data.description = body.description;
+      if (body.amount !== undefined) data.amount = Number(body.amount);
+      if (body.reason !== undefined) data.reason = body.reason || null;
+      if (body.impact_days !== undefined) data.impact_days = body.impact_days === null || body.impact_days === '' ? null : Number(body.impact_days);
+
+      const co = await ContractService.updateChangeOrder(Number(req.params.id), data);
+      res.json(co);
+    } catch (error: any) {
+      res.status(400).json({ error: error.message });
+    }
+  }
+
+  static async deleteChangeOrder(req: Request, res: Response): Promise<void> {
+    try {
+      await ContractService.deleteChangeOrder(Number(req.params.id));
+      res.status(204).send();
     } catch (error: any) {
       res.status(400).json({ error: error.message });
     }

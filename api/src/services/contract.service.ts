@@ -21,12 +21,93 @@ const CONTRACT_INCLUDE = {
   },
 };
 
+const CONTRACT_DOCUMENT_SELECT = {
+  id: true,
+  name: true,
+  file_url: true,
+  file_name: true,
+  file_size: true,
+} as const;
+
 export class ContractService {
+  private static async syncContractDocuments(contract: { id: number; project_id: number; reference: string; document_id?: number | null }, documentIds?: number[]) {
+    const tenantId = TenantContext.getTenantId();
+    if (!tenantId || !documentIds?.length) return;
+
+    const uniqueDocumentIds = Array.from(new Set(documentIds.filter((id) => Number.isFinite(id) && id > 0)));
+    if (!uniqueDocumentIds.length) return;
+
+    await prisma.document.updateMany({
+      where: {
+        id: { in: uniqueDocumentIds },
+        tenant_id: tenantId,
+        project_id: contract.project_id,
+      },
+      data: {
+        reference: contract.reference,
+        category: 'CONTRACT',
+      },
+    });
+  }
+
+  private static async hydrateContractDocuments(contract: any) {
+    const tenantId = TenantContext.getTenantId();
+    if (!tenantId || !contract) {
+      return contract;
+    }
+
+    const linkedDocs = contract.reference
+      ? await prisma.document.findMany({
+          where: {
+            tenant_id: tenantId,
+            project_id: contract.project_id,
+            category: 'CONTRACT',
+            reference: contract.reference,
+          },
+          select: CONTRACT_DOCUMENT_SELECT,
+          orderBy: { created_at: 'asc' },
+        })
+      : [];
+
+    const docs = [...linkedDocs];
+    if (contract.document && !docs.some((doc: any) => doc.id === contract.document.id)) {
+      docs.unshift(contract.document);
+    }
+
+    return {
+      ...contract,
+      documents: docs,
+    };
+  }
+
   // ==========================
   // CONTRACTS
   // ==========================
 
-  static async list(filters: { project_id?: number; status?: string; type?: string } = {}) {
+  private static async generateContractReference(tenantId: number, date = new Date()) {
+    const year = date.getFullYear();
+    const prefix = `C-${year}-`;
+    const existingReferences = await prisma.contract.findMany({
+      where: {
+        tenant_id: tenantId,
+        reference: {
+          startsWith: prefix,
+        },
+      },
+      select: { reference: true },
+    });
+
+    const maxSequence = existingReferences.reduce((max: number, contract: { reference: string }) => {
+      const match = contract.reference.match(new RegExp(`^${prefix}(\\d+)$`));
+      if (!match) return max;
+      const value = Number(match[1]);
+      return Number.isFinite(value) ? Math.max(max, value) : max;
+    }, 0);
+
+    return `${prefix}${String(maxSequence + 1).padStart(3, '0')}`;
+  }
+
+  static async list(filters: { project_id?: number; status?: string; type?: string; is_archived?: boolean } = {}) {
     const tenantId = TenantContext.getTenantId();
     const contracts = await prisma.contract.findMany({
       where: {
@@ -34,11 +115,12 @@ export class ContractService {
         ...(filters.project_id ? { project_id: filters.project_id } : {}),
         ...(filters.status ? { status: filters.status } : {}),
         ...(filters.type ? { type: filters.type } : {}),
+        is_archived: filters.is_archived ?? false,
       },
       include: CONTRACT_INCLUDE,
       orderBy: { created_at: 'desc' },
     });
-    return contracts.map((c: any) => ContractService.calculateContractTotals(c));
+    return Promise.all(contracts.map(async (contract: any) => ContractService.calculateContractTotals(await ContractService.hydrateContractDocuments(contract))));
   }
 
   static async createContract(data: {
@@ -62,16 +144,18 @@ export class ContractService {
     price_revision_index?: string;
     payment_terms?: number;
     document_id?: number;
+    document_ids?: number[];
     created_by: number;
   }) {
     const tenantId = TenantContext.getTenantId();
     if (!tenantId) throw new Error("Tenant session required");
-    return await prisma.contract.create({
+    const reference = data.reference?.trim() || await this.generateContractReference(tenantId);
+    const contract = await prisma.contract.create({
       data: {
         project_id: data.project_id,
         supplier_id: data.supplier_id,
         title: data.title,
-        reference: data.reference || '',
+        reference,
         description: data.description,
         category: data.category,
         type: data.type || 'SUBCONTRACT',
@@ -93,6 +177,10 @@ export class ContractService {
       },
       include: CONTRACT_INCLUDE,
     });
+
+    await this.syncContractDocuments(contract, data.document_ids ?? (data.document_id ? [data.document_id] : []));
+
+    return await this.getContractById(contract.id);
   }
 
   static async getContractsByProject(project_id: number) {
@@ -100,7 +188,7 @@ export class ContractService {
       where: { project_id },
       include: CONTRACT_INCLUDE,
     });
-    return contracts.map((c: any) => ContractService.calculateContractTotals(c));
+    return Promise.all(contracts.map(async (contract: any) => ContractService.calculateContractTotals(await ContractService.hydrateContractDocuments(contract))));
   }
 
   static async getContractById(id: number) {
@@ -109,20 +197,72 @@ export class ContractService {
       include: CONTRACT_INCLUDE,
     });
     if (!contract) return null;
-    return ContractService.calculateContractTotals(contract);
+    return ContractService.calculateContractTotals(await ContractService.hydrateContractDocuments(contract));
   }
 
   static async updateContract(id: number, data: Record<string, any>) {
+    const tenantId = TenantContext.getTenantId();
+    if (!tenantId) throw new Error("Tenant session required");
+
+    const existing = await prisma.contract.findFirst({
+      where: { id, tenant_id: tenantId },
+      select: { id: true, is_archived: true },
+    });
+
+    if (!existing) {
+      throw new Error("Contract not found");
+    }
+
+    if (existing.is_archived) {
+      throw new Error("Modification impossible: ce contrat est archive.");
+    }
+
+    const { document_ids, ...contractData } = data;
     const updated = await prisma.contract.update({
       where: { id },
-      data,
+      data: contractData,
       include: CONTRACT_INCLUDE,
     });
-    return ContractService.calculateContractTotals(updated);
+    await this.syncContractDocuments(updated, Array.isArray(document_ids) ? document_ids : undefined);
+    return ContractService.calculateContractTotals(await ContractService.hydrateContractDocuments(updated));
   }
 
   static async deleteContract(id: number) {
-    return await prisma.contract.delete({ where: { id } });
+    const tenantId = TenantContext.getTenantId();
+    if (!tenantId) throw new Error("Tenant session required");
+
+    const result = await prisma.contract.updateMany({
+      where: { id, tenant_id: tenantId, is_archived: false },
+      data: {
+        is_archived: true,
+        archived_at: new Date(),
+      },
+    });
+
+    if (result.count === 0) {
+      throw new Error("Contract not found");
+    }
+
+    return await this.getContractById(id);
+  }
+
+  static async restoreContract(id: number) {
+    const tenantId = TenantContext.getTenantId();
+    if (!tenantId) throw new Error("Tenant session required");
+
+    const result = await prisma.contract.updateMany({
+      where: { id, tenant_id: tenantId, is_archived: true },
+      data: {
+        is_archived: false,
+        archived_at: null,
+      },
+    });
+
+    if (result.count === 0) {
+      throw new Error("Contract not found");
+    }
+
+    return await this.getContractById(id);
   }
 
   private static calculateContractTotals(contract: any) {
@@ -250,13 +390,70 @@ export class ContractService {
   }
 
   static async updateChangeOrderStatus(id: number, status: 'APPROVED' | 'REJECTED', userId: number) {
+    const tenantId = TenantContext.getTenantId();
+    if (!tenantId) throw new Error("Tenant session required");
+
+    const existing = await prisma.changeOrder.findFirst({
+      where: { id, tenant_id: tenantId },
+      select: { id: true, status: true },
+    });
+
+    if (!existing) throw new Error("Change order not found");
+    if (existing.status !== 'PENDING_APPROVAL') {
+      throw new Error("Modification impossible: cet avenant est deja finalise.");
+    }
+
     return await prisma.changeOrder.update({
       where: { id },
       data: {
         status,
-        ...(status === 'APPROVED' ? { approved_at: new Date() } : {}),
+        approved_at: status === 'APPROVED' ? new Date() : null,
       },
     });
+  }
+
+  static async updateChangeOrder(id: number, data: {
+    title?: string;
+    description?: string;
+    amount?: number;
+    reason?: string | null;
+    impact_days?: number | null;
+    number?: string;
+  }) {
+    const tenantId = TenantContext.getTenantId();
+    if (!tenantId) throw new Error("Tenant session required");
+
+    const existing = await prisma.changeOrder.findFirst({
+      where: { id, tenant_id: tenantId },
+      select: { id: true, status: true },
+    });
+
+    if (!existing) throw new Error("Change order not found");
+    if (existing.status !== 'PENDING_APPROVAL') {
+      throw new Error("Modification impossible: cet avenant est deja finalise.");
+    }
+
+    return await prisma.changeOrder.update({
+      where: { id },
+      data,
+    });
+  }
+
+  static async deleteChangeOrder(id: number) {
+    const tenantId = TenantContext.getTenantId();
+    if (!tenantId) throw new Error("Tenant session required");
+
+    const existing = await prisma.changeOrder.findFirst({
+      where: { id, tenant_id: tenantId },
+      select: { id: true, status: true },
+    });
+
+    if (!existing) throw new Error("Change order not found");
+    if (existing.status !== 'PENDING_APPROVAL') {
+      throw new Error("Suppression impossible: cet avenant est deja finalise.");
+    }
+
+    return await prisma.changeOrder.delete({ where: { id } });
   }
 
   // ==========================

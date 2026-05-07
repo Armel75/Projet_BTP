@@ -10,6 +10,7 @@ contractRouter.post("/", authenticateToken, ContractController.createContract);
 contractRouter.get("/:id", authenticateToken, ContractController.getContract);
 contractRouter.put("/:id", authenticateToken, ContractController.updateContract);
 contractRouter.delete("/:id", authenticateToken, ContractController.deleteContract);
+contractRouter.patch("/:id/archive", authenticateToken, ContractController.archiveContract);
 
 // Line Items
 contractRouter.post("/:id/line-items", authenticateToken, ContractController.createLineItem);
@@ -18,6 +19,8 @@ contractRouter.delete("/:id/line-items/:itemId", authenticateToken, ContractCont
 
 // Change Orders
 contractRouter.post("/:id/change-orders", authenticateToken, ContractController.createChangeOrder);
+contractRouter.put("/change-orders/:id", authenticateToken, ContractController.updateChangeOrder);
+contractRouter.delete("/change-orders/:id", authenticateToken, ContractController.deleteChangeOrder);
 contractRouter.patch("/change-orders/:id/approve", authenticateToken, ContractController.approveChangeOrder);
 contractRouter.patch("/change-orders/:id/reject", authenticateToken, ContractController.rejectChangeOrder);
 

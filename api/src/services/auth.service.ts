@@ -1,5 +1,6 @@
 import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
+import { randomBytes, createHash } from 'crypto';
 import { prisma } from '../config/prisma.js';
 import { env } from '../config/env.js';
 import { RbacService } from './rbac.service.js';
@@ -182,5 +183,49 @@ export class AuthService {
     const permissions = await RbacService.getUserPermissions(userId);
     const { password_hash: _, ...safeUser } = user;
     return { user: { ...safeUser, permissions } };
+  }
+
+  static async forgotPassword(email: string) {
+    const user = await prisma.user.findUnique({ where: { email } });
+    if (!user) return null;
+
+    const rawToken = randomBytes(32).toString('hex');
+    const tokenHash = createHash('sha256').update(rawToken).digest('hex');
+    const expires = new Date(Date.now() + 15 * 60 * 1000);
+
+    await prisma.user.update({
+      where: { id: user.id },
+      data: {
+        password_reset_token: tokenHash,
+        password_reset_expires: expires,
+      },
+    });
+
+    return { email: user.email, token: rawToken };
+  }
+
+  static async resetPassword(token: string, newPassword: string) {
+    const tokenHash = createHash('sha256').update(token).digest('hex');
+
+    const user = await prisma.user.findFirst({
+      where: {
+        password_reset_token: tokenHash,
+        password_reset_expires: { gte: new Date() },
+      },
+    });
+
+    if (!user) throw { status: 400, message: "Token invalide ou expiré." };
+
+    const salt = await bcrypt.genSalt(10);
+    const password_hash = await bcrypt.hash(newPassword, salt);
+
+    await prisma.user.update({
+      where: { id: user.id },
+      data: {
+        password_hash,
+        password_reset_token: null,
+        password_reset_expires: null,
+      },
+    });
   }
 }

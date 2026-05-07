@@ -45,6 +45,39 @@ interface RFIFilters {
 
 export class RFIService {
 
+  // ─── Number generation ────────────────────────────────────────────────────
+
+  /**
+   * Génère le prochain numéro séquentiel de demande de renseignements
+   * Format : RFI-YYYY-NNN (ex: RFI-2026-001)
+   * Le séquençage est isolé par tenant et par année.
+   */
+  static async generateNextNumber(tenantId: number): Promise<string> {
+    const year = new Date().getFullYear();
+    const prefix = `RFI-${year}-`;
+
+    // On récupère tous les numéros de l'année courante pour ce tenant
+    const existing = await prisma.rFI.findMany({
+      where: {
+        tenant_id: tenantId,
+        number:    { startsWith: prefix },
+      },
+      select: { number: true },
+    });
+
+    // On extrait les séquences numériques et on prend le max
+    let max = 0;
+    for (const { number } of existing) {
+      const seq = parseInt(number.replace(prefix, ''), 10);
+      if (!isNaN(seq) && seq > max) max = seq;
+    }
+
+    const next = String(max + 1).padStart(3, '0');
+    return `${prefix}${next}`;
+  }
+
+  // ─── CRUD ─────────────────────────────────────────────────────────────────
+
   static async listRFIs(filters: RFIFilters = {}) {
     const tenantId = TenantContext.getTenantId();
     const where: any = { tenant_id: tenantId };

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { apiFetch } from "../../lib/api";
 const API_BASE = import.meta.env.VITE_API_URL;
 import {
@@ -38,13 +38,22 @@ interface ActivityLabor     { worker_name: string; trade: string; hours: string;
 interface ActivityEquipment { equipment_name: string; hours_used: string; }
 interface ActivityMaterial  { material_name: string; quantity: string; unit: string; }
 
+interface UploadedPhoto {
+  id: number;
+  url: string;
+  preview_url: string;
+  filename?: string;
+  size?: number;
+  persisted?: boolean;
+}
+
 interface Activity {
   task_type:          "planned" | "unplanned";
   task_id:            number;        // 0 = non sélectionné (cas planned)
   task_title_custom:  string;        // titre libre si unplanned
   progress_percentage: string;       // 0-100
   comment:            string;
-  photo_urls:         string[];
+  photos:             UploadedPhoto[];
   labor:              ActivityLabor[];
   equipment:          ActivityEquipment[];
   materials:          ActivityMaterial[];
@@ -56,23 +65,61 @@ interface CreateDailyLogDialogProps {
   onOpenChange: (open: boolean) => void;
   projectId:    number;
   onSuccess:    () => void;
+  initialData?: any | null;
 }
 
 //  Helpers 
 
 const WEATHER_OPTIONS = ["Soleil", "Nuageux", "Pluie fine", "Pluie forte", "Orage", "Vent fort", "Brouillard", "Neige"];
 
+function resolveFileUrl(url: string) {
+  if (url.startsWith("/api/v1/")) {
+    return `${API_BASE}/${url.slice("/api/v1/".length)}`;
+  }
+
+  return url;
+}
+
+function revokePreviewUrl(url?: string) {
+  if (url && url.startsWith("blob:")) {
+    URL.revokeObjectURL(url);
+  }
+}
+
 function emptyActivity(): Activity {
   return {
     task_type: "planned", task_id: 0, task_title_custom: "",
-    progress_percentage: "", comment: "", photo_urls: [],
+    progress_percentage: "", comment: "", photos: [],
     labor: [], equipment: [], materials: [], collapsed: false,
   };
 }
 
+function buildPhotoKey(photo: Pick<UploadedPhoto, "id" | "url" | "filename" | "size">) {
+  if (photo.id > 0) {
+    return `id:${photo.id}`;
+  }
+
+  const normalizedUrl = photo.url || "";
+  const normalizedName = photo.filename || "";
+  const normalizedSize = photo.size != null ? String(photo.size) : "";
+  return `file:${normalizedUrl}|${normalizedName}|${normalizedSize}`;
+}
+
+function dedupePhotos(photos: UploadedPhoto[]) {
+  const seen = new Set<string>();
+  return photos.filter((photo) => {
+    const key = buildPhotoKey(photo);
+    if (seen.has(key)) {
+      return false;
+    }
+    seen.add(key);
+    return true;
+  });
+}
+
 //  Component 
 
-export default function CreateDailyLogDialog({ open, onOpenChange, projectId, onSuccess }: CreateDailyLogDialogProps) {
+export default function CreateDailyLogDialog({ open, onOpenChange, projectId, onSuccess, initialData = null }: CreateDailyLogDialogProps) {
   const [date,        setDate]        = useState(format(new Date(), "yyyy-MM-dd"));
   const [weather,     setWeather]     = useState("Soleil");
   const [temperature, setTemperature] = useState("20");
@@ -81,6 +128,22 @@ export default function CreateDailyLogDialog({ open, onOpenChange, projectId, on
   const [tasks,       setTasks]       = useState<{ id: number; title: string }[]>([]);
   const [loadingTasks, setLoadingTasks] = useState(false);
   const [submitting,  setSubmitting]  = useState(false);
+  const [uploadingPhotos, setUploadingPhotos] = useState(0);
+  const [resolvedPhotoUrls, setResolvedPhotoUrls] = useState<Record<string, string>>({});
+  const skipCleanupRef = useRef(false);
+  const isEditMode = Boolean(initialData?.id);
+
+  const getDisplayPhotoUrl = (photo: UploadedPhoto) => {
+    if (photo.preview_url.startsWith("blob:") || photo.preview_url.startsWith("data:")) {
+      return photo.preview_url;
+    }
+
+    if (photo.persisted) {
+      return resolvedPhotoUrls[photo.preview_url] ?? resolvedPhotoUrls[photo.url] ?? null;
+    }
+
+    return photo.preview_url || photo.url || null;
+  };
 
   // Fetch tasks on open
   useEffect(() => {
@@ -100,13 +163,122 @@ export default function CreateDailyLogDialog({ open, onOpenChange, projectId, on
     fetchTasks();
   }, [open, projectId]);
 
-  // Reset on close
   useEffect(() => {
-    if (!open) {
+    if (!open) return;
+
+    if (!initialData) {
       setDate(format(new Date(), "yyyy-MM-dd"));
-      setWeather("Soleil"); setTemperature("20"); setNotes(""); setActivities([]);
+      setWeather("Soleil");
+      setTemperature("20");
+      setNotes("");
+      setActivities([]);
+      return;
     }
-  }, [open]);
+
+    const availablePhotosByUrl = new Map<string, any>(
+      Array.isArray(initialData.photos)
+        ? initialData.photos.map((photo: any) => [photo.file_url, photo])
+        : []
+    );
+
+    const initialActivities: Activity[] = Array.isArray(initialData.task_progress)
+      ? initialData.task_progress.map((entry: any) => {
+          const laborData = (() => { try { return entry.labor_data ? JSON.parse(entry.labor_data) : []; } catch { return []; } })();
+          const equipmentData = (() => { try { return entry.equipment_data ? JSON.parse(entry.equipment_data) : []; } catch { return []; } })();
+          const materialData = (() => { try { return entry.material_data ? JSON.parse(entry.material_data) : []; } catch { return []; } })();
+          const photoUrls = (() => { try { return entry.photos_url ? JSON.parse(entry.photos_url) : []; } catch { return typeof entry.photos_url === "string" ? [entry.photos_url] : []; } })();
+
+          return {
+            task_type: entry.task_type === "unplanned" ? "unplanned" : "planned",
+            task_id: entry.task_id ?? 0,
+            task_title_custom: entry.task_title_custom ?? "",
+            progress_percentage: entry.progress_percentage != null ? String(entry.progress_percentage) : "",
+            comment: entry.comment ?? "",
+            photos: Array.isArray(photoUrls)
+              ? dedupePhotos(photoUrls.map((rawUrl: string) => {
+                  const storedPhoto = availablePhotosByUrl.get(rawUrl);
+                  return {
+                    id: storedPhoto?.id ?? 0,
+                    url: resolveFileUrl(rawUrl),
+                    preview_url: resolveFileUrl(rawUrl),
+                    filename: storedPhoto?.caption ?? undefined,
+                    persisted: true,
+                  };
+                }).filter((photo: UploadedPhoto) => Boolean(photo.url)))
+              : [],
+            labor: Array.isArray(laborData)
+              ? laborData.map((item: any) => ({ worker_name: item.worker_name ?? "", trade: item.trade ?? "", hours: String(item.hours ?? "") }))
+              : [],
+            equipment: Array.isArray(equipmentData)
+              ? equipmentData.map((item: any) => ({ equipment_name: item.equipment_name ?? "", hours_used: String(item.hours_used ?? "") }))
+              : [],
+            materials: Array.isArray(materialData)
+              ? materialData.map((item: any) => ({ material_name: item.material_name ?? "", quantity: String(item.quantity ?? ""), unit: item.unit ?? "" }))
+              : [],
+            collapsed: false,
+          } satisfies Activity;
+        })
+      : [];
+
+    setDate(initialData.date ? format(new Date(initialData.date), "yyyy-MM-dd") : format(new Date(), "yyyy-MM-dd"));
+    setWeather(initialData.weather ?? "Soleil");
+    setTemperature(initialData.temperature != null ? String(initialData.temperature) : "20");
+    setNotes(initialData.notes ?? "");
+    setActivities(initialActivities);
+  }, [open, initialData]);
+
+  useEffect(() => {
+    const securedUrls = Array.from(new Set(
+      activities.flatMap((activity) =>
+        activity.photos
+          .filter((photo) => photo.persisted)
+          .flatMap((photo) => [photo.preview_url, photo.url])
+          .filter((url): url is string => Boolean(url) && (url.startsWith("/api/") || url.startsWith(`${API_BASE}/`)))
+      )
+    ));
+
+    if (!open || securedUrls.length === 0) {
+      setResolvedPhotoUrls({});
+      return;
+    }
+
+    let disposed = false;
+    const objectUrls: string[] = [];
+
+    const resolveProtectedPhotos = async () => {
+      const entries = await Promise.all(
+        securedUrls.map(async (url) => {
+          try {
+            const response = await apiFetch(url);
+            if (!response.ok) {
+              return null;
+            }
+
+            const blob = await response.blob();
+            const objectUrl = URL.createObjectURL(blob);
+            objectUrls.push(objectUrl);
+            return [url, objectUrl] as const;
+          } catch {
+            return null;
+          }
+        })
+      );
+
+      if (disposed) {
+        objectUrls.forEach((url) => URL.revokeObjectURL(url));
+        return;
+      }
+
+      setResolvedPhotoUrls(Object.fromEntries(entries.filter(Boolean) as Array<readonly [string, string]>));
+    };
+
+    void resolveProtectedPhotos();
+
+    return () => {
+      disposed = true;
+      objectUrls.forEach((url) => URL.revokeObjectURL(url));
+    };
+  }, [open, activities]);
 
   //  Activity helpers 
 
@@ -135,53 +307,249 @@ export default function CreateDailyLogDialog({ open, onOpenChange, projectId, on
   const updateMaterial = (ai: number, mi: number, f: keyof ActivityMaterial, v: string) => { const a = [...activities]; a[ai].materials[mi][f] = v; setActivities(a); };
 
   // Photos
-  const addPhotos = (ai: number, files?: FileList | null) => {
-    if (!files?.length) return;
-    Promise.all(Array.from(files).map(file => new Promise<string>((res, rej) => {
-      const r = new FileReader();
-      r.onload = () => res(typeof r.result === "string" ? r.result : "");
-      r.onerror = () => rej();
-      r.readAsDataURL(file);
-    }))).then(encoded => {
-      const a = [...activities];
-      a[ai].photo_urls = [...a[ai].photo_urls, ...encoded.filter(Boolean)];
-      setActivities(a);
-    }).catch(console.error);
+  const compressImageFile = async (file: File) => {
+    if (!file.type.startsWith("image/") || file.type === "image/gif" || file.type === "image/svg+xml") {
+      return file;
+    }
+
+    const imageUrl = URL.createObjectURL(file);
+
+    try {
+      const image = await new Promise<HTMLImageElement>((resolve, reject) => {
+        const img = new Image();
+        img.onload = () => resolve(img);
+        img.onerror = () => reject(new Error("Impossible de charger l'image."));
+        img.src = imageUrl;
+      });
+
+      const maxDimension = 1600;
+      const scale = Math.min(1, maxDimension / Math.max(image.width, image.height));
+      const width = Math.max(1, Math.round(image.width * scale));
+      const height = Math.max(1, Math.round(image.height * scale));
+
+      const canvas = document.createElement("canvas");
+      canvas.width = width;
+      canvas.height = height;
+
+      const context = canvas.getContext("2d");
+      if (!context) {
+        return file;
+      }
+
+      context.drawImage(image, 0, 0, width, height);
+
+      const targetType = file.type === "image/png"
+        ? "image/png"
+        : file.type === "image/webp"
+          ? "image/webp"
+          : "image/jpeg";
+      const quality = targetType === "image/png" ? undefined : 0.82;
+
+      const blob = await new Promise<Blob | null>((resolve) => {
+        canvas.toBlob(resolve, targetType, quality);
+      });
+
+      if (!blob || blob.size >= file.size) {
+        return file;
+      }
+
+      const baseName = file.name.replace(/\.[^.]+$/, "");
+      const extension = targetType === "image/png" ? ".png" : targetType === "image/webp" ? ".webp" : ".jpg";
+
+      return new File([blob], `${baseName}${extension}`, {
+        type: targetType,
+        lastModified: file.lastModified,
+      });
+    } finally {
+      URL.revokeObjectURL(imageUrl);
+    }
   };
-  const removePhoto = (ai: number, pi: number) => {
-    const a = [...activities]; a[ai].photo_urls = a[ai].photo_urls.filter((_, i) => i !== pi); setActivities(a);
+
+  const revokeActivityPreviewUrls = (snapshot: Activity[]) => {
+    snapshot.forEach((activity) => {
+      activity.photos.forEach((photo) => revokePreviewUrl(photo.preview_url));
+    });
+  };
+
+  const cleanupTemporaryPhotos = async (snapshot: Activity[]) => {
+    const photoIds = snapshot.flatMap((activity) => activity.photos.filter((photo) => !photo.persisted).map((photo) => photo.id));
+    if (photoIds.length === 0) return;
+
+    await Promise.allSettled(
+      photoIds.map((photoId) =>
+        apiFetch(`${API_BASE}/photos/${photoId}`, {
+          method: "DELETE",
+        })
+      )
+    );
+  };
+
+  const addPhotos = async (ai: number, files?: FileList | null) => {
+    if (!files?.length || !projectId) return;
+
+    const selectedFiles = Array.from(files);
+    setUploadingPhotos((current) => current + selectedFiles.length);
+    let preparedFiles: Array<{ file: File; previewUrl: string }> = [];
+
+    try {
+      preparedFiles = await Promise.all(
+        selectedFiles.map(async (file) => {
+          const optimizedFile = await compressImageFile(file);
+          return {
+            file: optimizedFile,
+            previewUrl: URL.createObjectURL(optimizedFile),
+          };
+        })
+      );
+
+      const formData = new FormData();
+      formData.append("project_id", String(projectId));
+      preparedFiles.forEach(({ file }) => {
+        formData.append("files", file, file.name);
+      });
+
+      const res = await apiFetch(`${API_BASE}/photos/uploads`, {
+        method: "POST",
+        body: formData,
+      });
+
+      if (!res.ok) {
+        const errorPayload = await res.json().catch(() => null);
+        preparedFiles.forEach(({ previewUrl }) => revokePreviewUrl(previewUrl));
+        alert(errorPayload?.error || "Erreur lors de l'upload des photos.");
+        return;
+      }
+
+      const payload = await res.json();
+      const uploadedFiles = Array.isArray(payload.files) ? payload.files : [];
+      if (uploadedFiles.length !== preparedFiles.length) {
+        throw new Error("Le nombre de photos televersees ne correspond pas a la selection.");
+      }
+
+      const uploadedPhotos: UploadedPhoto[] = uploadedFiles.map((uploadedFile: any, index: number) => ({
+        id: uploadedFile.id,
+        url: resolveFileUrl(uploadedFile.url),
+        preview_url: preparedFiles[index]?.previewUrl || resolveFileUrl(uploadedFile.url),
+        filename: uploadedFile.filename,
+        size: uploadedFile.size,
+        persisted: false,
+      }));
+
+      setActivities((currentActivities) => {
+        const nextActivities = [...currentActivities];
+        nextActivities[ai].photos = dedupePhotos([...nextActivities[ai].photos, ...uploadedPhotos]);
+        return nextActivities;
+      });
+    } catch (err) {
+      preparedFiles.forEach(({ previewUrl }) => revokePreviewUrl(previewUrl));
+      console.error(err);
+      alert("Impossible de televerser les photos selectionnees.");
+    } finally {
+      setUploadingPhotos((current) => Math.max(0, current - selectedFiles.length));
+    }
+  };
+
+  const removePhoto = async (ai: number, pi: number) => {
+    const photo = activities[ai]?.photos[pi];
+    if (!photo) return;
+
+    if (photo.persisted) {
+      setActivities((currentActivities) => {
+        const nextActivities = [...currentActivities];
+        nextActivities[ai].photos = nextActivities[ai].photos.filter((_, index) => index !== pi);
+        return nextActivities;
+      });
+      return;
+    }
+
+    try {
+      const res = await apiFetch(`${API_BASE}/photos/${photo.id}`, {
+        method: "DELETE",
+      });
+
+      if (!res.ok) {
+        const errorPayload = await res.json().catch(() => null);
+        alert(errorPayload?.error || "Impossible de supprimer cette photo.");
+        return;
+      }
+
+      revokePreviewUrl(photo.preview_url);
+      setActivities((currentActivities) => {
+        const nextActivities = [...currentActivities];
+        nextActivities[ai].photos = nextActivities[ai].photos.filter((_, index) => index !== pi);
+        return nextActivities;
+      });
+    } catch (err) {
+      console.error(err);
+      alert("Impossible de supprimer cette photo.");
+    }
+  };
+
+  const handleOpenStateChange = (nextOpen: boolean) => {
+    if (!nextOpen) {
+      if (uploadingPhotos > 0 || submitting) {
+        return;
+      }
+
+      const snapshot = activities;
+      if (!skipCleanupRef.current) {
+        void cleanupTemporaryPhotos(snapshot);
+      }
+
+      skipCleanupRef.current = false;
+      revokeActivityPreviewUrls(snapshot);
+      setDate(format(new Date(), "yyyy-MM-dd"));
+      setWeather("Soleil");
+      setTemperature("20");
+      setNotes("");
+      setActivities([]);
+      onOpenChange(false);
+      return;
+    }
+
+    onOpenChange(true);
   };
 
   //  Submit 
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (uploadingPhotos > 0) {
+      alert("Patientez jusqu'a la fin du televersement des photos avant d'enregistrer le journal.");
+      return;
+    }
+
     setSubmitting(true);
     try {
-      const res = await apiFetch(`${API_BASE}/daily-logs`, {
-        method: "POST",
+      const payload = {
+        date:        new Date(date).toISOString(),
+        weather,
+        temperature: temperature ? parseFloat(temperature) : null,
+        notes,
+        task_progress: activities.map(act => ({
+          task_type:           act.task_type,
+          task_id:             act.task_type === "planned" && act.task_id > 0 ? act.task_id : null,
+          task_title_custom:   act.task_type === "unplanned" ? act.task_title_custom : null,
+          progress_percentage: act.progress_percentage ? parseInt(act.progress_percentage) : null,
+          comment:             act.comment || null,
+          photo_ids:           Array.from(new Set(act.photos.filter(photo => photo.id > 0).map(photo => photo.id))),
+          labor_data:          act.labor.length > 0 ? act.labor.map(l => ({ worker_name: l.worker_name, trade: l.trade, hours: parseFloat(l.hours) || 0 })) : null,
+          equipment_data:      act.equipment.length > 0 ? act.equipment.map(eq => ({ equipment_name: eq.equipment_name, hours_used: parseFloat(eq.hours_used) || 0 })) : null,
+          material_data:       act.materials.length > 0 ? act.materials.map(m => ({ material_name: m.material_name, quantity: parseFloat(m.quantity) || 0, unit: m.unit })) : null,
+        }))
+      };
+
+      const res = await apiFetch(isEditMode ? `${API_BASE}/daily-logs/${initialData.id}` : `${API_BASE}/daily-logs`, {
+        method: isEditMode ? "PUT" : "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          project_id:  projectId,
-          date:        new Date(date).toISOString(),
-          weather,
-          temperature: parseFloat(temperature),
-          notes,
-          task_progress: activities.map(act => ({
-            task_type:           act.task_type,
-            task_id:             act.task_type === "planned" && act.task_id > 0 ? act.task_id : null,
-            task_title_custom:   act.task_type === "unplanned" ? act.task_title_custom : null,
-            progress_percentage: act.progress_percentage ? parseInt(act.progress_percentage) : null,
-            comment:             act.comment || null,
-            photos_url:          act.photo_urls.length > 0 ? act.photo_urls : null,
-            labor_data:          act.labor.length > 0 ? act.labor.map(l => ({ worker_name: l.worker_name, trade: l.trade, hours: parseFloat(l.hours) || 0 })) : null,
-            equipment_data:      act.equipment.length > 0 ? act.equipment.map(eq => ({ equipment_name: eq.equipment_name, hours_used: parseFloat(eq.hours_used) || 0 })) : null,
-            material_data:       act.materials.length > 0 ? act.materials.map(m => ({ material_name: m.material_name, quantity: parseFloat(m.quantity) || 0, unit: m.unit })) : null,
-          }))
-        })
+        body: JSON.stringify(isEditMode ? payload : { ...payload, project_id: projectId })
       });
-      if (res.ok) { onSuccess(); onOpenChange(false); }
-      else { const err = await res.json(); alert(err.error || "Erreur de création"); }
+      if (res.ok) {
+        skipCleanupRef.current = true;
+        onSuccess();
+        handleOpenStateChange(false);
+      }
+      else { const err = await res.json(); alert(err.error || (isEditMode ? "Erreur de modification" : "Erreur de création")); }
     } catch (err) { console.error(err); }
     finally { setSubmitting(false); }
   };
@@ -189,11 +557,11 @@ export default function CreateDailyLogDialog({ open, onOpenChange, projectId, on
   //  Render 
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={handleOpenStateChange}>
       <DialogContent className="sm:max-w-3xl bg-gb-surface-solid border-gb-border p-0 overflow-hidden flex flex-col max-h-[90vh]">
         <DialogHeader className="p-6 border-b border-gb-border bg-gb-app/30 shrink-0">
-          <DialogTitle className="text-2xl font-black tracking-tight">Nouveau Rapport Journalier</DialogTitle>
-          <p className="text-xs text-gb-muted font-bold uppercase tracking-widest mt-1">Saisie complète de l'activité chantier</p>
+          <DialogTitle className="text-2xl font-black tracking-tight">{isEditMode ? "Modifier le Rapport Journalier" : "Nouveau Rapport Journalier"}</DialogTitle>
+          <p className="text-xs text-gb-muted font-bold uppercase tracking-widest mt-1">{isEditMode ? "Mise a jour complete de l'activite chantier" : "Saisie complète de l'activité chantier"}</p>
         </DialogHeader>
 
         <form id="daily-log-form" onSubmit={handleSubmit} className="flex-1 overflow-y-auto p-6 space-y-8">
@@ -265,7 +633,7 @@ export default function CreateDailyLogDialog({ open, onOpenChange, projectId, on
                             {act.labor.length > 0 && <span className="text-[10px] font-bold text-blue-500">{act.labor.length} ouvrier{act.labor.length > 1 ? "s" : ""} · {totalH}h</span>}
                             {act.equipment.length > 0 && <span className="text-[10px] font-bold text-amber-500">{act.equipment.length} engin{act.equipment.length > 1 ? "s" : ""}</span>}
                             {act.materials.length > 0 && <span className="text-[10px] font-bold text-emerald-500">{act.materials.length} mat.</span>}
-                            {act.photo_urls.length > 0 && <span className="text-[10px] font-bold text-purple-500">{act.photo_urls.length} photo{act.photo_urls.length > 1 ? "s" : ""}</span>}
+                            {act.photos.length > 0 && <span className="text-[10px] font-bold text-purple-500">{act.photos.length} photo{act.photos.length > 1 ? "s" : ""}</span>}
                           </div>
                         </div>
                       </div>
@@ -376,17 +744,24 @@ export default function CreateDailyLogDialog({ open, onOpenChange, projectId, on
                         {/*  Photos  */}
                         <div className="space-y-2">
                           <div className="flex items-center justify-between pb-1 border-b border-purple-500/10">
-                            <span className="text-[10px] font-black uppercase text-purple-600 flex items-center gap-1.5 tracking-widest"><ImageIcon size={12} /> Photos ({act.photo_urls.length})</span>
+                            <span className="text-[10px] font-black uppercase text-purple-600 flex items-center gap-1.5 tracking-widest"><ImageIcon size={12} /> Photos ({act.photos.length})</span>
                             <label className="text-[10px] font-bold text-purple-600 hover:text-purple-700 cursor-pointer flex items-center gap-0.5 transition-colors">
                               <Plus size={12} /> Ajouter des photos
-                              <input type="file" accept="image/*" multiple className="hidden" onChange={e => addPhotos(ai, e.target.files)} />
+                              <input type="file" accept="image/*" multiple className="hidden" onChange={e => { void addPhotos(ai, e.target.files); e.target.value = ""; }} />
                             </label>
                           </div>
-                          {act.photo_urls.length > 0 && (
+                          {uploadingPhotos > 0 && (
+                            <p className="text-[11px] text-gb-muted italic">Televersement des photos en cours...</p>
+                          )}
+                          {act.photos.length > 0 && (
                             <div className="grid grid-cols-5 gap-2">
-                              {act.photo_urls.map((p, pi) => (
+                              {act.photos.map((photo, pi) => (
                                 <div key={pi} className="relative group">
-                                  <img src={p} alt="" className="h-14 w-full object-cover rounded-lg border border-gb-border" />
+                                  {getDisplayPhotoUrl(photo) ? (
+                                    <img src={getDisplayPhotoUrl(photo) || undefined} alt="" className="h-14 w-full object-cover rounded-lg border border-gb-border" />
+                                  ) : (
+                                    <div className="h-14 w-full rounded-lg border border-gb-border bg-gb-app/40 animate-pulse" />
+                                  )}
                                   <button type="button" onClick={() => removePhoto(ai, pi)} className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-gb-danger text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
                                     <Trash2 size={10} />
                                   </button>
@@ -406,11 +781,11 @@ export default function CreateDailyLogDialog({ open, onOpenChange, projectId, on
         </form>
 
         <DialogFooter className="p-6 border-t border-gb-border bg-gb-app/30 gap-3 shrink-0">
-          <Button type="button" variant="ghost" className="rounded-xl h-11 px-8 font-bold" onClick={() => onOpenChange(false)}>
+          <Button type="button" variant="ghost" className="rounded-xl h-11 px-8 font-bold" onClick={() => handleOpenStateChange(false)}>
             Fermer
           </Button>
-          <Button form="daily-log-form" type="submit" disabled={submitting} className="rounded-xl h-11 px-10 bg-gb-primary hover:bg-gb-primary-dark shadow-xl shadow-gb-primary/20 font-black min-w-[200px]">
-            {submitting ? <><Loader2 size={16} className="mr-2 animate-spin" /> Enregistrement...</> : "Enregistrer le Journal"}
+          <Button form="daily-log-form" type="submit" disabled={submitting || uploadingPhotos > 0} className="rounded-xl h-11 px-10 bg-gb-primary hover:bg-gb-primary-dark shadow-xl shadow-gb-primary/20 font-black min-w-[200px]">
+            {submitting ? <><Loader2 size={16} className="mr-2 animate-spin" /> {isEditMode ? "Mise a jour..." : "Enregistrement..."}</> : uploadingPhotos > 0 ? "Televersement des photos..." : isEditMode ? "Mettre a jour le Journal" : "Enregistrer le Journal"}
           </Button>
         </DialogFooter>
       </DialogContent>

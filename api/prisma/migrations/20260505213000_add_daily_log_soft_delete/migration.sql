@@ -1,0 +1,21 @@
+BEGIN TRY
+
+BEGIN TRAN;
+
+-- AlterTable
+ALTER TABLE [dbo].[DailyLog]
+ADD [is_archived] BIT NOT NULL CONSTRAINT [DailyLog_is_archived_df] DEFAULT 0,
+    [archived_at] DATETIME2;
+
+COMMIT TRAN;
+
+END TRY
+BEGIN CATCH
+
+IF @@TRANCOUNT > 0
+BEGIN
+    ROLLBACK TRAN;
+END;
+THROW
+
+END CATCH

@@ -12,6 +12,7 @@ export class ControlReportController {
         type: req.query.type as string | undefined,
         status: req.query.status as string | undefined,
         severity: req.query.severity as string | undefined,
+        priority: req.query.priority as string | undefined,
       });
       res.json(reports);
     } catch (error: any) {
@@ -48,7 +49,11 @@ export class ControlReportController {
 
   static async update(req: Request, res: Response) {
     try {
-      const report = await ControlReportService.updateControlReport(Number(req.params.id), req.body);
+      const user = (req as AuthRequest).user;
+      const report = await ControlReportService.updateControlReport(Number(req.params.id), {
+        ...req.body,
+        updated_by: user?.id,
+      });
       res.json(report);
     } catch (error: any) {
       res.status(400).json({ error: error.message });
@@ -138,8 +143,12 @@ export class ControlReportController {
 
   static async createAttachment(req: Request, res: Response) {
     try {
+      const user = (req as AuthRequest).user;
       if (!req.body.url) return res.status(400).json({ error: 'url is required' });
-      const attachment = await ControlReportService.createAttachment(Number(req.params.id), req.body);
+      const attachment = await ControlReportService.createAttachment(Number(req.params.id), {
+        ...req.body,
+        uploaded_by: user?.id,
+      });
       res.status(201).json(attachment);
     } catch (error: any) {
       res.status(400).json({ error: error.message });

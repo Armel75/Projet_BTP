@@ -130,6 +130,13 @@ function formatLotDate(value?: string | null) {
   return parsed.toLocaleDateString("fr-FR");
 }
 
+function formatTaskDate(value?: string | null) {
+  if (!value) return null;
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return null;
+  return parsed.toLocaleDateString("fr-FR");
+}
+
 export function ProjectDetail({ projectId, onBack }: ProjectDetailProps) {
   const { can } = usePermissions();
 
@@ -173,7 +180,7 @@ export function ProjectDetail({ projectId, onBack }: ProjectDetailProps) {
     RECEPTION_DEFINITIVE: "Réception définitive",
     CLOS: "Clos",
   };
-  const EMPTY_TASK = { lot_id: "", title: "", status: "TODO", progress: "0", planned_start: "", planned_end: "" };
+  const EMPTY_TASK = { lot_id: "", title: "", description: "", status: "TODO", priority: "MEDIUM", progress: "0", planned_start: "", planned_end: "" };
   const [showTaskDialog, setShowTaskDialog] = useState(false);
   const [editingTask,    setEditingTask]    = useState<any | null>(null);
   const [taskSaving,     setTaskSaving]     = useState(false);
@@ -344,7 +351,9 @@ export function ProjectDetail({ projectId, onBack }: ProjectDetailProps) {
       const payload: Record<string, any> = {
         lot_id:   Number(taskForm.lot_id),
         title:    taskForm.title.trim(),
+        description: taskForm.description.trim() || null,
         status:   taskForm.status,
+        priority: taskForm.priority,
         progress: Number(taskForm.progress),
       };
       if (taskForm.planned_start) payload.planned_start = taskForm.planned_start;
@@ -956,6 +965,17 @@ export function ProjectDetail({ projectId, onBack }: ProjectDetailProps) {
                         />
                       </div>
 
+                      <div>
+                        <label className="block text-xs font-semibold text-gb-text mb-1.5">Description</label>
+                        <textarea
+                          value={taskForm.description}
+                          onChange={e => setTaskForm(p => ({ ...p, description: e.target.value }))}
+                          rows={3}
+                          placeholder="Décrivez le contexte, le périmètre ou les contraintes de cette tâche..."
+                          className="w-full bg-gb-app border border-gb-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gb-primary resize-none"
+                        />
+                      </div>
+
                       <div className="grid grid-cols-2 gap-3">
                         <div>
                           <label className="block text-xs font-semibold text-gb-text mb-1.5">Statut</label>
@@ -969,6 +989,22 @@ export function ProjectDetail({ projectId, onBack }: ProjectDetailProps) {
                             ))}
                           </select>
                         </div>
+                        <div>
+                          <label className="block text-xs font-semibold text-gb-text mb-1.5">Priorité</label>
+                          <select
+                            value={taskForm.priority}
+                            onChange={e => setTaskForm(p => ({ ...p, priority: e.target.value }))}
+                            className="w-full bg-gb-app border border-gb-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gb-primary"
+                          >
+                            <option value="LOW">Basse</option>
+                            <option value="MEDIUM">Normale</option>
+                            <option value="HIGH">Haute</option>
+                            <option value="CRITICAL">Critique</option>
+                          </select>
+                        </div>
+                      </div>
+
+                      <div>
                         <div>
                           <label className="block text-xs font-semibold text-gb-text mb-1.5">
                             Avancement : <span className="text-gb-primary font-bold">{taskForm.progress}%</span>
@@ -1337,15 +1373,21 @@ export function ProjectDetail({ projectId, onBack }: ProjectDetailProps) {
                                 <div className="flex items-start justify-between gap-3">
                                   <div className="min-w-0 flex-1 cursor-pointer" onClick={() => setSelectedTask(task)}>
                                     <p className="font-semibold text-gb-text text-sm truncate hover:text-gb-primary transition-colors">{task.title}</p>
+                                    {task.description && (
+                                      <p className="text-xs text-gb-muted mt-1 line-clamp-2 whitespace-pre-wrap">
+                                        {task.description}
+                                      </p>
+                                    )}
                                     {task.wbs && (
                                       <p className="text-xs text-gb-muted mt-0.5">
                                         <span className="font-mono text-gb-primary">{task.wbs.code}</span> · {task.wbs.name}
                                       </p>
                                     )}
                                     {(task.planned_start || task.planned_end) && (
-                                      <p className="text-xs text-gb-muted mt-0.5">
-                                        {task.planned_start ? new Date(task.planned_start).toLocaleDateString("fr-FR") : "?"} → {task.planned_end ? new Date(task.planned_end).toLocaleDateString("fr-FR") : "?"}
-                                      </p>
+                                      <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-xs text-gb-muted">
+                                        <span>Début: {formatTaskDate(task.planned_start) ?? "Non défini"}</span>
+                                        <span>Échéance: {formatTaskDate(task.planned_end) ?? "Non définie"}</span>
+                                      </div>
                                     )}
                                   </div>
                                   <div className="flex items-center gap-2 shrink-0">
@@ -1369,7 +1411,9 @@ export function ProjectDetail({ projectId, onBack }: ProjectDetailProps) {
                                         setTaskForm({
                                           lot_id:        String(task.lot_id ?? task.lot?.id ?? lot.id),
                                           title:         task.title ?? "",
+                                          description:   task.description ?? "",
                                           status:        task.status ?? "TODO",
+                                          priority:      task.priority ?? "MEDIUM",
                                           progress:      String(task.progress ?? 0),
                                           planned_start: task.planned_start ? String(task.planned_start).split('T')[0] : "",
                                           planned_end:   task.planned_end   ? String(task.planned_end).split('T')[0]   : "",

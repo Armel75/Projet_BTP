@@ -171,6 +171,7 @@ export class ValidationService {
       const reports = await prisma.controlReport.findMany({
         where: {
           tenant_id: tenantId,
+          is_archived: false,
           ...(projectId ? { project_id: projectId } : {}),
           status: "UNDER_REVIEW",
         },
@@ -247,7 +248,7 @@ export class ValidationService {
     }
 
     if (entityType === "control-report") {
-      const existing = await prisma.controlReport.findFirst({ where: { id: entityId, tenant_id: tenantId }, select: { id: true } });
+      const existing = await prisma.controlReport.findFirst({ where: { id: entityId, tenant_id: tenantId, is_archived: false }, select: { id: true } });
       if (!existing) throw new Error("NOT_FOUND");
       return ControlReportService.approve(entityId, userId);
     }
@@ -316,7 +317,7 @@ export class ValidationService {
     }
 
     if (entityType === "control-report") {
-      const owned = await prisma.controlReport.findFirst({ where: { id: entityId, tenant_id: tenantId }, select: { id: true } });
+      const owned = await prisma.controlReport.findFirst({ where: { id: entityId, tenant_id: tenantId, is_archived: false }, select: { id: true } });
       if (!owned) throw new Error("NOT_FOUND");
       return ControlReportService.reject(entityId, userId, reason);
     }

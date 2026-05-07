@@ -21,6 +21,7 @@ import controlReportRouter from './control-report.routes.js';
 import dashboardRouter from './dashboard.routes.js';
 import validationRouter from './validation.routes.js';
 import glpiRouter from './glpi.routes.js';
+import photoRouter from './photo.routes.js';
 
 const router = Router();
 
@@ -44,6 +45,7 @@ router.use("/seed", seedRouter);
 router.use("/rbac", rbacRouter);
 router.use("/tenants", tenantRouter);
 router.use('/documents', documentRouter);
+router.use('/photos', photoRouter);
 router.use('/meetings',  meetingRouter);
 router.use('/rfis',      rfiRouter);
 router.use('/control-reports', controlReportRouter);
