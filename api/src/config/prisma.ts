@@ -403,6 +403,7 @@ export const prisma = new Proxy(realPrisma, {
                     return async (...args: any[]) => {
                         let finalArgs = args[0] || {};
                         const tenantId = TenantContext.getTenantId();
+                        const isTenantScopedModel = MULTI_TENANT_MODELS.includes(prop as string);
                         
                         if (['findMany', 'findFirst', 'count', 'aggregate', 'groupBy'].includes(subProp as string)) {
                             finalArgs = applyTenantFilter(prop, finalArgs);
@@ -411,7 +412,7 @@ export const prisma = new Proxy(realPrisma, {
                         } else if (['update', 'delete', 'updateMany', 'deleteMany', 'upsert'].includes(subProp as string)) {
                             if (subProp.toString().endsWith('Many')) {
                                 finalArgs = applyTenantFilter(prop, finalArgs);
-                            } else if (tenantId) {
+                            } else if (tenantId && isTenantScopedModel) {
                                 // Verification before single update/delete/upsert
                                 const existing = await (subTarget as any).findUnique({ where: finalArgs.where }).catch(() => null);
                                 if (existing && existing.tenant_id && existing.tenant_id !== tenantId) {

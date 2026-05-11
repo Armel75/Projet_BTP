@@ -1,12 +1,13 @@
 import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
 import { randomBytes, createHash } from 'crypto';
+import { Prisma } from '@prisma/client';
 import { prisma } from '../config/prisma.js';
 import { env } from '../config/env.js';
 import { RbacService } from './rbac.service.js';
 
 const MATRICULE_REGEX = /^[A-Z]{2}[0-9]+$/;
-const SIMPLE_EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const SOREPCO_EMAIL_REGEX = /^[a-z0-9._%+-]+@(?:[a-z0-9-]+\.)*groupesorepco\.com$/i;
 
 export class AuthService {
   static async registerUser(data: any, reqIp?: string, reqUserAgent?: string) {
@@ -27,8 +28,8 @@ export class AuthService {
     if (!password) throw { status: 400, message: "Le mot de passe est obligatoire." };
     if (!confirmPassword) throw { status: 400, message: "La confirmation du mot de passe est obligatoire." };
 
-    if (!SIMPLE_EMAIL_REGEX.test(email)) {
-      throw { status: 400, message: "Format d'email invalide." };
+    if (!SOREPCO_EMAIL_REGEX.test(email)) {
+      throw { status: 400, message: "L'email doit respecter le format nom@groupesorepco.com ou nom@sous-domaine.groupesorepco.com." };
     }
 
     if (username.length < 3) {
@@ -74,18 +75,30 @@ export class AuthService {
       tenant = await prisma.tenant.create({ data: { name: process.env.SEED_TENANT_NAME ?? 'SOREPCO' } });
     }
 
-    const user = await prisma.user.create({
-      data: { 
-        firstname, 
-        lastname, 
-        email, 
-        username, 
-        matricule, 
-        password_hash,
-        status: "ACTIVE", 
-        tenant_id: tenant.id
+    let user;
+    try {
+      user = await prisma.user.create({
+        data: {
+          firstname,
+          lastname,
+          email,
+          username,
+          matricule,
+          password_hash,
+          status: "ACTIVE",
+          tenant_id: tenant.id
+        }
+      });
+    } catch (error) {
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+        const target = Array.isArray(error.meta?.target) ? error.meta?.target : [];
+        if (target.includes('email')) throw { status: 400, message: "Cette adresse email est deja utilisee." };
+        if (target.includes('username')) throw { status: 400, message: "Ce nom d'utilisateur est deja utilise." };
+        if (target.includes('matricule')) throw { status: 400, message: "Ce matricule est deja utilise." };
+        throw { status: 400, message: "Un compte avec ces informations existe deja." };
       }
-    });
+      throw error;
+    }
 
     const role = await prisma.role.findUnique({ where: { code: roleCode } });
     if (role) {

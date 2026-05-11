@@ -15,20 +15,30 @@ import PurchaseOrderModule from "../components/procurement/PurchaseOrderModule";
 import DeliveryModule from "../components/procurement/DeliveryModule";
 import InventoryModule from "../components/procurement/InventoryModule";
 import X3SyncPanel from "../components/procurement/X3SyncPanel";
+import { usePermissions } from "../contexts/AuthContext";
+import { NAV_PERMISSION_GROUPS } from "../constants/navigationPermissions";
 
 type ProcurementTab = "tenders" | "suppliers" | "orders" | "deliveries" | "inventory" | "x3sync";
 
 export default function ProcurementView() {
-  const [activeTab, setActiveTab] = useState<ProcurementTab>("tenders");
+  const { canAny } = usePermissions();
 
   const tabs = [
-    { id: "tenders", label: "Appels d'offres", icon: FileText, color: "text-blue-500", bg: "bg-blue-500/10" },
-    { id: "suppliers", label: "Fournisseurs", icon: Users, color: "text-amber-500", bg: "bg-amber-500/10" },
-    { id: "orders", label: "Commandes", icon: ShoppingCart, color: "text-emerald-500", bg: "bg-emerald-500/10" },
-    { id: "deliveries", label: "Livraisons & Réceptions", icon: Truck, color: "text-purple-500", bg: "bg-purple-500/10" },
-    { id: "inventory", label: "Stocks & Inventaire", icon: Package, color: "text-teal-500", bg: "bg-teal-500/10" },
-    { id: "x3sync", label: "Synchro SAGE X3", icon: Database, color: "text-violet-500", bg: "bg-violet-500/10" },
-  ];
+    { id: "tenders", label: "Appels d'offres", icon: FileText, color: "text-blue-500", bg: "bg-blue-500/10", visible: canAny(...NAV_PERMISSION_GROUPS.procurementTabs.tenders) },
+    { id: "suppliers", label: "Fournisseurs", icon: Users, color: "text-amber-500", bg: "bg-amber-500/10", visible: canAny(...NAV_PERMISSION_GROUPS.procurementTabs.suppliers) },
+    { id: "orders", label: "Commandes", icon: ShoppingCart, color: "text-emerald-500", bg: "bg-emerald-500/10", visible: canAny(...NAV_PERMISSION_GROUPS.procurementTabs.orders) },
+    { id: "deliveries", label: "Livraisons & Réceptions", icon: Truck, color: "text-purple-500", bg: "bg-purple-500/10", visible: canAny(...NAV_PERMISSION_GROUPS.procurementTabs.deliveries) },
+    { id: "inventory", label: "Stocks & Inventaire", icon: Package, color: "text-teal-500", bg: "bg-teal-500/10", visible: canAny(...NAV_PERMISSION_GROUPS.procurementTabs.inventory) },
+    { id: "x3sync", label: "Synchro SAGE X3", icon: Database, color: "text-violet-500", bg: "bg-violet-500/10", visible: canAny(...NAV_PERMISSION_GROUPS.procurementTabs.x3sync) },
+  ].filter((tab) => tab.visible);
+
+  const [activeTab, setActiveTab] = useState<ProcurementTab>((tabs[0]?.id as ProcurementTab) || "tenders");
+
+  React.useEffect(() => {
+    if (!tabs.some((t) => t.id === activeTab)) {
+      setActiveTab((tabs[0]?.id as ProcurementTab) || "tenders");
+    }
+  }, [activeTab, tabs]);
 
   return (
     <div className="space-y-8 pb-10">
@@ -42,6 +52,12 @@ export default function ProcurementView() {
         </div>
       </div>
 
+      {tabs.length === 0 ? (
+        <div className="rounded-xl border border-gb-border bg-gb-surface-solid p-6 text-sm text-gb-muted">
+          Vous n'avez aucune permission de lecture sur les sous-modules Achats.
+        </div>
+      ) : (
+      <>
       {/* Tabs / Navigation Sub-header */}
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
         {tabs.map((tab) => {
@@ -84,13 +100,15 @@ export default function ProcurementView() {
         transition={{ duration: 0.3 }}
         className="min-h-[400px]"
       >
-        {activeTab === "tenders" && <TenderModule />}
-        {activeTab === "suppliers" && <SupplierModule />}
-        {activeTab === "orders" && <PurchaseOrderModule />}
-        {activeTab === "deliveries" && <DeliveryModule />}
-        {activeTab === "inventory" && <InventoryModule />}
-        {activeTab === "x3sync" && <X3SyncPanel />}
+        {activeTab === "tenders" && canAny(...NAV_PERMISSION_GROUPS.procurementTabs.tenders) && <TenderModule />}
+        {activeTab === "suppliers" && canAny(...NAV_PERMISSION_GROUPS.procurementTabs.suppliers) && <SupplierModule />}
+        {activeTab === "orders" && canAny(...NAV_PERMISSION_GROUPS.procurementTabs.orders) && <PurchaseOrderModule />}
+        {activeTab === "deliveries" && canAny(...NAV_PERMISSION_GROUPS.procurementTabs.deliveries) && <DeliveryModule />}
+        {activeTab === "inventory" && canAny(...NAV_PERMISSION_GROUPS.procurementTabs.inventory) && <InventoryModule />}
+        {activeTab === "x3sync" && canAny(...NAV_PERMISSION_GROUPS.procurementTabs.x3sync) && <X3SyncPanel />}
       </motion.div>
+      </>
+      )}
     </div>
   );
 }

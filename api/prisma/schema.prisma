@@ -88,12 +88,21 @@ model Tenant {
   materialConsumptions MaterialConsumption[]
   goodsReceipts GoodsReceipt[]
   weeklyReports WeeklyReport[]
+  executionNotes ExecutionNote[]
+  taskStatusHistoryEntries TaskStatusHistory[]
+  lotStatusHistoryEntries LotStatusHistory[]
+  incidentStatusHistoryEntries IncidentStatusHistory[]
   roles     Role[]
   userRoles UserRole[]
 
   // ─── Intégration GLPI ──────────────────────────────────────
   glpiUsers GLPIUser[]
   tickets   Ticket[]
+
+  // ─── Notifications ──────────────────────────────────────────
+  notificationEvents       NotificationEvent[]
+  notificationDeliveries   NotificationDelivery[]
+  notificationPreferences  NotificationPreference[]
 }
 
 model User {
@@ -201,6 +210,7 @@ model User {
 
   costTransactionsCreated CostTransaction[] @relation("CostTransactionCreatedBy")
   weeklyReportsCreated WeeklyReport[] @relation("WeeklyReportCreatedBy")
+  executionNotesCreated ExecutionNote[] @relation("ExecutionNoteCreatedBy")
 
   // ─── Lots corps d'état ──────────────────────────────────────────
   lotsResponsible ProjectLot[] @relation("LotResponsible")
@@ -216,6 +226,10 @@ model User {
 
   // Sessions pour authentification stateful
   sessions Session[]
+
+  // ─── Notifications ──────────────────────────────────────────
+  notificationDeliveries  NotificationDelivery[]
+  notificationPreferences NotificationPreference[]
 }
 
 //////////////////////////////
@@ -444,6 +458,7 @@ model Project {
   costTransactions CostTransaction[]
   weeklyReports WeeklyReport[]
   phaseTransitions ProjectPhaseTransition[]
+  executionNotes ExecutionNote[]
   userRoles UserRole[]
   warehouses Warehouse[]
   inventoryBalances InventoryBalance[]
@@ -500,6 +515,8 @@ model Project {
     lot_number       String           // Numéro officiel du lot : "01", "02", "A"...
     trade_code       String           // FK → TradeCategory.code
     status           String           @default("CONCEPTION")
+      schedule_status  String           @default("ON_TRACK")
+      // ON_TRACK | AT_RISK | DELAYED | BLOCKED
     // CONCEPTION | APPEL_OFFRES | ATTRIBUTION | EN_COURS
     // RECEPTION_PROVISOIRE | RECEPTION_DEFINITIVE | CLOS
     budget_allocated Float            @default(0)  // Budget alloué à ce lot
@@ -537,13 +554,18 @@ model Project {
     invoices        Invoice[]
     meetings        Meeting[]
     rfis            RFI[]
+    executionNotes  ExecutionNote[]
+    statusHistory   LotStatusHistory[]
 
+    is_archived Boolean  @default(false)
+    archived_at DateTime?
     created_at DateTime @default(now())
     updated_at DateTime @updatedAt
 
     @@unique([project_id, lot_number])
     @@index([project_id, trade_code])
     @@index([project_id, status])
+    @@index([project_id, schedule_status])
   }
 
 //////////////////////////////
@@ -596,6 +618,8 @@ model Task {
   title       String
   description String? @db.NVarChar(Max)
   status      String
+  schedule_status String @default("ON_TRACK")
+  // ON_TRACK | AT_RISK | DELAYED | BLOCKED
   priority    String  @default("MEDIUM") // LOW | MEDIUM | HIGH | CRITICAL
   progress    Float
   tenant_id   Int
@@ -604,6 +628,8 @@ model Task {
   planned_end   DateTime?
   actual_start  DateTime?
   actual_end    DateTime?
+  is_archived   Boolean  @default(false)
+  archived_at   DateTime?
   materialConsumptions MaterialConsumption[]
   created_by Int?
   createdBy  User? @relation("TaskCreatedBy", fields: [created_by], references: [id], onUpdate: NoAction, onDelete: NoAction)
@@ -618,9 +644,13 @@ model Task {
   controlReports ControlReport[]
   weeklyReportItems WeeklyReportItem[]
   daily_log_progress DailyLogTaskProgress[]
+  executionNotes ExecutionNote[]
+  statusHistory TaskStatusHistory[]
+  created_at DateTime @default(now())
 
   @@index([tenant_id, project_id])
   @@index([tenant_id, status])
+  @@index([tenant_id, schedule_status])
   @@index([project_id, wbs_id])
   @@index([lot_id])
 }
@@ -655,6 +685,123 @@ model TaskDependency {
   depends_on_id Int
   task         Task @relation("TaskDependency_task", fields: [task_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
   dependsOn    Task @relation("TaskDependency_dependsOn", fields: [depends_on_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+}
+
+//////////////////////////////
+// EXECUTION NOTES & STATUS HISTORY
+//////////////////////////////
+
+model ExecutionNote {
+  id          Int @id @default(autoincrement())
+  tenant_id   Int
+  project_id  Int
+  lot_id      Int?
+  task_id     Int?
+  incident_id Int?
+  parent_id   Int?
+
+  content            String @db.NVarChar(Max)
+  category           String @default("INFO")
+  // INFO | QUESTION | ALERT | DELAY | BLOCKER | DECISION | RISK | HANDOFF
+  visibility         String @default("INTERNAL")
+  // INTERNAL | MANAGEMENT | CLIENT_SHARED
+  source             String @default("MANUAL")
+  // MANUAL | SYSTEM | DAILY_LOG | INCIDENT | WORKFLOW
+  requires_attention Boolean @default(false)
+  is_pinned          Boolean @default(false)
+  metadata_json      String? @db.NVarChar(Max)
+
+  created_by Int?
+  edited_by  Int?
+  edited_at  DateTime?
+  resolved_at DateTime?
+  deleted_at DateTime?
+
+  tenant    Tenant         @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  project   Project        @relation(fields: [project_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  lot       ProjectLot?    @relation(fields: [lot_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  task      Task?          @relation(fields: [task_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  incident  Incident?      @relation(fields: [incident_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  parent    ExecutionNote? @relation("ExecutionNoteThread", fields: [parent_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  replies   ExecutionNote[] @relation("ExecutionNoteThread")
+  createdBy User?          @relation("ExecutionNoteCreatedBy", fields: [created_by], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  @@index([tenant_id, project_id, created_at])
+  @@index([lot_id, created_at])
+  @@index([task_id, created_at])
+  @@index([incident_id, created_at])
+  @@index([parent_id])
+  @@index([tenant_id, requires_attention, resolved_at])
+  @@index([tenant_id, deleted_at])
+}
+
+model TaskStatusHistory {
+  id                   Int @id @default(autoincrement())
+  task_id              Int
+  tenant_id            Int
+  from_status          String?
+  to_status            String?
+  from_schedule_status String?
+  to_schedule_status   String?
+  reason               String? @db.NVarChar(Max)
+  comment              String? @db.NVarChar(Max)
+  changed_by           Int?
+  changed_at           DateTime @default(now())
+
+  task   Task   @relation(fields: [task_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  tenant Tenant @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([task_id, changed_at])
+  @@index([tenant_id, changed_at])
+  @@index([tenant_id, to_status])
+  @@index([tenant_id, to_schedule_status])
+}
+
+model LotStatusHistory {
+  id                   Int @id @default(autoincrement())
+  lot_id               Int
+  tenant_id            Int
+  from_status          String?
+  to_status            String?
+  from_schedule_status String?
+  to_schedule_status   String?
+  reason               String? @db.NVarChar(Max)
+  comment              String? @db.NVarChar(Max)
+  changed_by           Int?
+  changed_at           DateTime @default(now())
+
+  lot    ProjectLot @relation(fields: [lot_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  tenant Tenant     @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([lot_id, changed_at])
+  @@index([tenant_id, changed_at])
+  @@index([tenant_id, to_status])
+  @@index([tenant_id, to_schedule_status])
+}
+
+model IncidentStatusHistory {
+  id            Int @id @default(autoincrement())
+  incident_id   Int
+  tenant_id     Int
+  from_status   String?
+  to_status     String
+  from_severity String?
+  to_severity   String?
+  reason        String? @db.NVarChar(Max)
+  comment       String? @db.NVarChar(Max)
+  changed_by    Int?
+  changed_at    DateTime @default(now())
+  snapshot_json String? @db.NVarChar(Max)
+
+  incident Incident @relation(fields: [incident_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  tenant   Tenant   @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([incident_id, changed_at])
+  @@index([tenant_id, changed_at])
+  @@index([tenant_id, to_status])
 }
 
 
@@ -1975,7 +2122,9 @@ model Incident {
   description       String @db.NVarChar(Max)
   location          String?                     // Localisation sur le chantier
   incident_date     DateTime?                   // Date/heure de survenue (≠ created_at)
+  acknowledged_at   DateTime?
   resolved_at       DateTime?                   // Date effective de résolution
+  target_resolution_at DateTime?
   root_cause        String? @db.NVarChar(Max)   // Analyse des causes racines (REX / prévention)
   corrective_action String? @db.NVarChar(Max)   // Action corrective mise en place
   cost_impact       Float?                      // Impact financier estimé
@@ -1993,6 +2142,8 @@ model Incident {
   project    Project     @relation(fields: [project_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
   task       Task?       @relation(fields: [task_id],    references: [id], onDelete: NoAction, onUpdate: NoAction)
   lot        ProjectLot? @relation(fields: [lot_id],     references: [id], onDelete: NoAction, onUpdate: NoAction)
+  executionNotes ExecutionNote[]
+  statusHistory IncidentStatusHistory[]
 
   created_at DateTime @default(now())
   updated_at DateTime @updatedAt
@@ -2667,4 +2818,106 @@ model UserRole {
   @@index([user_id, tenant_id])
   @@index([user_id, project_id])
   @@unique([user_id, role_id, project_id])
+}
+
+//////////////////////////////
+// NOTIFICATIONS
+//////////////////////////////
+
+// Un événement métier unique (ex: INCIDENT_CREATED sur Incident #42)
+// Génère N livraisons selon les destinataires et les canaux.
+model NotificationEvent {
+  id          Int      @id @default(autoincrement())
+  tenant_id   Int
+
+  // Type d'événement métier — aligne avec les entités existantes du projet
+  type        String
+  // Exemples : TASK_ASSIGNED | TASK_OVERDUE | INCIDENT_CREATED | INCIDENT_UPDATED
+  //            RFI_SUBMITTED | RFI_ANSWERED | INSPECTION_DUE | PUNCH_ITEM_ASSIGNED
+  //            INVOICE_APPROVED | CONTRACT_SIGNED | WORKFLOW_ACTION_REQUIRED
+  //            CONTROL_REPORT_SUBMITTED | WORK_ACCEPTANCE_SIGNED | MEETING_SCHEDULED
+  //            DAILY_LOG_SUBMITTED | WEEKLY_REPORT_VALIDATED
+
+  priority    String   @default("MEDIUM") // CRITICAL | HIGH | MEDIUM | LOW
+
+  // Entité source (polymorphique)
+  entity_type String?  // "Task" | "Incident" | "RFI" | "Inspection" | "PunchItem" | ...
+  entity_id   Int?
+
+  // Contexte JSON pour le rendu dynamique des emails/messages
+  // (ex: { "task_title": "Ferraillage RDC", "project": "Résidence Les Pins" })
+  payload     String?  @db.NVarChar(Max)
+
+  expires_at  DateTime?
+
+  tenant      Tenant                 @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  deliveries  NotificationDelivery[]
+
+  created_at  DateTime @default(now())
+
+  @@index([tenant_id, type])
+  @@index([tenant_id, entity_type, entity_id])
+  @@index([tenant_id, created_at])
+}
+
+// Une livraison par canal × destinataire.
+// Canal EMAIL → nodemailer → SMTP Zimbra (192.168.0.247:587, même setup que reset password)
+// Canal IN_APP → lu via GET /notifications (badge front)
+// Canal PUSH  → réservé app mobile future (FCM)
+model NotificationDelivery {
+  id           Int      @id @default(autoincrement())
+  tenant_id    Int
+  event_id     Int
+  recipient_id Int
+
+  channel      String   // EMAIL | IN_APP | PUSH
+
+  // Contenu rendu (rempli au moment de l'envoi par le service)
+  subject      String?
+  body         String?  @db.NVarChar(Max)
+
+  // Cycle de vie de la livraison
+  status       String   @default("PENDING")
+  // PENDING → SENT → DELIVERED → FAILED | SKIPPED
+
+  // Lecture (IN_APP)
+  is_read      Boolean  @default(false)
+  read_at      DateTime?
+
+  // Traçabilité envoi email Zimbra
+  sent_at       DateTime?
+  failed_at     DateTime?
+  error_message String?
+  retry_count   Int      @default(0)
+
+  tenant    Tenant            @relation(fields: [tenant_id],    references: [id], onDelete: NoAction, onUpdate: NoAction)
+  event     NotificationEvent @relation(fields: [event_id],     references: [id], onDelete: NoAction, onUpdate: NoAction)
+  recipient User              @relation(fields: [recipient_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  created_at  DateTime @default(now())
+  updated_at  DateTime @updatedAt
+
+  @@index([tenant_id, recipient_id, is_read])
+  @@index([tenant_id, recipient_id, channel])
+  @@index([tenant_id, status])
+  @@index([tenant_id, channel, status])  // pour le cron de retry Zimbra
+  @@index([event_id])
+}
+
+// Préférences par utilisateur : quel type d'événement, sur quel canal, et en quel mode.
+model NotificationPreference {
+  id                Int     @id @default(autoincrement())
+  tenant_id         Int
+  user_id           Int
+
+  notification_type String  // même valeurs que NotificationEvent.type
+  channel           String  // EMAIL | IN_APP | PUSH
+  enabled           Boolean @default(true)
+  digest_mode       String  @default("IMMEDIATE") // IMMEDIATE | DAILY | WEEKLY
+
+  tenant Tenant @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  user   User   @relation(fields: [user_id],   references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@unique([tenant_id, user_id, notification_type, channel])
+  @@index([tenant_id, user_id])
 }

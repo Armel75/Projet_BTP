@@ -1,6 +1,6 @@
 import React from "react";
 import { apiFetch, API_BASE } from "../lib/api";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext";
 import { 
   HardHat, 
@@ -20,8 +20,13 @@ import { motion } from "motion/react";
 export default function LoginView() {
   const { login } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
   const [error, setError] = React.useState("");
   const [loading, setLoading] = React.useState(false);
+  const locationState = location.state as { registrationSuccess?: boolean; message?: string } | null;
+  const successMessage = locationState?.registrationSuccess
+    ? (locationState.message ?? "Compte cree avec succes. Connectez-vous pour continuer.")
+    : "";
 
   const handleLogin = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -175,6 +180,19 @@ export default function LoginView() {
               <h2 className="text-3xl font-black text-gb-text tracking-tight mb-2">Bon retour 👋</h2>
               <p className="text-gb-muted text-sm font-medium italic">Accédez à votre plateforme de gestion chantier</p>
             </div>
+
+            {successMessage && (
+              <motion.div
+                initial={{ height: 0, opacity: 0 }}
+                animate={{ height: "auto", opacity: 1 }}
+                className="mb-6 p-4 bg-emerald-500/10 border border-emerald-500/30 rounded-2xl text-emerald-400 text-sm font-bold flex items-center gap-3"
+              >
+                <div className="w-6 h-6 rounded-full bg-emerald-500 text-white flex items-center justify-center shrink-0">
+                  <CheckCircle2 size={12} />
+                </div>
+                {successMessage}
+              </motion.div>
+            )}
 
             {error && (
               <motion.div 

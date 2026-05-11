@@ -350,22 +350,22 @@ export default function ChangeOrderModule() {
                 </div>
 
                 {co.status === "PENDING_APPROVAL" && (
-                  <div className="flex items-center gap-1.5">
+                  <div className="flex items-center gap-2">
                     <button
                       type="button"
                       onClick={() => openEditModal(co)}
-                      className="p-2 hover:bg-gb-app rounded-full transition-colors text-gb-muted hover:text-amber-600"
+                      className="inline-flex items-center gap-1.5 px-3 h-8 rounded-xl text-xs font-semibold text-gb-muted hover:text-amber-600 hover:bg-amber-600/10 transition-colors"
                       title="Modifier"
                     >
-                      <Pencil size={16} />
+                      <Pencil size={13} /><span>Modifier</span>
                     </button>
                     <button
                       type="button"
                       onClick={() => void deleteChangeOrder(co)}
-                      className="p-2 hover:bg-gb-danger/10 rounded-full transition-colors text-gb-muted hover:text-gb-danger"
+                      className="inline-flex items-center gap-1.5 px-3 h-8 rounded-xl text-xs font-semibold text-gb-muted hover:text-gb-danger hover:bg-gb-danger/10 transition-colors"
                       title="Supprimer"
                     >
-                      <Trash2 size={16} />
+                      <Trash2 size={13} /><span>Supprimer</span>
                     </button>
                   </div>
                 )}
@@ -379,7 +379,7 @@ export default function ChangeOrderModule() {
         setFormOpen(open);
         if (!open) resetForm();
       }}>
-        <DialogContent className="sm:max-w-[680px] p-0 bg-gb-surface-solid border-gb-border overflow-hidden">
+        <DialogContent className="sm:max-w-[680px] p-0 bg-gb-surface-solid border-gb-border overflow-hidden flex flex-col max-h-[92dvh]">
           <DialogHeader className="p-5 border-b border-gb-border bg-gb-app/20">
             <div className="flex items-center gap-3">
               <div className="w-10 h-10 rounded-xl bg-amber-500/10 text-amber-600 flex items-center justify-center">
@@ -396,7 +396,7 @@ export default function ChangeOrderModule() {
             </div>
           </DialogHeader>
 
-          <form onSubmit={submitForm} className="p-6 space-y-4">
+          <form onSubmit={submitForm} className="min-h-0 flex-1 overflow-y-auto p-6 space-y-4">
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-1.5 col-span-2">
                 <label className="text-[11px] font-black uppercase tracking-widest text-gb-muted">Contrat</label>

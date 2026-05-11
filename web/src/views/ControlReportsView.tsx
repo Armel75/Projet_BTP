@@ -2,11 +2,11 @@ import React, { useState, useEffect, useCallback, useMemo } from "react";
 import { useSearchParams } from "react-router-dom";
 import {
   ClipboardList, Plus, X, Loader2, AlertCircle, CheckCircle2, XCircle, Clock,
-  Calendar, MapPin, User, Eye, Pencil, Archive, Activity, ArrowUpRight,
+  Calendar, MapPin, User, Eye, Pencil, Archive, Activity,
   ShieldCheck, AlertTriangle, ChevronDown, Filter, Search, RotateCcw,
   ThumbsUp, ThumbsDown, Paperclip, Wrench, History, ChevronRight,
   Link2, Trash2, TrendingUp, Badge, BarChart3, Zap, Target, CheckCheck,
-  SlidersHorizontal, Tag, Building2, BookOpen, FileWarning
+  SlidersHorizontal, Tag, Building2, BookOpen, FileWarning, FileDown
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { apiFetch, API_BASE } from "../lib/api";
@@ -762,12 +762,14 @@ function ActionsPanel({ reportId, canEdit }: { reportId: number; canEdit: boolea
             {canEdit && (
               <div className="flex items-center gap-1 shrink-0">
                 {a.status !== "DONE" && a.status !== "CANCELLED" && (
-                  <button onClick={() => advanceStatus(a)} title="Avancer" className="p-1.5 rounded-lg text-gb-muted hover:text-emerald-500 hover:bg-emerald-500/10 transition-colors">
-                    <ChevronRight size={14} />
+                  <button onClick={() => advanceStatus(a)} title="Avancer l'action" className="inline-flex items-center gap-1 px-2 py-1 rounded-lg border border-emerald-500/20 text-[11px] font-bold text-emerald-500 hover:bg-emerald-500/10 transition-colors">
+                    <ChevronRight size={13} />
+                    Avancer
                   </button>
                 )}
-                <button onClick={() => deleteAction(a.id)} title="Archiver" className="p-1.5 rounded-lg text-gb-muted hover:text-gb-danger hover:bg-gb-danger/10 transition-colors">
-                  <Trash2 size={13} />
+                <button onClick={() => deleteAction(a.id)} title="Archiver l'action" className="inline-flex items-center gap-1 px-2 py-1 rounded-lg border border-gb-danger/20 text-[11px] font-bold text-gb-danger hover:bg-gb-danger/10 transition-colors">
+                  <Trash2 size={12} />
+                  Archiver
                 </button>
               </div>
             )}
@@ -816,7 +818,7 @@ function AttachmentsPanel({ reportId, canEdit }: { reportId: number; canEdit: bo
   const [attachments, setAttachments] = useState<ControlReportAttachment[]>([]);
   const [loading, setLoading]  = useState(true);
   const [showForm, setShowForm]= useState(false);
-  const [form, setForm]        = useState({ url: "", file_name: "", source: "DOCUMENT", caption: "" });
+  const [form, setForm]        = useState({ files: [] as File[], file_name: "", source: "DOCUMENT", caption: "" });
   const [saving, setSaving]    = useState(false);
   const [error, setError]      = useState("");
 
@@ -831,22 +833,50 @@ function AttachmentsPanel({ reportId, canEdit }: { reportId: number; canEdit: bo
 
   const handleAdd = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!form.url.trim()) { setError("URL obligatoire"); return; }
+    if (!form.files.length) { setError("Fichier obligatoire"); return; }
     setSaving(true); setError("");
     try {
-      const res  = await apiFetch(`${API_BASE}/control-reports/${reportId}/attachments`, {
+      const body = new FormData();
+      form.files.forEach(f => body.append("files", f));
+      if (form.files.length === 1 && form.file_name.trim()) body.append("file_name", form.file_name.trim());
+      body.append("source", form.source);
+      if (form.caption.trim()) body.append("caption", form.caption.trim());
+
+      const res  = await apiFetch(`${API_BASE}/control-reports/${reportId}/attachments/upload`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...form }),
+        body,
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Erreur");
       setShowForm(false);
-      setForm({ url: "", file_name: "", source: "DOCUMENT", caption: "" });
+      setForm({ files: [], file_name: "", source: "DOCUMENT", caption: "" });
       load();
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Erreur");
     } finally { setSaving(false); }
+  };
+
+  const openAttachment = async (attachment: ControlReportAttachment) => {
+    try {
+      if (/^https?:\/\//i.test(attachment.url)) {
+        window.open(attachment.url, "_blank", "noopener,noreferrer");
+        return;
+      }
+
+      const targetUrl = attachment.url.startsWith("/") ? `${API_BASE}${attachment.url.replace(/^\/api\/v1/, "")}` : attachment.url;
+      const res = await apiFetch(targetUrl, { method: "GET" });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || "Impossible d'ouvrir le fichier");
+      }
+
+      const blob = await res.blob();
+      const blobUrl = URL.createObjectURL(blob);
+      window.open(blobUrl, "_blank", "noopener,noreferrer");
+      setTimeout(() => URL.revokeObjectURL(blobUrl), 60_000);
+    } catch (err: unknown) {
+      alert(err instanceof Error ? err.message : "Impossible d'ouvrir la pièce jointe.");
+    }
   };
 
   const deleteAttachment = async (id: number) => {
@@ -887,12 +917,12 @@ function AttachmentsPanel({ reportId, canEdit }: { reportId: number; canEdit: bo
               </div>
             </div>
             <div className="flex items-center gap-1 shrink-0">
-              <a href={a.url} target="_blank" rel="noopener noreferrer" className="p-1.5 rounded-lg text-gb-muted hover:text-gb-primary hover:bg-gb-primary/10 transition-colors">
-                <Link2 size={13} />
-              </a>
+              <button onClick={() => openAttachment(a)} className="flex items-center gap-1 px-2 py-1 rounded-lg text-gb-muted hover:text-gb-primary hover:bg-gb-primary/10 transition-colors text-xs font-medium">
+                <Link2 size={12} />Ouvrir
+              </button>
               {canEdit && (
-                <button onClick={() => deleteAttachment(a.id)} className="p-1.5 rounded-lg text-gb-muted hover:text-gb-danger hover:bg-gb-danger/10 transition-colors">
-                  <Trash2 size={13} />
+                <button onClick={() => deleteAttachment(a.id)} className="flex items-center gap-1 px-2 py-1 rounded-lg text-gb-muted hover:text-gb-danger hover:bg-gb-danger/10 transition-colors text-xs font-medium">
+                  <Trash2 size={12} />Supprimer
                 </button>
               )}
             </div>
@@ -908,7 +938,7 @@ function AttachmentsPanel({ reportId, canEdit }: { reportId: number; canEdit: bo
 
       {showForm && (
         <form onSubmit={handleAdd} className="bg-gb-surface-solid border border-gb-primary/30 rounded-xl p-3 space-y-2">
-          <input value={form.url} onChange={e => setForm(f => ({ ...f, url: e.target.value }))} required placeholder="URL de la pièce jointe *" className="w-full px-3 py-2 bg-gb-app border border-gb-border rounded-lg text-sm text-gb-text placeholder-gb-muted/50 focus:outline-none focus:border-gb-primary transition-colors" />
+          <input type="file" multiple required onChange={e => setForm(f => ({ ...f, files: Array.from(e.target.files ?? []) }))} className="w-full px-3 py-2 bg-gb-app border border-gb-border rounded-lg text-sm text-gb-text file:mr-3 file:px-2 file:py-1 file:rounded-md file:border-0 file:bg-gb-primary/15 file:text-gb-primary file:font-bold" />
           <div className="grid grid-cols-2 gap-2">
             <input value={form.file_name} onChange={e => setForm(f => ({ ...f, file_name: e.target.value }))} placeholder="Nom du fichier" className="px-3 py-1.5 bg-gb-app border border-gb-border rounded-lg text-xs text-gb-text placeholder-gb-muted/50 focus:outline-none" />
             <select value={form.source} onChange={e => setForm(f => ({ ...f, source: e.target.value }))} className="px-2 py-1.5 bg-gb-app border border-gb-border rounded-lg text-xs text-gb-text focus:outline-none">
@@ -993,6 +1023,7 @@ function DetailDrawer({
   const [tab, setTab] = useState<DrawerTab>("details");
   const [detail, setDetail] = useState<ControlReport>(report);
   const [loading, setLoading] = useState(false);
+  const [pdfLoading, setPdfLoading] = useState(false);
   const [approving, setApproving] = useState(false);
 
   // Reload full detail on open
@@ -1015,6 +1046,31 @@ function DetailDrawer({
       onApprove(data);
       setDetail(data);
     } finally { setApproving(false); }
+  };
+
+  const handleDownloadPdf = async () => {
+    if (pdfLoading) return;
+    setPdfLoading(true);
+    try {
+      const res = await apiFetch(`${API_BASE}/control-reports/${detail.id}/pdf`, { method: "GET" });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || "Erreur lors de la génération du PDF");
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${detail.reference ?? `CR-${detail.id}`}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch (err: unknown) {
+      alert(err instanceof Error ? err.message : "Impossible de générer le PDF");
+    } finally {
+      setPdfLoading(false);
+    }
   };
 
   const typeMeta = getTypeMeta(detail.type);
@@ -1221,7 +1277,7 @@ function DetailDrawer({
             </div>
           )}
 
-          {/* Edit / Archive row */}
+          {/* Edit / PDF / Archive row */}
           {(canEdit || canDelete) && (
             <div className="flex gap-2">
               {canEdit && (
@@ -1229,6 +1285,13 @@ function DetailDrawer({
                   <Pencil size={13} />Modifier
                 </button>
               )}
+              <button
+                onClick={handleDownloadPdf}
+                disabled={pdfLoading}
+                className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl border border-gb-border text-gb-text font-bold text-sm hover:bg-gb-surface-hover transition-colors disabled:opacity-60"
+              >
+                {pdfLoading ? <Loader2 size={13} className="animate-spin" /> : <FileDown size={13} />}PDF
+              </button>
               {canDelete && (
                 <button
                   onClick={() => { if (window.confirm("Archiver ce rapport ? Il restera dans l'historique pour la traçabilité.")) onDelete(detail.id); }}
@@ -1251,6 +1314,33 @@ function ReportCard({ report, onClick }: { report: ControlReport; onClick: () =>
   const typeMeta   = getTypeMeta(report.type);
   const statusMeta = getStatusMeta(report.status);
   const dueSoon    = report.due_date && !["APPROVED", "CLOSED", "REJECTED"].includes(report.status) && isOverdue(report.due_date);
+  const [pdfLoading, setPdfLoading] = React.useState(false);
+
+  const handleDownloadPdf = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (pdfLoading) return;
+    setPdfLoading(true);
+    try {
+      const res = await apiFetch(`${API_BASE}/control-reports/${report.id}/pdf`, { method: "GET" });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || "Erreur lors de la génération du PDF");
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${report.reference ?? `CR-${report.id}`}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch (err: unknown) {
+      alert(err instanceof Error ? err.message : "Impossible de générer le PDF");
+    } finally {
+      setPdfLoading(false);
+    }
+  };
 
   return (
     <motion.div
@@ -1275,7 +1365,23 @@ function ReportCard({ report, onClick }: { report: ControlReport; onClick: () =>
             </div>
             <div className="shrink-0 flex items-center gap-1.5">
               {report.sla_breached && <AlertTriangle size={13} className="text-red-500 animate-pulse" />}
-              <ArrowUpRight size={15} className="text-gb-muted/40 group-hover:text-gb-primary transition-colors" />
+              <button
+                type="button"
+                onClick={handleDownloadPdf}
+                disabled={pdfLoading}
+                className="flex items-center gap-1 px-2 py-1 rounded-lg border border-gb-border text-[10px] font-bold text-gb-muted hover:text-red-500 hover:border-red-400/50 disabled:opacity-50 transition-colors"
+                title="Télécharger le PDF"
+              >
+                {pdfLoading ? <Loader2 size={10} className="animate-spin" /> : <FileDown size={10} />}PDF
+              </button>
+              <button
+                type="button"
+                onClick={(e) => { e.stopPropagation(); onClick(); }}
+                className="px-2 py-1 rounded-lg border border-gb-border text-[10px] font-bold text-gb-muted group-hover:text-gb-primary group-hover:border-gb-primary/40 transition-colors"
+                title="Voir plus d'infos"
+              >
+                Voir plus d'infos
+              </button>
             </div>
           </div>
 

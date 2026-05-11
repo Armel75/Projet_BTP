@@ -4,7 +4,7 @@ import {
   ChevronDown, TrendingUp, Clock, CheckCircle2, XCircle,
   MapPin, User, Calendar, Wrench, DollarSign, AlertTriangle,
   Eye, Pencil, Archive, BarChart3, Activity, ArrowUpRight,
-  FileDown, Sheet
+  FileDown, Sheet, Bell, Target, History
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { apiFetch, API_BASE } from "../lib/api";
@@ -13,6 +13,17 @@ import { format } from "date-fns";
 import { fr } from "date-fns/locale";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
+
+interface IncidentStatusHistory {
+  id: number;
+  from_status?: string | null;
+  to_status: string;
+  from_severity?: string | null;
+  to_severity?: string | null;
+  reason?: string | null;
+  comment?: string | null;
+  changed_at: string;
+}
 
 interface Incident {
   id: number;
@@ -23,6 +34,8 @@ interface Incident {
   description: string;
   location?: string;
   incident_date?: string;
+  acknowledged_at?: string | null;
+  target_resolution_at?: string | null;
   root_cause?: string;
   corrective_action?: string;
   cost_impact?: number;
@@ -89,6 +102,7 @@ const EMPTY_FORM = {
   title: "", description: "", location: "", type: "SAFETY", severity: "MEDIUM",
   status: "OPEN", project_id: "", incident_date: "", root_cause: "",
   corrective_action: "", cost_impact: "", delay_impact_days: "",
+  target_resolution_at: "",
 };
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -212,6 +226,20 @@ function IncidentDetailDrawer({
   const type = getTypeMeta(incident.type);
   const severity = getSeverityMeta(incident.severity);
 
+  const [statusHistory, setStatusHistory] = useState<IncidentStatusHistory[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    setHistoryLoading(true);
+    apiFetch(`${API_BASE}/execution-notes/incident-history/${incident.id}`)
+      .then(r => r.ok ? r.json() : [])
+      .then(data => { if (!cancelled) setStatusHistory(data); })
+      .catch(() => {})
+      .finally(() => { if (!cancelled) setHistoryLoading(false); });
+    return () => { cancelled = true; };
+  }, [incident.id]);
+
   const nextStatus: Record<string, string | null> = {
     OPEN: "IN_PROGRESS", IN_PROGRESS: "RESOLVED", RESOLVED: "CLOSED", CLOSED: null
   };
@@ -309,6 +337,18 @@ function IncidentDetailDrawer({
                 <p className="text-sm font-semibold text-gb-text">{format(new Date(incident.resolved_at), "d MMM yyyy", { locale: fr })}</p>
               </div>
             )}
+            {incident.acknowledged_at && (
+              <div className="bg-blue-500/5 border border-blue-500/20 rounded-xl p-3">
+                <p className="text-[10px] font-bold text-blue-500 uppercase tracking-widest mb-1 flex items-center gap-1"><Bell size={10} /> Pris en charge le</p>
+                <p className="text-sm font-semibold text-gb-text">{format(new Date(incident.acknowledged_at), "d MMM yyyy HH:mm", { locale: fr })}</p>
+              </div>
+            )}
+            {incident.target_resolution_at && (
+              <div className={`border rounded-xl p-3 ${new Date(incident.target_resolution_at) < new Date() && incident.status !== "RESOLVED" && incident.status !== "CLOSED" ? "bg-red-500/5 border-red-500/20" : "bg-amber-500/5 border-amber-500/20"}`}>
+                <p className={`text-[10px] font-bold uppercase tracking-widest mb-1 flex items-center gap-1 ${new Date(incident.target_resolution_at) < new Date() && incident.status !== "RESOLVED" && incident.status !== "CLOSED" ? "text-red-500" : "text-amber-500"}`}><Target size={10} /> Résolution cible</p>
+                <p className="text-sm font-semibold text-gb-text">{format(new Date(incident.target_resolution_at), "d MMM yyyy", { locale: fr })}</p>
+              </div>
+            )}
           </div>
 
           <Section title="Description">
@@ -359,6 +399,46 @@ function IncidentDetailDrawer({
               </p>
             </div>
           </Section>
+
+          {/* Status History Timeline */}
+          {(statusHistory.length > 0 || historyLoading) && (
+            <Section title="Historique des statuts">
+              {historyLoading ? (
+                <div className="flex items-center gap-2 text-gb-muted text-xs py-2">
+                  <Loader2 size={12} className="animate-spin" /> Chargement…
+                </div>
+              ) : (
+                <div className="relative space-y-0 pl-4 border-l-2 border-gb-border">
+                  {statusHistory.map((entry, i) => (
+                    <div key={entry.id} className={`relative pb-4 ${i === statusHistory.length - 1 ? "pb-0" : ""}`}>
+                      <span className="absolute -left-[9px] top-1 w-3.5 h-3.5 rounded-full bg-gb-surface-solid border-2 border-gb-primary flex items-center justify-center">
+                        <History size={7} className="text-gb-primary" />
+                      </span>
+                      <div className="pl-3">
+                        <div className="flex flex-wrap items-center gap-1.5 mb-0.5">
+                          {entry.from_status && (
+                            <StatusBadge status={entry.from_status} />
+                          )}
+                          {entry.from_status && <span className="text-[10px] text-gb-muted">→</span>}
+                          <StatusBadge status={entry.to_status} />
+                          {entry.from_severity !== entry.to_severity && entry.to_severity && (
+                            <>
+                              <span className="text-[10px] text-gb-muted/50 mx-1">·</span>
+                              {entry.from_severity && <SeverityBadge severity={entry.from_severity} />}
+                              {entry.from_severity && <span className="text-[10px] text-gb-muted">→</span>}
+                              <SeverityBadge severity={entry.to_severity} />
+                            </>
+                          )}
+                        </div>
+                        <p className="text-[10px] text-gb-muted">{format(new Date(entry.changed_at), "d MMM yyyy 'à' HH:mm", { locale: fr })}</p>
+                        {entry.comment && <p className="text-xs text-gb-muted italic mt-0.5">{entry.comment}</p>}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </Section>
+          )}
         </div>
 
         {/* Footer actions */}
@@ -464,6 +544,7 @@ function IncidentFormDialog({
           corrective_action: incident.corrective_action ?? "",
           cost_impact:       incident.cost_impact != null ? String(incident.cost_impact) : "",
           delay_impact_days: incident.delay_impact_days != null ? String(incident.delay_impact_days) : "",
+          target_resolution_at: incident.target_resolution_at ? incident.target_resolution_at.slice(0, 10) : "",
         });
       } else {
         setForm({ ...EMPTY_FORM });
@@ -492,9 +573,10 @@ function IncidentFormDialog({
       const body: Record<string, any> = {
         ...form,
         project_id: Number(form.project_id),
-        cost_impact:       form.cost_impact       ? Number(form.cost_impact)       : undefined,
-        delay_impact_days: form.delay_impact_days ? Number(form.delay_impact_days) : undefined,
-        incident_date:     form.incident_date || undefined,
+        cost_impact:           form.cost_impact           ? Number(form.cost_impact)       : undefined,
+        delay_impact_days:     form.delay_impact_days     ? Number(form.delay_impact_days) : undefined,
+        incident_date:         form.incident_date         || undefined,
+        target_resolution_at:  form.target_resolution_at || undefined,
       };
       // Remove empty strings
       Object.keys(body).forEach(k => { if (body[k] === "") delete body[k]; });
@@ -649,6 +731,13 @@ function IncidentFormDialog({
               <label className={labelCls}>Impact délai (jours)</label>
               <input type="number" min="0" className={inputCls} placeholder="0" value={form.delay_impact_days} onChange={e => set("delay_impact_days", e.target.value)} />
             </div>
+          </div>
+
+          {/* Résolution cible */}
+          <div>
+            <label className={labelCls}>Date de résolution cible</label>
+            <input type="date" className={inputCls} value={form.target_resolution_at} onChange={e => set("target_resolution_at", e.target.value)} />
+            <p className="text-[10px] text-gb-muted mt-1">Délai contractuel ou réglementaire de résolution de cet incident.</p>
           </div>
 
           {error && (

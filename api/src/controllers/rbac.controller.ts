@@ -74,7 +74,7 @@ export class RbacController {
   static async addPermissionToRole(req: Request, res: Response) {
     try {
       const roleId = parseInt(req.params.id);
-      const { permissionId } = req.body;
+      const permissionId = parseInt(req.body.permissionId);
       const result = await RbacService.addPermissionToRole(roleId, permissionId);
       res.status(201).json(result);
     } catch(err) {

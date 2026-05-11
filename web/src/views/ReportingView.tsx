@@ -19,17 +19,27 @@ import { motion, AnimatePresence } from "motion/react";
 import DailyLogModule from "../components/reporting/DailyLogModule";
 import WeeklyReportModule from "../components/reporting/WeeklyReportModule";
 import ControlReportModule from "../components/reporting/ControlReportModule";
+import { usePermissions } from "../contexts/AuthContext";
+import { NAV_PERMISSION_GROUPS } from "../constants/navigationPermissions";
 
 type ReportingTab = "daily" | "weekly" | "control";
 
 export default function ReportingView() {
-  const [activeTab, setActiveTab] = useState<ReportingTab>("daily");
+  const { canAny } = usePermissions();
 
   const tabs = [
-    { id: "daily", label: "Journal de Chantier", icon: CalendarDays, color: "text-blue-500", bg: "bg-blue-500/10" },
-    { id: "weekly", label: "Rapports Hebdomadaires", icon: ClipboardList, color: "text-purple-500", bg: "bg-purple-500/10" },
-    { id: "control", label: "Contrôles", icon: ShieldCheck, color: "text-emerald-500", bg: "bg-emerald-500/10" },
-  ];
+    { id: "daily", label: "Journal de Chantier", icon: CalendarDays, color: "text-blue-500", bg: "bg-blue-500/10", visible: canAny(...NAV_PERMISSION_GROUPS.reportingTabs.daily) },
+    { id: "weekly", label: "Rapports Hebdomadaires", icon: ClipboardList, color: "text-purple-500", bg: "bg-purple-500/10", visible: canAny(...NAV_PERMISSION_GROUPS.reportingTabs.weekly) },
+    { id: "control", label: "Contrôles", icon: ShieldCheck, color: "text-emerald-500", bg: "bg-emerald-500/10", visible: canAny(...NAV_PERMISSION_GROUPS.reportingTabs.control) },
+  ].filter((tab) => tab.visible);
+
+  const [activeTab, setActiveTab] = useState<ReportingTab>((tabs[0]?.id as ReportingTab) || "daily");
+
+  React.useEffect(() => {
+    if (!tabs.some((t) => t.id === activeTab)) {
+      setActiveTab((tabs[0]?.id as ReportingTab) || "daily");
+    }
+  }, [activeTab, tabs]);
 
   return (
     <div className="space-y-8 pb-10">
@@ -43,6 +53,12 @@ export default function ReportingView() {
         </div>
       </div>
 
+      {tabs.length === 0 ? (
+        <div className="rounded-xl border border-gb-border bg-gb-surface-solid p-6 text-sm text-gb-muted">
+          Vous n'avez aucune permission de lecture sur les sous-modules reporting.
+        </div>
+      ) : (
+      <>
       <div className="flex gap-4 p-1 bg-gb-surface-solid border border-gb-border rounded-2xl w-fit">
         {tabs.map((tab) => {
           const isActive = activeTab === tab.id;
@@ -77,10 +93,12 @@ export default function ReportingView() {
         transition={{ duration: 0.3 }}
         className="min-h-[400px]"
       >
-        {activeTab === "daily" && <DailyLogModule />}
-        {activeTab === "weekly" && <WeeklyReportModule />}
-        {activeTab === "control" && <ControlReportModule />}
+        {activeTab === "daily" && canAny(...NAV_PERMISSION_GROUPS.reportingTabs.daily) && <DailyLogModule />}
+        {activeTab === "weekly" && canAny(...NAV_PERMISSION_GROUPS.reportingTabs.weekly) && <WeeklyReportModule />}
+        {activeTab === "control" && canAny(...NAV_PERMISSION_GROUPS.reportingTabs.control) && <ControlReportModule />}
       </motion.div>
+      </>
+      )}
     </div>
   );
 }

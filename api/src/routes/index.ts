@@ -22,6 +22,7 @@ import dashboardRouter from './dashboard.routes.js';
 import validationRouter from './validation.routes.js';
 import glpiRouter from './glpi.routes.js';
 import photoRouter from './photo.routes.js';
+import executionNoteRouter from './execution-note.routes.js';
 
 const router = Router();
 
@@ -52,4 +53,5 @@ router.use('/control-reports', controlReportRouter);
 router.use('/dashboard', dashboardRouter);
 router.use('/validation', validationRouter);
 router.use('/glpi', glpiRouter);
+router.use('/execution-notes', executionNoteRouter);
 export default router;

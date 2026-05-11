@@ -1,8 +1,20 @@
 import React from "react";
 import { Settings, Users, Database } from "lucide-react";
 import { Link } from "react-router-dom";
+import { usePermissions } from "../contexts/AuthContext";
+import { NAV_PERMISSION_GROUPS } from "../constants/navigationPermissions";
 
 export default function SettingsView() {
+  const { can, canAny } = usePermissions();
+
+  if (!canAny(...NAV_PERMISSION_GROUPS.settings)) {
+    return (
+      <div className="rounded-xl border border-gb-border bg-gb-surface-solid p-6 text-sm text-gb-muted">
+        Vous n'avez pas les permissions nécessaires pour accéder aux réglages d'administration.
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6 max-w-4xl">
       <div className="flex justify-between items-center mb-6">
@@ -21,15 +33,21 @@ export default function SettingsView() {
             </h3>
             <p className="text-sm text-gb-muted mb-4">Gérez la structure et les données par défaut du système.</p>
             <div className="space-y-3">
-              <button className="w-full text-left p-3 border border-gb-border rounded bg-gb-app hover:border-gb-primary transition-colors text-sm font-medium">
-                Initialiser les Nomenclatures (Seed)
-              </button>
-              <Link to="/settings/resource-types" className="block w-full text-left p-3 border border-gb-border rounded bg-gb-app hover:border-gb-primary transition-colors text-sm font-medium">
-                Paramétrer les types de ressources
-              </Link>
-              <Link to="/settings/tenants" className="block w-full text-left p-3 border border-gb-border rounded bg-gb-app hover:border-gb-primary transition-colors text-sm font-medium">
-                 Gérer les entreprises (Multi-Tenant)
-              </Link>
+              {can("resource:create") && (
+                <button className="w-full text-left p-3 border border-gb-border rounded bg-gb-app hover:border-gb-primary transition-colors text-sm font-medium">
+                  Initialiser les Nomenclatures (Seed)
+                </button>
+              )}
+              {can("resource:read") && (
+                <Link to="/settings/resource-types" className="block w-full text-left p-3 border border-gb-border rounded bg-gb-app hover:border-gb-primary transition-colors text-sm font-medium">
+                  Paramétrer les types de ressources
+                </Link>
+              )}
+              {can("tenant:read") && (
+                <Link to="/settings/tenants" className="block w-full text-left p-3 border border-gb-border rounded bg-gb-app hover:border-gb-primary transition-colors text-sm font-medium">
+                   Gérer les entreprises (Multi-Tenant)
+                </Link>
+              )}
             </div>
           </div>
           
@@ -40,12 +58,16 @@ export default function SettingsView() {
             </h3>
             <p className="text-sm text-gb-muted mb-4">Configurez les accès et les permissions de validation.</p>
              <div className="space-y-3">
-              <Link to="/settings/rbac" className="block w-full text-left p-3 border border-gb-border rounded bg-gb-app hover:border-gb-primary transition-colors text-sm font-medium">
-                Matrice des droits (RBAC Configuration)
-              </Link>
-              <button className="w-full text-left p-3 border border-gb-border rounded bg-gb-app hover:border-gb-primary transition-colors text-sm font-medium">
-                Annuaire Employés
-              </button>
+              {canAny("user:read", "role:read", "permission:read") && (
+                <Link to="/settings/rbac" className="block w-full text-left p-3 border border-gb-border rounded bg-gb-app hover:border-gb-primary transition-colors text-sm font-medium">
+                  Matrice des droits (RBAC Configuration)
+                </Link>
+              )}
+              {can("user:read") && (
+                <button className="w-full text-left p-3 border border-gb-border rounded bg-gb-app hover:border-gb-primary transition-colors text-sm font-medium">
+                  Annuaire Employés
+                </button>
+              )}
             </div>
           </div>
         </div>

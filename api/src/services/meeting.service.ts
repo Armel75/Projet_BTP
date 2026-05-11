@@ -77,6 +77,7 @@ export class MeetingService {
     lot_id?:     number;
     type?:       string;
     status?:     string;
+    created_by?: number;
   }) {
     const tenantId = TenantContext.getTenantId();
     if (!tenantId) throw new Error('Tenant session required');
@@ -102,6 +103,20 @@ export class MeetingService {
 
     return prisma.meeting.findFirst({
       where: { id, tenant_id: tenantId },
+      include: MEETING_INCLUDE,
+    });
+  }
+
+  static async getMeetingByIdForTenantScoped(id: number, created_by?: number) {
+    const tenantId = TenantContext.getTenantId();
+    if (!tenantId) throw new Error('Tenant session required');
+
+    return prisma.meeting.findFirst({
+      where: {
+        id,
+        tenant_id: tenantId,
+        ...(created_by !== undefined && { created_by }),
+      },
       include: MEETING_INCLUDE,
     });
   }

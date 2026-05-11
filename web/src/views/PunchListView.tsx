@@ -297,9 +297,9 @@ function PunchItemDetailDrawer({
               {canEdit && (
                 <button
                   onClick={() => { onClose(); onEdit(item); }}
-                  className="p-1.5 rounded-lg text-gb-muted hover:text-gb-text hover:bg-gb-surface-hover transition-colors"
+                  className="inline-flex items-center gap-1.5 px-3 h-8 rounded-xl text-xs font-semibold text-gb-muted hover:text-gb-primary hover:bg-gb-primary/10 transition-colors"
                 >
-                  <Pencil size={16} />
+                  <Pencil size={13} /><span>Modifier</span>
                 </button>
               )}
               <button onClick={onClose} className="p-1.5 rounded-lg text-gb-muted hover:text-gb-text hover:bg-gb-surface-hover transition-colors">
@@ -440,9 +440,9 @@ function PunchItemDetailDrawer({
             <button
               onClick={() => { if (window.confirm("Supprimer cette réserve ?")) onDelete(item.id); }}
               disabled={!canMutate}
-              className="p-2.5 rounded-xl border border-gb-danger/30 text-gb-danger hover:bg-gb-danger/10 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              className="inline-flex items-center gap-1.5 px-3 h-9 rounded-xl border border-gb-danger/30 text-xs font-semibold text-gb-danger hover:bg-gb-danger/10 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              <Trash2 size={16} />
+              <Trash2 size={13} /><span>Supprimer</span>
             </button>
           )}
         </div>

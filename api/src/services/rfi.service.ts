@@ -39,6 +39,7 @@ interface RFIFilters {
   status?:     string;
   priority?:   string;
   category?:   string;
+  submitted_by?: number;
 }
 
 // ─── Service ──────────────────────────────────────────────────────────────────
@@ -86,6 +87,7 @@ export class RFIService {
     if (filters.status)     where.status      = filters.status;
     if (filters.priority)   where.priority    = filters.priority;
     if (filters.category)   where.category    = filters.category;
+    if (filters.submitted_by) where.submitted_by = filters.submitted_by;
 
     return prisma.rFI.findMany({
       where,
@@ -102,6 +104,20 @@ export class RFIService {
     const tenantId = TenantContext.getTenantId();
     return prisma.rFI.findFirst({
       where: { id, tenant_id: tenantId },
+      include: RFI_INCLUDE,
+    });
+  }
+
+  static async getRFIByIdForTenantScoped(id: number, submitted_by?: number) {
+    const tenantId = TenantContext.getTenantId();
+    if (!tenantId) throw new Error('Tenant session required');
+
+    return prisma.rFI.findFirst({
+      where: {
+        id,
+        tenant_id: tenantId,
+        ...(submitted_by !== undefined && { submitted_by }),
+      },
       include: RFI_INCLUDE,
     });
   }

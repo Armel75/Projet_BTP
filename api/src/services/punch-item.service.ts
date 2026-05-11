@@ -81,6 +81,20 @@ export class PunchItemService {
     });
   }
 
+  static async getPunchItemByIdForTenantScoped(id: number, created_by?: number) {
+    const tenantId = TenantContext.getTenantId();
+    if (!tenantId) throw new Error('Tenant session required');
+
+    return await prisma.punchItem.findFirst({
+      where: {
+        id,
+        tenant_id: tenantId,
+        ...(created_by !== undefined && { created_by }),
+      },
+      include: PUNCH_ITEM_INCLUDE,
+    });
+  }
+
   static async updatePunchItem(id: number, data: {
     title?: string;
     description?: string;

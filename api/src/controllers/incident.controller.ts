@@ -1,5 +1,7 @@
 import { Request, Response } from 'express';
+import { readFileSync } from 'node:fs';
 import { IncidentService } from '../services/incident.service.js';
+import { RbacService } from '../services/rbac.service.js';
 import { AuthRequest } from '../middlewares/auth.middleware.js';
 
 // ── Puppeteer (dynamic — même pattern que work-acceptance) ────────────────────
@@ -42,6 +44,26 @@ function esc(v?: string | null): string {
 }
 function nl2br(v?: string | null): string { return esc(v).replace(/\n/g, '<br/>'); }
 
+function toValidDate(value: unknown, fieldLabel: string): Date {
+  const d = new Date(String(value));
+  if (Number.isNaN(d.getTime())) {
+    throw new Error(`Date invalide pour le champ: ${fieldLabel}`);
+  }
+  return d;
+}
+
+async function canReadAllIncidents(req: Request): Promise<boolean> {
+  const user = (req as AuthRequest).user;
+  if (!user?.id) return false;
+
+  if (Array.isArray(user.permissions) && user.permissions.includes('incident:read:all')) {
+    return true;
+  }
+
+  const permissions = await RbacService.getUserPermissions(user.id);
+  return permissions.includes('incident:read:all');
+}
+
 const TYPE_LABELS: Record<string, string> = {
   SAFETY: 'Sécurité', QUALITY: 'Qualité', DELAY: 'Délai',
   TECHNICAL: 'Technique', ENVIRONMENTAL: 'Environnement',
@@ -52,6 +74,16 @@ const SEV_LABELS: Record<string, string> = {
 const STATUS_LABELS: Record<string, string> = {
   OPEN: 'Ouvert', IN_PROGRESS: 'En cours', RESOLVED: 'Résolu', CLOSED: 'Clôturé',
 };
+
+const INCIDENT_LOGO_DATA_URI: string | null = (() => {
+  try {
+    const logoUrl = new URL('../../assets/branding/logo.png', import.meta.url);
+    const logoBuffer = readFileSync(logoUrl);
+    return `data:image/png;base64,${logoBuffer.toString('base64')}`;
+  } catch {
+    return null;
+  }
+})();
 
 function buildIncidentHtml(inc: any): string {
   const refNum = `INC-${String(inc.id).padStart(4, '0')}`;
@@ -79,6 +111,12 @@ function buildIncidentHtml(inc: any): string {
     /* Header */
     .page-header { display: flex; justify-content: space-between; align-items: flex-start;
       border-bottom: 3px solid #1d4ed8; padding-bottom: 10px; margin-bottom: 14px; }
+    .header-left { min-width: 0; }
+    .brand-row { display: flex; align-items: center; gap: 10px; margin-bottom: 2px; }
+    .logo-wrap { width: 44px; height: 44px; border-radius: 10px; border: 1px solid #bfdbfe;
+      display: flex; align-items: center; justify-content: center; background: #eff6ff;
+      overflow: hidden; flex-shrink: 0; }
+    .logo-wrap img { max-width: 34px; max-height: 34px; display: block; object-fit: contain; }
     .company-block { font-size: 10px; color: #475569; text-align: right; line-height: 1.6; }
     .company-name  { font-size: 13px; font-weight: 900; color: #0f172a; }
     .doc-title     { font-size: 15px; font-weight: 900; text-transform: uppercase;
@@ -130,8 +168,11 @@ function buildIncidentHtml(inc: any): string {
 
   <!-- En-tête -->
   <div class="page-header">
-    <div>
-      <div class="doc-title">Fiche de Déclaration d'Incident</div>
+    <div class="header-left">
+      <div class="brand-row">
+        ${INCIDENT_LOGO_DATA_URI ? `<div class="logo-wrap"><img src="${INCIDENT_LOGO_DATA_URI}" alt="Logo SOREPCO"/></div>` : ''}
+        <div class="doc-title">Fiche de Déclaration d'Incident</div>
+      </div>
       <div class="doc-ref">${refNum}</div>
     </div>
     <div class="company-block">
@@ -260,6 +301,25 @@ export class IncidentController {
     try {
       const user = (req as AuthRequest).user;
       const body = req.body;
+
+      // --- Validation stricte des champs obligatoires (top 1%) ---
+      const requiredFields = [
+        { key: 'project_id', label: 'Projet' },
+        { key: 'type', label: 'Type' },
+        { key: 'severity', label: 'Sévérité' },
+        { key: 'status', label: 'Statut' },
+        { key: 'description', label: 'Description' }
+      ];
+      const missing = requiredFields.filter(f => {
+        const v = body[f.key];
+        return v === undefined || v === null || (typeof v === 'string' && v.trim() === '');
+      });
+      if (missing.length > 0) {
+        return res.status(400).json({
+          error: `Champs obligatoires manquants : ${missing.map(f => f.label).join(', ')}`
+        });
+      }
+
       const incident = await IncidentService.createIncident({
         ...body,
         project_id:       Number(body.project_id),
@@ -268,7 +328,8 @@ export class IncidentController {
         assigned_to_id:   body.assigned_to_id   ? Number(body.assigned_to_id)   : undefined,
         cost_impact:      body.cost_impact      ? Number(body.cost_impact)      : undefined,
         delay_impact_days: body.delay_impact_days ? Number(body.delay_impact_days) : undefined,
-        incident_date:    body.incident_date    ? new Date(body.incident_date)  : undefined,
+        incident_date:    body.incident_date    ? toValidDate(body.incident_date, 'Date de survenue') : undefined,
+        target_resolution_at: body.target_resolution_at ? toValidDate(body.target_resolution_at, 'Date de resolution cible') : undefined,
         created_by:       user!.id
       });
       res.status(201).json(incident);
@@ -279,11 +340,18 @@ export class IncidentController {
 
   static async list(req: Request, res: Response) {
     try {
+      const user = (req as AuthRequest).user;
+      if (!user?.id) {
+        return res.status(401).json({ error: 'Unauthorized' });
+      }
+
+      const hasReadAll = await canReadAllIncidents(req);
       const filters: any = {};
       if (req.query.project_id) filters.project_id = Number(req.query.project_id);
       if (req.query.status)     filters.status     = req.query.status as string;
       if (req.query.severity)   filters.severity   = req.query.severity as string;
       if (req.query.type)       filters.type       = req.query.type as string;
+      if (!hasReadAll)          filters.created_by = user.id;
 
       const incidents = await IncidentService.getIncidents(filters);
       res.json(incidents);
@@ -294,7 +362,16 @@ export class IncidentController {
 
   static async getById(req: Request, res: Response) {
     try {
-      const incident = await IncidentService.getIncidentById(Number(req.params.id));
+      const user = (req as AuthRequest).user;
+      if (!user?.id) {
+        return res.status(401).json({ error: 'Unauthorized' });
+      }
+
+      const hasReadAll = await canReadAllIncidents(req);
+      const incident = await IncidentService.getIncidentByIdForTenantScoped(
+        Number(req.params.id),
+        hasReadAll ? undefined : user.id
+      );
       if (!incident) return res.status(404).json({ error: "Incident not found" });
       res.json(incident);
     } catch (error: any) {
@@ -305,14 +382,20 @@ export class IncidentController {
   static async update(req: Request, res: Response) {
     try {
       const body = req.body;
+      const user = (req as AuthRequest).user;
       const data: Record<string, any> = { ...body };
-      if (body.resolved_at)     data.resolved_at     = new Date(body.resolved_at);
-      if (body.incident_date)   data.incident_date   = new Date(body.incident_date);
+      if (body.resolved_at)     data.resolved_at     = toValidDate(body.resolved_at, 'Date de resolution');
+      if (body.incident_date)   data.incident_date   = toValidDate(body.incident_date, 'Date de survenue');
+      if (body.target_resolution_at !== undefined) {
+        data.target_resolution_at = body.target_resolution_at
+          ? toValidDate(body.target_resolution_at, 'Date de resolution cible')
+          : null;
+      }
       if (body.assigned_to_id !== undefined) data.assigned_to_id = body.assigned_to_id ? Number(body.assigned_to_id) : null;
       if (body.cost_impact      !== undefined) data.cost_impact      = body.cost_impact      ? Number(body.cost_impact)      : null;
       if (body.delay_impact_days !== undefined) data.delay_impact_days = body.delay_impact_days ? Number(body.delay_impact_days) : null;
 
-      const incident = await IncidentService.updateIncident(Number(req.params.id), data);
+      const incident = await IncidentService.updateIncident(Number(req.params.id), data, user?.id);
       res.json(incident);
     } catch (error: any) {
       res.status(400).json({ error: error.message });
@@ -332,11 +415,19 @@ export class IncidentController {
   static async generatePdf(req: Request, res: Response) {
     let browser: BrowserLike | null = null;
     try {
+      const user = (req as AuthRequest).user;
+      if (!user?.id) {
+        res.status(401).json({ error: 'Unauthorized' });
+        return;
+      }
+
       const id = Number(req.params.id);
       if (!Number.isFinite(id) || id <= 0) {
         res.status(400).json({ error: 'Identifiant invalide.' });
         return;
       }
+
+      const hasReadAll = await canReadAllIncidents(req);
 
       const puppeteer = await getPuppeteer();
       if (!puppeteer) {
@@ -344,7 +435,10 @@ export class IncidentController {
         return;
       }
 
-      const inc = await IncidentService.getIncidentByIdForTenant(id);
+      const inc = await IncidentService.getIncidentByIdForTenantScoped(
+        id,
+        hasReadAll ? undefined : user.id
+      );
       if (!inc) {
         res.status(404).json({ error: 'Incident introuvable.' });
         return;
@@ -384,13 +478,24 @@ export class IncidentController {
   // ── Excel (CSV) ────────────────────────────────────────────────────────────
   static async exportExcel(req: Request, res: Response) {
     try {
+      const user = (req as AuthRequest).user;
+      if (!user?.id) {
+        res.status(401).json({ error: 'Unauthorized' });
+        return;
+      }
+
       const id = Number(req.params.id);
       if (!Number.isFinite(id) || id <= 0) {
         res.status(400).json({ error: 'Identifiant invalide.' });
         return;
       }
 
-      const inc = await IncidentService.getIncidentByIdForTenant(id);
+      const hasReadAll = await canReadAllIncidents(req);
+
+      const inc = await IncidentService.getIncidentByIdForTenantScoped(
+        id,
+        hasReadAll ? undefined : user.id
+      );
       if (!inc) {
         res.status(404).json({ error: 'Incident introuvable.' });
         return;

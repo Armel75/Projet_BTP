@@ -884,8 +884,8 @@ function WorkAcceptanceRow({ wa, onClick }: { wa: WorkAcceptance; onClick: () =>
 export default function WorkAcceptanceView() {
   const { can } = usePermissions();
   const canCreate = can("work-acceptance:create");
-  const canEdit   = can("work-acceptance:approve");
-  const canDelete = can("work-acceptance:approve");
+  const canEdit   = can("work-acceptance:update");
+  const canDelete = can("work-acceptance:delete");
 
   const [items,    setItems]    = useState<WorkAcceptance[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);

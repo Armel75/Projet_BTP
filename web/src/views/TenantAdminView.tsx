@@ -207,7 +207,7 @@ export default function TenantAdminView() {
                 <th className="text-left px-4 py-3 font-semibold text-gb-text">Utilisateurs</th>
                 <th className="text-left px-4 py-3 font-semibold text-gb-text">Projets</th>
                 <th className="text-left px-4 py-3 font-semibold text-gb-text">Créé le</th>
-                <th className="px-4 py-3" />
+                <th className="px-4 py-3 text-right font-semibold text-gb-text">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gb-border">
@@ -229,19 +229,21 @@ export default function TenantAdminView() {
                       {can("tenant:update") && (
                         <button
                           onClick={() => openEdit(t)}
-                          className="p-1.5 rounded hover:bg-gb-app text-gb-muted hover:text-gb-text transition-colors"
+                          className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded hover:bg-gb-app text-gb-muted hover:text-gb-text transition-colors"
                           title="Modifier"
                         >
                           <Pencil className="w-4 h-4" />
+                          <span className="text-xs font-medium">Modifier</span>
                         </button>
                       )}
                       {can("tenant:delete") && (
                         <button
                           onClick={() => handleDelete(t)}
-                          className="p-1.5 rounded hover:bg-gb-danger/10 text-gb-muted hover:text-gb-danger transition-colors"
+                          className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded hover:bg-gb-danger/10 text-gb-muted hover:text-gb-danger transition-colors"
                           title="Supprimer"
                         >
                           <Trash2 className="w-4 h-4" />
+                          <span className="text-xs font-medium">Supprimer</span>
                         </button>
                       )}
                     </div>

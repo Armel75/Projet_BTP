@@ -1,5 +1,6 @@
 import { Request, Response } from 'express';
 import { InspectionService } from '../services/inspection.service.js';
+import { RbacService } from '../services/rbac.service.js';
 import { AuthRequest } from '../middlewares/auth.middleware.js';
 
 type PdfPageLike = {
@@ -57,6 +58,26 @@ function fmtDate(d?: string | Date | null): string {
   const dt = new Date(d);
   if (Number.isNaN(dt.getTime())) return '—';
   return dt.toLocaleDateString('fr-FR');
+}
+
+async function canReadAllInspections(req: Request): Promise<boolean> {
+  const user = (req as AuthRequest).user;
+  if (!user?.id) return false;
+
+  if (Array.isArray(user.permissions) && user.permissions.includes('inspection:read:all')) {
+    return true;
+  }
+
+  const permissions = await RbacService.getUserPermissions(user.id);
+  return permissions.includes('inspection:read:all');
+}
+
+function toValidDate(value: unknown, fieldLabel: string): Date {
+  const d = new Date(String(value));
+  if (Number.isNaN(d.getTime())) {
+    throw new Error(`Date invalide pour le champ: ${fieldLabel}`);
+  }
+  return d;
 }
 
 const INSPECTION_TYPE_LABELS: Record<string, string> = {
@@ -187,8 +208,8 @@ export class InspectionController {
         lot_id:        req.body.lot_id        ? Number(req.body.lot_id)        : undefined,
         checklist_template_id: req.body.checklist_template_id ? Number(req.body.checklist_template_id) : undefined,
         inspector_id:  req.body.inspector_id  ? Number(req.body.inspector_id)  : undefined,
-        scheduled_date: req.body.scheduled_date ? new Date(req.body.scheduled_date) : undefined,
-        date_scheduled: req.body.date_scheduled ? new Date(req.body.date_scheduled) : undefined,
+        scheduled_date: req.body.scheduled_date ? toValidDate(req.body.scheduled_date, 'scheduled_date') : undefined,
+        date_scheduled: req.body.date_scheduled ? toValidDate(req.body.date_scheduled, 'date_scheduled') : undefined,
         evidence_photos_required: req.body.evidence_photos_required === true || req.body.evidence_photos_required === 'true',
         rework_required: req.body.rework_required === true || req.body.rework_required === 'true',
         created_by: user!.id,
@@ -201,6 +222,12 @@ export class InspectionController {
 
   static async list(req: Request, res: Response) {
     try {
+      const user = (req as AuthRequest).user;
+      if (!user?.id) {
+        return res.status(401).json({ error: 'Unauthorized' });
+      }
+
+      const hasReadAll = await canReadAllInspections(req);
       const filters: any = {};
       if (req.query.project_id)   filters.project_id   = Number(req.query.project_id);
       if (req.query.status)       filters.status        = req.query.status as string;
@@ -208,8 +235,8 @@ export class InspectionController {
       if (req.query.approval_workflow_status) filters.approval_workflow_status = req.query.approval_workflow_status as string;
       if (req.query.inspection_result) filters.inspection_result = req.query.inspection_result as string;
       if (req.query.inspector_id) filters.inspector_id  = Number(req.query.inspector_id);
-      if (req.query.created_by)   filters.created_by    = Number(req.query.created_by);
       if (req.query.rework_required !== undefined) filters.rework_required = req.query.rework_required === 'true';
+      if (!hasReadAll)            filters.created_by    = user.id;
 
       const inspections = await InspectionService.getInspections(filters);
       res.json(inspections);
@@ -220,7 +247,16 @@ export class InspectionController {
 
   static async getById(req: Request, res: Response) {
     try {
-      const inspection = await InspectionService.getInspectionById(Number(req.params.id));
+      const user = (req as AuthRequest).user;
+      if (!user?.id) {
+        return res.status(401).json({ error: 'Unauthorized' });
+      }
+
+      const hasReadAll = await canReadAllInspections(req);
+      const inspection = await InspectionService.getInspectionByIdForTenantScoped(
+        Number(req.params.id),
+        hasReadAll ? undefined : user.id
+      );
       if (!inspection) return res.status(404).json({ error: "Inspection not found" });
       res.json(inspection);
     } catch (error: any) {
@@ -235,9 +271,9 @@ export class InspectionController {
         lot_id:         req.body.lot_id        !== undefined ? (req.body.lot_id        ? Number(req.body.lot_id)       : null) : undefined,
         checklist_template_id: req.body.checklist_template_id !== undefined ? (req.body.checklist_template_id ? Number(req.body.checklist_template_id) : null) : undefined,
         inspector_id:   req.body.inspector_id  !== undefined ? (req.body.inspector_id  ? Number(req.body.inspector_id) : null) : undefined,
-        scheduled_date: req.body.scheduled_date ? new Date(req.body.scheduled_date) : undefined,
-        date_scheduled: req.body.date_scheduled ? new Date(req.body.date_scheduled) : undefined,
-        completed_date: req.body.completed_date ? new Date(req.body.completed_date) : undefined,
+        scheduled_date: req.body.scheduled_date ? toValidDate(req.body.scheduled_date, 'scheduled_date') : undefined,
+        date_scheduled: req.body.date_scheduled ? toValidDate(req.body.date_scheduled, 'date_scheduled') : undefined,
+        completed_date: req.body.completed_date ? toValidDate(req.body.completed_date, 'completed_date') : undefined,
         evidence_photos_required: req.body.evidence_photos_required !== undefined ? (req.body.evidence_photos_required === true || req.body.evidence_photos_required === 'true') : undefined,
         rework_required: req.body.rework_required !== undefined ? (req.body.rework_required === true || req.body.rework_required === 'true') : undefined,
       });
@@ -259,19 +295,29 @@ export class InspectionController {
   static async generatePdf(req: Request, res: Response) {
     let browser: BrowserLike | null = null;
     try {
+      const user = (req as AuthRequest).user;
+      if (!user?.id) {
+        res.status(401).json({ error: 'Unauthorized' });
+        return;
+      }
+
       const id = Number(req.params.id);
       if (!Number.isFinite(id) || id <= 0) {
-        res.status(400).json({ error: 'Identifiant invalide.' });
+        res.status(400).json({ error: 'Invalid ID' });
         return;
       }
 
       const puppeteer = await getPuppeteer();
       if (!puppeteer) {
-        res.status(503).json({ error: 'Generation PDF indisponible: moteur PDF non disponible.' });
+        res.status(503).json({ error: 'PDF generation not available' });
         return;
       }
 
-      const inspection = await InspectionService.getInspectionByIdForTenant(id);
+      const hasReadAll = await canReadAllInspections(req);
+      const inspection = await InspectionService.getInspectionByIdForTenantScoped(
+        id,
+        hasReadAll ? undefined : user.id
+      );
       if (!inspection) {
         res.status(404).json({ error: 'Inspection introuvable.' });
         return;

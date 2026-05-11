@@ -3,6 +3,7 @@ import path from 'node:path';
 import { readFile } from 'node:fs/promises';
 import { WeeklyReportService } from '../services/weekly-report.service.js';
 import { AuthRequest } from '../middlewares/auth.middleware.js';
+import { RbacService } from '../services/rbac.service.js';
 
 type PdfPageLike = {
   setContent: (html: string, opts?: Record<string, unknown>) => Promise<void>;
@@ -251,6 +252,18 @@ function buildWeeklyReportHtml(report: any, logoDataUrl?: string | null): string
   `;
 }
 
+async function canReadAllWeeklyReports(req: Request): Promise<boolean> {
+  const user = (req as AuthRequest).user;
+  if (!user?.id) return false;
+
+  if (Array.isArray(user.permissions) && user.permissions.includes('report:read:all')) {
+    return true;
+  }
+
+  const permissions = await RbacService.getUserPermissions(user.id);
+  return permissions.includes('report:read:all');
+}
+
 export class WeeklyReportController {
   static async generate(req: Request, res: Response) {
     try {
@@ -269,8 +282,14 @@ export class WeeklyReportController {
 
   static async listByProject(req: Request, res: Response) {
     try {
+      const user = (req as AuthRequest).user;
+      if (!user?.id) {
+        return res.status(401).json({ error: 'Unauthorized' });
+      }
+
       const projectId = Number(req.params.projectId);
-      const reports = await WeeklyReportService.getWeeklyReports(projectId);
+      const hasReadAll = await canReadAllWeeklyReports(req);
+      const reports = await WeeklyReportService.getWeeklyReports(projectId, hasReadAll ? undefined : user.id);
       res.json(reports);
     } catch (error: any) {
       res.status(400).json({ error: error.message });
@@ -279,7 +298,16 @@ export class WeeklyReportController {
 
   static async getById(req: Request, res: Response) {
     try {
-      const report = await WeeklyReportService.getWeeklyReportById(Number(req.params.id));
+      const user = (req as AuthRequest).user;
+      if (!user?.id) {
+        return res.status(401).json({ error: 'Unauthorized' });
+      }
+
+      const hasReadAll = await canReadAllWeeklyReports(req);
+      const report = await WeeklyReportService.getWeeklyReportByIdForTenantScoped(
+        Number(req.params.id),
+        hasReadAll ? undefined : user.id
+      );
       if (!report) return res.status(404).json({ error: "Weekly report not found" });
       res.json(report);
     } catch (error: any) {
@@ -337,9 +365,24 @@ export class WeeklyReportController {
   static async generatePdf(req: Request, res: Response) {
     let browser: BrowserLike | null = null;
     try {
+      const user = (req as AuthRequest).user;
+      if (!user?.id) {
+        return res.status(401).json({ error: 'Unauthorized' });
+      }
+
       const id = Number(req.params.id);
       if (!Number.isFinite(id) || id <= 0) {
         res.status(400).json({ error: 'Identifiant invalide.' });
+        return;
+      }
+
+      const hasReadAll = await canReadAllWeeklyReports(req);
+      const report = await WeeklyReportService.getWeeklyReportByIdForTenantScoped(
+        id,
+        hasReadAll ? undefined : user.id
+      );
+      if (!report) {
+        res.status(404).json({ error: 'Report not found' });
         return;
       }
 
@@ -348,8 +391,6 @@ export class WeeklyReportController {
         res.status(503).json({ error: 'Generation PDF indisponible: moteur PDF non disponible.' });
         return;
       }
-
-      const report = await WeeklyReportService.getWeeklyReportById(id);
       if (!report) {
         res.status(404).json({ error: 'Rapport hebdomadaire introuvable.' });
         return;

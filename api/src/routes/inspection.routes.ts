@@ -1,16 +1,16 @@
 import { Router } from 'express';
 import { InspectionController } from '../controllers/inspection.controller.js';
-import { authenticateToken } from '../middlewares/auth.middleware.js';
+import { authenticateToken, requireAnyPermission, requirePermission } from '../middlewares/auth.middleware.js';
 
 const router = Router();
 
 router.use(authenticateToken);
 
-router.post('/', InspectionController.create);
-router.get('/', InspectionController.list);
-router.get('/:id/pdf', InspectionController.generatePdf);
-router.get('/:id', InspectionController.getById);
-router.put('/:id', InspectionController.update);
-router.delete('/:id', InspectionController.delete);
+router.post('/', requirePermission('inspection:create'), InspectionController.create);
+router.get('/', requireAnyPermission('inspection:read', 'inspection:read:all'), InspectionController.list);
+router.get('/:id/pdf', requireAnyPermission('inspection:read', 'inspection:read:all'), InspectionController.generatePdf);
+router.get('/:id', requireAnyPermission('inspection:read', 'inspection:read:all'), InspectionController.getById);
+router.put('/:id', requirePermission('inspection:update'), InspectionController.update);
+router.delete('/:id', requirePermission('inspection:delete'), InspectionController.delete);
 
 export default router;

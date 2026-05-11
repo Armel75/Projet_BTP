@@ -71,7 +71,10 @@ export const requirePermission = (permissionCode: string) => {
     try {
       // Fast path: check permissions embedded in JWT
       if (user.permissions && Array.isArray(user.permissions)) {
-        if (user.permissions.includes(permissionCode)) { next(); return; }
+        if (user.permissions.includes(permissionCode)) {
+          next();
+          return;
+        }
       }
       // Authoritative path: check DB (catches permission changes after token issuance)
       const userPermissions = await RbacService.getUserPermissions(user.id);

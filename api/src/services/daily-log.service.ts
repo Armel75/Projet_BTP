@@ -137,6 +137,29 @@ export class DailyLogService {
     });
   }
 
+  static async getDailyLogByIdForTenantScoped(id: number, created_by?: number) {
+    const tenantId = TenantContext.getTenantId();
+    if (!tenantId) throw new Error("Tenant session required");
+
+    return await prisma.dailyLog.findFirst({
+      where: {
+        id,
+        tenant_id: tenantId,
+        ...(created_by !== undefined && { created_by }),
+      },
+      include: {
+        task_progress: {
+          include: { task: true }
+        },
+        labor_entries: true,
+        equipment_entries: true,
+        material_entries: true,
+        createdBy: true,
+        photos: true
+      }
+    });
+  }
+
   static async updateDailyLog(id: number, data: {
     date?: Date;
     weather?: string;

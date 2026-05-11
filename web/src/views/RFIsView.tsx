@@ -165,6 +165,17 @@ function KpiCard({ label, value, icon: Icon, accent, alert, sub }: {
   );
 }
 
+function RFIFormField({ label, req, children, half }: { label: string; req?: boolean; children: React.ReactNode; half?: boolean }) {
+  return (
+    <div className={`flex flex-col gap-1.5 ${half ? "" : ""}`}>
+      <label className="text-[10px] font-black uppercase tracking-widest text-gb-muted">
+        {label}{req && <span className="text-gb-danger ml-0.5">*</span>}
+      </label>
+      {children}
+    </div>
+  );
+}
+
 // ─── Form Dialog ──────────────────────────────────────────────────────────────
 
 const EMPTY_FORM = {
@@ -289,15 +300,6 @@ function RFIFormDialog({ open, onClose, rfi, onSaved }: {
   const selectCls = "w-full bg-gb-app border border-gb-border rounded-xl h-10 px-3 text-sm text-gb-text focus:ring-2 focus:ring-gb-primary outline-none transition-all";
   const areaCls   = "w-full bg-gb-app border border-gb-border rounded-xl px-3 py-2.5 text-sm text-gb-text placeholder:text-gb-muted focus:ring-2 focus:ring-gb-primary outline-none transition-all resize-none";
 
-  const F = ({ label, req, children, half }: { label: string; req?: boolean; children: React.ReactNode; half?: boolean }) => (
-    <div className={`flex flex-col gap-1.5 ${half ? "" : ""}`}>
-      <label className="text-[10px] font-black uppercase tracking-widest text-gb-muted">
-        {label}{req && <span className="text-gb-danger ml-0.5">*</span>}
-      </label>
-      {children}
-    </div>
-  );
-
   const TABS = [
     { id: "identification", label: "Identification" },
     { id: "question",       label: "Question" },
@@ -310,7 +312,6 @@ function RFIFormDialog({ open, onClose, rfi, onSaved }: {
       <motion.div
         initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
         className="fixed inset-0 z-50 flex items-center justify-center p-4"
-        onClick={onClose}
       >
         <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" />
         <motion.div
@@ -353,93 +354,93 @@ function RFIFormDialog({ open, onClose, rfi, onSaved }: {
 
             {tab === "identification" && (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <F label="Projet" req>
+                <RFIFormField label="Projet" req>
                   <select value={form.project_id} onChange={e => set("project_id", e.target.value)} className={selectCls}>
                     <option value="">Sélectionner…</option>
                     {projects.map(p => <option key={p.id} value={p.id}>{p.code} — {p.title}</option>)}
                   </select>
-                </F>
-                <F label="Lot (optionnel)">
+                </RFIFormField>
+                <RFIFormField label="Lot (optionnel)">
                   <select value={form.lot_id} onChange={e => set("lot_id", e.target.value)} className={selectCls} disabled={!form.project_id}>
                     <option value="">Tous lots</option>
                     {lots.map(l => <option key={l.id} value={l.id}>Lot {l.lot_number} — {l.name}</option>)}
                   </select>
-                </F>
-                <F label="Référence client / MOE">
+                </RFIFormField>
+                <RFIFormField label="Référence client / MOE">
                   <input value={form.reference} onChange={e => set("reference", e.target.value)} placeholder="MOE-RFI-042" className={inputCls} />
-                </F>
-                <F label="Catégorie">
+                </RFIFormField>
+                <RFIFormField label="Catégorie">
                   <select value={form.category} onChange={e => set("category", e.target.value)} className={selectCls}>
                     {RFI_CATEGORIES.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
                   </select>
-                </F>
-                <F label="Discipline">
+                </RFIFormField>
+                <RFIFormField label="Discipline">
                   <select value={form.discipline} onChange={e => set("discipline", e.target.value)} className={selectCls}>
                     <option value="">—</option>
                     {DISCIPLINES.map(d => <option key={d} value={d}>{DISCIPLINE_LABELS[d]}</option>)}
                   </select>
-                </F>
-                <F label="Priorité">
+                </RFIFormField>
+                <RFIFormField label="Priorité">
                   <select value={form.priority} onChange={e => set("priority", e.target.value)} className={selectCls}>
                     {RFI_PRIORITIES.map(p => <option key={p.value} value={p.value}>{p.label}</option>)}
                   </select>
-                </F>
-                <F label="Statut">
+                </RFIFormField>
+                <RFIFormField label="Statut">
                   <select value={form.status} onChange={e => set("status", e.target.value)} className={selectCls}>
                     {RFI_STATUSES.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
                   </select>
-                </F>
-                <F label="Soumis par">
+                </RFIFormField>
+                <RFIFormField label="Soumis par">
                   <select value={form.submitted_by} onChange={e => set("submitted_by", e.target.value)} className={selectCls}>
                     <option value="">—</option>
                     {users.map(u => <option key={u.id} value={u.id}>{u.firstname} {u.lastname}</option>)}
                   </select>
-                </F>
-                <F label="Assigné à (responsable réponse)">
+                </RFIFormField>
+                <RFIFormField label="Assigné à (responsable réponse)">
                   <select value={form.assigned_to} onChange={e => set("assigned_to", e.target.value)} className={selectCls}>
                     <option value="">—</option>
                     {users.map(u => <option key={u.id} value={u.id}>{u.firstname} {u.lastname}</option>)}
                   </select>
-                </F>
-                <F label="Révisé par (MOE / BET)">
+                </RFIFormField>
+                <RFIFormField label="Révisé par (MOE / BET)">
                   <select value={form.reviewed_by} onChange={e => set("reviewed_by", e.target.value)} className={selectCls}>
                     <option value="">—</option>
                     {users.map(u => <option key={u.id} value={u.id}>{u.firstname} {u.lastname}</option>)}
                   </select>
-                </F>
-                <F label="Date limite de réponse">
+                </RFIFormField>
+                <RFIFormField label="Date limite de réponse">
                   <input type="date" value={form.due_date} onChange={e => set("due_date", e.target.value)} className={inputCls} />
-                </F>
+                </RFIFormField>
               </div>
             )}
 
             {tab === "question" && (
               <div className="space-y-4">
                 <div className="grid grid-cols-2 gap-4">
-                  <F label="Référence plan / DWG">
+                  <RFIFormField label="Référence plan / DWG">
                     <input value={form.drawing_ref} onChange={e => set("drawing_ref", e.target.value)} placeholder="PL-STR-004, Rev.B" className={inputCls} />
-                  </F>
-                  <F label="Section CCTP concernée">
+                  </RFIFormField>
+                  <RFIFormField label="Section CCTP concernée">
                     <input value={form.spec_section} onChange={e => set("spec_section", e.target.value)} placeholder="Section 07 — Étanchéité" className={inputCls} />
-                  </F>
+                  </RFIFormField>
                 </div>
-                <F label="Sujet (résumé)" req>
+                <RFIFormField label="Sujet (résumé)" req>
                   <input value={form.subject} onChange={e => set("subject", e.target.value)}
                     placeholder="Clarification sur le détail d'accrochage façade Nord…" className={inputCls} />
-                </F>
-                <F label="Question détaillée" req>
+                </RFIFormField>
+                <RFIFormField label="Question détaillée" req>
                   <textarea value={form.question} onChange={e => set("question", e.target.value)} rows={5}
                     placeholder="Décrire précisément la question, les plans concernés, le contexte…"
                     className={areaCls} />
-                </F>
-                <F label="Réponse (brouillon)">
+                </RFIFormField>
+                <RFIFormField label="Réponse (brouillon)">
                   <textarea value={form.answer} onChange={e => set("answer", e.target.value)} rows={3}
                     placeholder="Réponse préliminaire…" className={areaCls} />
-                </F>
-                <F label="Réponse officielle">
+                </RFIFormField>
+                <RFIFormField label="Réponse officielle">
                   <textarea value={form.official_response} onChange={e => set("official_response", e.target.value)} rows={3}
                     placeholder="Réponse formelle MOE validée…" className={areaCls} />
-                </F>
+                </RFIFormField>
               </div>
             )}
 
@@ -465,10 +466,10 @@ function RFIFormDialog({ open, onClose, rfi, onSaved }: {
                   <AnimatePresence>
                     {form.cost_impact && (
                       <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} exit={{ opacity: 0, height: 0 }}>
-                        <F label="Montant estimé (€)">
+                        <RFIFormField label="Montant estimé (FCFA)">
                           <input type="number" value={form.cost_impact_amount} onChange={e => set("cost_impact_amount", e.target.value)}
                             placeholder="Ex : 12500" className={inputCls} min="0" step="100" />
-                        </F>
+                        </RFIFormField>
                       </motion.div>
                     )}
                   </AnimatePresence>
@@ -494,10 +495,10 @@ function RFIFormDialog({ open, onClose, rfi, onSaved }: {
                   <AnimatePresence>
                     {form.schedule_impact && (
                       <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} exit={{ opacity: 0, height: 0 }}>
-                        <F label="Nombre de jours de retard estimés">
+                        <RFIFormField label="Nombre de jours de retard estimés">
                           <input type="number" value={form.schedule_impact_days} onChange={e => set("schedule_impact_days", e.target.value)}
                             placeholder="Ex : 5" className={inputCls} min="1" step="1" />
-                        </F>
+                        </RFIFormField>
                       </motion.div>
                     )}
                   </AnimatePresence>
@@ -951,7 +952,7 @@ function RFIDetailDrawer({ rfi, onClose, onEdit, onDelete, onUpdated }: {
                       </div>
                       {rfi.cost_impact_amount ? (
                         <p className="text-3xl font-black text-orange-500">
-                          {rfi.cost_impact_amount.toLocaleString("fr-FR")} €
+                          {rfi.cost_impact_amount.toLocaleString("fr-FR")} FCFA
                         </p>
                       ) : (
                         <p className="text-sm text-gb-muted italic">Montant non encore estimé</p>
@@ -1099,7 +1100,7 @@ export default function RFIsView() {
           alert={overdueCount > 0} />
         <KpiCard
           label="Impact coût cumulé"
-          value={costImpactTotal > 0 ? `${costImpactTotal.toLocaleString("fr-FR")} €` : withImpact > 0 ? `${withImpact} avec impact` : "—"}
+          value={costImpactTotal > 0 ? `${costImpactTotal.toLocaleString("fr-FR")} FCFA` : withImpact > 0 ? `${withImpact} avec impact` : "—"}
           icon={DollarSign}
           accent={costImpactTotal > 0 ? "bg-orange-500/10 text-orange-500" : "bg-gb-surface-hover text-gb-muted"}
           alert={costImpactTotal > 0}
@@ -1244,7 +1245,7 @@ export default function RFIsView() {
                               {r.cost_impact && (
                                 <span className="flex items-center gap-1 text-orange-500">
                                   <DollarSign size={10} />
-                                  {r.cost_impact_amount ? `${r.cost_impact_amount.toLocaleString("fr-FR")} €` : "Impact $"}
+                                  {r.cost_impact_amount ? `${r.cost_impact_amount.toLocaleString("fr-FR")} FCFA` : "Impact $"}
                                 </span>
                               )}
                               {r.schedule_impact && (
@@ -1286,7 +1287,7 @@ export default function RFIsView() {
         open={formOpen}
         onClose={() => { setFormOpen(false); setEditRFI(null); }}
         rfi={editRFI}
-        onSaved={() => { setFormOpen(false); setEditRFI(null); fetchRFIs(); }}
+        onSaved={() => { fetchRFIs(); }}
       />
     </div>
   );

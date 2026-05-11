@@ -1,6 +1,27 @@
 import { Request, Response } from 'express';
 import { PunchItemService } from '../services/punch-item.service.js';
+import { RbacService } from '../services/rbac.service.js';
 import { AuthRequest } from '../middlewares/auth.middleware.js';
+
+function toValidDate(value: unknown, fieldLabel: string): Date {
+  const d = new Date(String(value));
+  if (Number.isNaN(d.getTime())) {
+    throw new Error(`Date invalide pour le champ: ${fieldLabel}`);
+  }
+  return d;
+}
+
+async function canReadAllPunchItems(req: Request): Promise<boolean> {
+  const user = (req as AuthRequest).user;
+  if (!user?.id) return false;
+
+  if (Array.isArray(user.permissions) && user.permissions.includes('punch-item:read:all')) {
+    return true;
+  }
+
+  const permissions = await RbacService.getUserPermissions(user.id);
+  return permissions.includes('punch-item:read:all');
+}
 
 export class PunchItemController {
   static async create(req: Request, res: Response) {
@@ -23,6 +44,12 @@ export class PunchItemController {
 
   static async list(req: Request, res: Response) {
     try {
+      const user = (req as AuthRequest).user;
+      if (!user?.id) {
+        return res.status(401).json({ error: 'Unauthorized' });
+      }
+
+      const hasReadAll = await canReadAllPunchItems(req);
       const filters: any = {};
       if (req.query.project_id)    filters.project_id    = Number(req.query.project_id);
       if (req.query.status)        filters.status         = req.query.status as string;
@@ -30,7 +57,7 @@ export class PunchItemController {
       if (req.query.priority)      filters.priority       = req.query.priority as string;
       if (req.query.assigned_to_id) filters.assigned_to_id = Number(req.query.assigned_to_id);
       if (req.query.lot_id)        filters.lot_id         = Number(req.query.lot_id);
-      if (req.query.created_by)    filters.created_by     = Number(req.query.created_by);
+      if (!hasReadAll)             filters.created_by     = user.id;
 
       const items = await PunchItemService.getPunchItems(filters);
       res.json(items);
@@ -41,7 +68,16 @@ export class PunchItemController {
 
   static async getById(req: Request, res: Response) {
     try {
-      const item = await PunchItemService.getPunchItemById(Number(req.params.id));
+      const user = (req as AuthRequest).user;
+      if (!user?.id) {
+        return res.status(401).json({ error: 'Unauthorized' });
+      }
+
+      const hasReadAll = await canReadAllPunchItems(req);
+      const item = await PunchItemService.getPunchItemByIdForTenantScoped(
+        Number(req.params.id),
+        hasReadAll ? undefined : user.id
+      );
       if (!item) return res.status(404).json({ error: "Punch item not found" });
       res.json(item);
     } catch (error: any) {

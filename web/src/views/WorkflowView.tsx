@@ -30,6 +30,27 @@ const ENTITY_LABEL: Record<ValidationEntityType, string> = {
   "control-report": "Rapport de controle",
 };
 
+const STATUS_LABELS_FR: Record<string, string> = {
+  PENDING_APPROVAL: "En attente d'approbation",
+  PENDING: "En attente",
+  DRAFT: "Brouillon",
+  SUBMITTED: "Soumis",
+  APPROVED: "Approuvé",
+  REJECTED: "Rejeté",
+  CANCELLED: "Annulé",
+  IN_REVIEW: "En cours d'examen",
+  REVIEWED: "Examiné",
+  REVISION_REQUESTED: "Révision demandée",
+  EXPIRED: "Expiré",
+  CLOSED: "Clôturé",
+  ACTIVE: "Actif",
+  INACTIVE: "Inactif",
+  ON_HOLD: "En pause",
+};
+
+const getStatusLabel = (status: string): string =>
+  STATUS_LABELS_FR[status] ?? STATUS_LABELS_FR[status?.toUpperCase()] ?? status;
+
 const formatDateTime = (value: string): string => {
   const d = new Date(value);
   if (Number.isNaN(d.getTime())) return "-";
@@ -187,7 +208,7 @@ export default function WorkflowView() {
                         <span className="hidden md:inline">•</span>
                         <span>{formatDateTime(item.requestedAt)}</span>
                         <span className="hidden md:inline">•</span>
-                        <span className="uppercase">{item.status}</span>
+                        <span>{getStatusLabel(item.status)}</span>
                       </div>
                     </div>
                   </div>

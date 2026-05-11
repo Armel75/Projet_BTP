@@ -137,7 +137,7 @@ export default function SupplierFormDialog({ open, onOpenChange, supplier, onSav
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-3xl border border-gb-border bg-gb-surface-solid p-0 text-gb-text sm:max-w-3xl" showCloseButton={!saving}>
+      <DialogContent className="max-h-[92dvh] max-w-3xl border border-gb-border bg-gb-surface-solid p-0 text-gb-text sm:max-w-3xl flex flex-col overflow-hidden" showCloseButton={!saving}>
         <DialogHeader className="border-b border-gb-border px-6 py-5">
           <div className="flex items-start gap-4">
             <div className="flex h-12 w-12 items-center justify-center rounded-2xl border border-gb-border bg-gb-app text-gb-primary">
@@ -154,7 +154,7 @@ export default function SupplierFormDialog({ open, onOpenChange, supplier, onSav
           </div>
         </DialogHeader>
 
-        <form id="supplier-form" onSubmit={handleSubmit} className="space-y-5 px-6 py-5">
+        <form id="supplier-form" onSubmit={handleSubmit} className="flex-1 overflow-y-auto space-y-5 px-6 py-5">
           {error && (
             <div className="rounded-2xl border border-gb-danger/20 bg-gb-danger/5 px-4 py-3 text-sm font-medium text-gb-danger">
               {error}
@@ -200,7 +200,7 @@ export default function SupplierFormDialog({ open, onOpenChange, supplier, onSav
           </Field>
         </form>
 
-        <DialogFooter className="border-t border-gb-border bg-gb-app/40">
+        <DialogFooter className="shrink-0 border-t border-gb-border bg-gb-app/40">
           <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={saving}>
             Annuler
           </Button>

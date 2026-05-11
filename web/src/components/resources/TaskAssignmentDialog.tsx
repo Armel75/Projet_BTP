@@ -48,7 +48,10 @@ export function TaskAssignmentDialog({ open, onOpenChange, resource, onAssign }:
         headers: { Authorization: `Bearer ${token}` }
       });
       if (res.ok) {
-        setProjects(await res.json());
+        const payload = await res.json();
+        // L'API retourne { data: [...], pagination: {...} } — on normalise en tableau
+        const list = Array.isArray(payload) ? payload : (Array.isArray(payload?.data) ? payload.data : []);
+        setProjects(list);
       }
     } catch (err) {
       console.error(err);
@@ -61,11 +64,14 @@ export function TaskAssignmentDialog({ open, onOpenChange, resource, onAssign }:
     setLoadingTasks(true);
     try {
       const token = localStorage.getItem("token");
-      const res = await fetch(`/api/projects/${projectId}/tasks`, {
+      const res = await apiFetch(`${API_BASE}/projects/${projectId}/tasks`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       if (res.ok) {
-        setTasks(await res.json());
+        const payload = await res.json();
+        // L'API retourne un tableau direct pour les tâches — on normalise en sécurité
+        const list = Array.isArray(payload) ? payload : (Array.isArray(payload?.data) ? payload.data : []);
+        setTasks(list);
       }
     } catch (err) {
       console.error(err);

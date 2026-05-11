@@ -508,6 +508,40 @@ function DocDetailDrawer({ doc, onClose, onEdit, onDelete, onArchive, onVersionA
     } catch { /* ignore */ }
   }, [doc.id]);
 
+  const downloadVersionFile = useCallback(async (fileUrl?: string | null, fileName?: string) => {
+    const resolvedUrl = resolveFileUrl(fileUrl);
+    if (!resolvedUrl) return;
+
+    try {
+      setVersionError(null);
+      const res = await apiFetch(resolvedUrl);
+      if (!res.ok) {
+        let message = "Impossible de télécharger le fichier.";
+        try {
+          const err = await res.json();
+          if (err?.error) message = String(err.error);
+        } catch {
+          // Ignore body parse errors to keep fallback message.
+        }
+        throw new Error(message);
+      }
+
+      const blob = await res.blob();
+      if (!blob.size) throw new Error("Le fichier téléchargé est vide.");
+
+      const objectUrl = window.URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = objectUrl;
+      link.download = fileName || "document";
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(objectUrl);
+    } catch (err: any) {
+      setVersionError(err?.message || "Impossible de télécharger le fichier.");
+    }
+  }, []);
+
   const submitNewVersion = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!versionFile) { setVersionError("Sélectionnez un fichier"); return; }
@@ -612,11 +646,16 @@ function DocDetailDrawer({ doc, onClose, onEdit, onDelete, onArchive, onVersionA
           </div>
 
           {fileHref && (
-            <a href={fileHref} target="_blank" rel="noreferrer"
-              className="mt-4 flex items-center gap-2 w-full justify-center bg-gb-primary/10 hover:bg-gb-primary/20 border border-gb-primary/30 rounded-xl h-10 text-sm font-bold text-gb-primary transition-colors">
+            <button
+              type="button"
+              onClick={() => downloadVersionFile(doc.file_url, doc.file_name ?? `document-${doc.id}`)}
+              className="mt-4 flex items-center gap-2 w-full justify-center bg-gb-primary/10 hover:bg-gb-primary/20 border border-gb-primary/30 rounded-xl h-10 text-sm font-bold text-gb-primary transition-colors"
+              aria-label="Télécharger le fichier"
+              title="Télécharger le fichier"
+            >
               <Download size={14} />
               {doc.file_name ?? "Télécharger le fichier"}{doc.file_size ? ` (${formatBytes(doc.file_size)})` : ""}
-            </a>
+            </button>
           )}
         </div>
 
@@ -760,10 +799,16 @@ function DocDetailDrawer({ doc, onClose, onEdit, onDelete, onArchive, onVersionA
                         </span>
                       )}
                       {resolveFileUrl(v.file_url) && (
-                        <a href={resolveFileUrl(v.file_url)!} target="_blank" rel="noreferrer"
-                          className="p-1.5 rounded-lg text-gb-muted hover:text-gb-primary hover:bg-gb-primary/10 transition-colors">
+                        <button
+                          type="button"
+                          onClick={() => downloadVersionFile(v.file_url, v.file_name ?? `Version-${v.version}`)}
+                          className="inline-flex items-center gap-1.5 px-2 py-1 rounded-lg text-gb-muted hover:text-gb-primary hover:bg-gb-primary/10 transition-colors"
+                          aria-label="Télécharger"
+                          title="Télécharger"
+                        >
                           <Download size={13} />
-                        </a>
+                          <span className="text-xs font-semibold">Télécharger</span>
+                        </button>
                       )}
                     </div>
                   </div>

@@ -1,5 +1,6 @@
 import { prisma } from '../config/prisma.js';
 import { Prisma } from '@prisma/client';
+import { buildProjectScopeWhere } from '../utils/projectFilterUtils.js';
 
 // ─── Input Types ───────────────────────────────────────────────────────────────
 
@@ -13,6 +14,8 @@ export interface CreateProjectInput {
   budget_initial: number;
   currency: string;
   location: string;
+  moe_firm_name?: string | null;
+  control_bureau?: string | null;
   client_name?: string | null;
   client_contact_name?: string | null;
   client_phone?: string | null;
@@ -25,6 +28,7 @@ export interface CreateProjectInput {
   budget_approved?: number | null;
   budget_committed?: number | null;
   contingency_budget?: number | null;
+  hse_responsible_id?: number | null;
   permit_number?: string | null;
   permit_type?: string | null;
   risk_classification?: string | null;
@@ -46,6 +50,8 @@ export interface UpdateProjectInput {
   budget_initial?: number;
   currency?: string;
   location?: string;
+  moe_firm_name?: string | null;
+  control_bureau?: string | null;
   client_name?: string | null;
   client_contact_name?: string | null;
   client_phone?: string | null;
@@ -58,6 +64,7 @@ export interface UpdateProjectInput {
   budget_approved?: number | null;
   budget_committed?: number | null;
   contingency_budget?: number | null;
+  hse_responsible_id?: number | null;
   permit_number?: string | null;
   permit_type?: string | null;
   risk_classification?: string | null;
@@ -114,6 +121,22 @@ export interface CreateBudgetLineInput {
   tenant_id: number;
   supplier_id?: number | null;
   actual?: number;
+}
+
+interface ListProjectsCursorOptions {
+  after?: number;
+  before?: number;
+}
+
+interface CursorPaginationMeta {
+  mode: "cursor";
+  limit: number;
+  total: number;
+  pages: number;
+  nextCursor: string | null;
+  prevCursor: string | null;
+  hasNext: boolean;
+  hasPrev: boolean;
 }
 
 // ─── Includes / Selects ────────────────────────────────────────────────────────
@@ -300,12 +323,113 @@ export class ProjectManagementService {
   // PROJECTS
   // ═══════════════════════════════════════════════════════════════════════════
 
-  static async listProjects(tenant_id: number, page = 1, limit = 20) {
+  static async listProjects(
+    tenant_id: number,
+    page = 1,
+    limit = 20,
+    userId?: number,
+    canReadAll = true,
+    cursorOptions?: ListProjectsCursorOptions
+  ) {
+    const after = cursorOptions?.after;
+    const before = cursorOptions?.before;
+    const scopeFilter = userId !== undefined
+      ? buildProjectScopeWhere(userId, canReadAll)
+      : null;
+    const where: any = { tenant_id };
+    if (scopeFilter) {
+      where.AND = [scopeFilter];
+    }
+
+    // Cursor mode: keyset pagination to avoid SQL Server OFFSET drift.
+    if (typeof after === 'number' || typeof before === 'number') {
+      const cursorWhere: any = { ...where };
+      const andClauses = Array.isArray(cursorWhere.AND) ? [...cursorWhere.AND] : [];
+
+      if (typeof after === 'number') {
+        andClauses.push({ id: { lt: after } });
+      }
+      if (typeof before === 'number') {
+        andClauses.push({ id: { gt: before } });
+      }
+      if (andClauses.length > 0) {
+        cursorWhere.AND = andClauses;
+      }
+
+      const [total, rows] = await Promise.all([
+        prisma.project.count({ where }),
+        prisma.project.findMany({
+          where: cursorWhere,
+          select: PROJECT_LIST_SELECT as any,
+          take: limit + 1,
+          orderBy: { id: typeof before === 'number' ? 'asc' : 'desc' },
+        }),
+      ]);
+
+      const hasExtra = rows.length > limit;
+      const sliced = hasExtra ? rows.slice(0, limit) : rows;
+      const normalized = typeof before === 'number' ? [...sliced].reverse() : sliced;
+
+      let hasPrev = false;
+      let hasNext = false;
+
+      if (normalized.length > 0) {
+        const firstId = normalized[0]?.id;
+        const lastId = normalized[normalized.length - 1]?.id;
+
+        const [newer, older] = await Promise.all([
+          typeof firstId === 'number'
+            ? prisma.project.findFirst({
+                where: {
+                  ...(where as Record<string, unknown>),
+                  id: { gt: firstId },
+                },
+                select: { id: true },
+                orderBy: { id: 'asc' },
+              })
+            : Promise.resolve(null),
+          typeof lastId === 'number'
+            ? prisma.project.findFirst({
+                where: {
+                  ...(where as Record<string, unknown>),
+                  id: { lt: lastId },
+                },
+                select: { id: true },
+                orderBy: { id: 'desc' },
+              })
+            : Promise.resolve(null),
+        ]);
+
+        hasPrev = Boolean(newer);
+        hasNext = Boolean(older);
+      }
+
+      const nextCursor = hasNext && normalized.length > 0
+        ? String(normalized[normalized.length - 1]?.id ?? '')
+        : null;
+      const prevCursor = hasPrev && normalized.length > 0
+        ? String(normalized[0]?.id ?? '')
+        : null;
+
+      const cursorPagination: CursorPaginationMeta = {
+        mode: 'cursor',
+        limit,
+        total,
+        pages: Math.ceil(total / limit),
+        nextCursor: nextCursor && nextCursor.length > 0 ? nextCursor : null,
+        prevCursor: prevCursor && prevCursor.length > 0 ? prevCursor : null,
+        hasNext,
+        hasPrev,
+      };
+
+      return { data: normalized, pagination: cursorPagination };
+    }
+
     const skip = (page - 1) * limit;
     const [total, projects] = await Promise.all([
-      prisma.project.count({ where: { tenant_id } }),
+      prisma.project.count({ where }),
       prisma.project.findMany({
-        where:   { tenant_id },
+        where,
         select:  PROJECT_LIST_SELECT as any,
         skip,
         take:    limit,
@@ -351,6 +475,149 @@ export class ProjectManagementService {
     });
   }
 
+  // ═══════════════════════════════════════════════════════════════════════════
+  // PROJECT ACCESS CONTROL
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  /**
+   * Vérifie si un utilisateur a accès à un projet spécifique (sans permission globale).
+   * Retourne true si l'utilisateur est : créateur | chef de projet | responsable HSE | membre.
+   */
+  static async canUserAccessProject(projectId: number, userId: number, tenantId: number): Promise<boolean> {
+    const project = await prisma.project.findFirst({
+      where: {
+        id: projectId,
+        tenant_id: tenantId,
+        OR: [
+          { created_by: userId },
+          { project_manager_id: userId },
+          { hse_responsible_id: userId },
+          { userRoles: { some: { user_id: userId } } },
+        ],
+      },
+      select: { id: true },
+    });
+    return project !== null;
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // CHEF DE PROJET & MEMBRES
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  /**
+   * Assigne ou retire le chef de projet (project_manager_id).
+   * managerId = null → retire le chef de projet.
+   */
+  static async assignProjectManager(
+    projectId: number,
+    managerId: number | null,
+    tenantId: number,
+  ) {
+    const project = await prisma.project.findFirst({
+      where: { id: projectId, tenant_id: tenantId },
+      select: { id: true },
+    });
+    if (!project) throw new Error('Projet introuvable.');
+
+    if (managerId !== null) {
+      const user = await prisma.user.findFirst({
+        where: { id: managerId, tenant_id: tenantId },
+        select: { id: true },
+      });
+      if (!user) throw new Error('Utilisateur introuvable ou hors périmètre.');
+    }
+
+    return prisma.project.update({
+      where: { id: projectId },
+      data: { project_manager_id: managerId },
+      select: {
+        id: true,
+        project_manager_id: true,
+        projectManager: { select: { id: true, firstname: true, lastname: true, email: true } },
+      },
+    });
+  }
+
+  /**
+   * Retourne tous les membres d'un projet (UserRole scoped à ce projet).
+   */
+  static async listProjectMembers(projectId: number, tenantId: number) {
+    const project = await prisma.project.findFirst({
+      where: { id: projectId, tenant_id: tenantId },
+      select: { id: true },
+    });
+    if (!project) throw new Error('Projet introuvable.');
+
+    return prisma.userRole.findMany({
+      where: { project_id: projectId },
+      include: {
+        user: { select: { id: true, firstname: true, lastname: true, email: true, matricule: true } },
+        role: { select: { id: true, code: true, name: true } },
+      },
+      orderBy: { id: 'asc' },
+    });
+  }
+
+  /**
+   * Ajoute un membre à un projet en créant un UserRole project-scoped.
+   * Idempotent : si l'assignation existe déjà, la retourne sans erreur.
+   */
+  static async addProjectMember(
+    projectId: number,
+    userId: number,
+    roleId: number,
+    tenantId: number,
+  ) {
+    const [project, user, role] = await Promise.all([
+      prisma.project.findFirst({ where: { id: projectId, tenant_id: tenantId }, select: { id: true } }),
+      prisma.user.findFirst({ where: { id: userId, tenant_id: tenantId }, select: { id: true } }),
+      prisma.role.findUnique({ where: { id: roleId }, select: { id: true } }),
+    ]);
+    if (!project) throw new Error('Projet introuvable.');
+    if (!user) throw new Error('Utilisateur introuvable ou hors périmètre.');
+    if (!role) throw new Error('Rôle introuvable.');
+
+    const existing = await prisma.userRole.findFirst({
+      where: { user_id: userId, role_id: roleId, project_id: projectId },
+      include: {
+        user: { select: { id: true, firstname: true, lastname: true, email: true } },
+        role: { select: { id: true, code: true, name: true } },
+      },
+    });
+    if (existing) return existing;
+
+    return prisma.userRole.create({
+      data: { user_id: userId, role_id: roleId, project_id: projectId, tenant_id: tenantId },
+      include: {
+        user: { select: { id: true, firstname: true, lastname: true, email: true } },
+        role: { select: { id: true, code: true, name: true } },
+      },
+    });
+  }
+
+  /**
+   * Retire un membre d'un projet en supprimant le UserRole project-scoped.
+   * Vérifie que le UserRole appartient bien à ce projet/tenant avant suppression.
+   */
+  static async removeProjectMember(
+    userRoleId: number,
+    projectId: number,
+    tenantId: number,
+  ) {
+    const userRole = await prisma.userRole.findFirst({
+      where: {
+        id: userRoleId,
+        project_id: projectId,
+        project: { tenant_id: tenantId },
+      },
+      select: { id: true },
+    });
+    if (!userRole) throw new Error('Affectation introuvable.');
+
+    await prisma.userRole.delete({ where: { id: userRoleId } });
+    return { success: true };
+  }
+
   /**
    * Génère le prochain code projet au format PROJ-YYYY-NNN pour un tenant et une année donnés.
    *
@@ -391,10 +658,12 @@ export class ProjectManagementService {
     const {
       title, status, tenant_id, created_by,
       start_date, end_date, budget_initial, currency, location,
+      moe_firm_name, control_bureau,
       client_name, client_contact_name, client_phone,
       street_address, postal_code, city, country,
       latitude, longitude,
       budget_approved, budget_committed, contingency_budget,
+      hse_responsible_id,
       permit_number, permit_type, risk_classification,
       building_type, erp_project_id, is_archived,
       doc_name, doc_category = 'PLAN', doc_description = null,
@@ -434,6 +703,8 @@ export class ProjectManagementService {
               budget_initial: Number(budget_initial),
               currency,
               location,
+              moe_firm_name: moe_firm_name ?? null,
+              control_bureau: control_bureau ?? null,
               client_name: client_name ?? null,
               client_contact_name: client_contact_name ?? null,
               client_phone: client_phone ?? null,
@@ -446,6 +717,7 @@ export class ProjectManagementService {
               budget_approved: budget_approved ?? null,
               budget_committed: budget_committed ?? null,
               contingency_budget: contingency_budget ?? null,
+              hse_responsible_id: hse_responsible_id ?? null,
               permit_number: permit_number ?? null,
               permit_type: permit_type ?? null,
               risk_classification: risk_classification ?? null,
@@ -530,6 +802,8 @@ export class ProjectManagementService {
           ...(data.location       !== undefined && { location: data.location }),
           ...(data.currency       !== undefined && { currency: data.currency }),
           ...(data.budget_initial !== undefined && { budget_initial: Number(data.budget_initial) }),
+          ...(data.moe_firm_name         !== undefined && { moe_firm_name: data.moe_firm_name }),
+          ...(data.control_bureau        !== undefined && { control_bureau: data.control_bureau }),
           ...(data.start_date     !== undefined && { start_date: data.start_date ? new Date(data.start_date) : null }),
           ...(data.end_date       !== undefined && { end_date: data.end_date ? new Date(data.end_date) : null }),
           ...(data.client_name           !== undefined && { client_name: data.client_name }),
@@ -544,6 +818,7 @@ export class ProjectManagementService {
           ...(data.budget_approved       !== undefined && { budget_approved: data.budget_approved }),
           ...(data.budget_committed      !== undefined && { budget_committed: data.budget_committed }),
           ...(data.contingency_budget    !== undefined && { contingency_budget: data.contingency_budget }),
+          ...(data.hse_responsible_id    !== undefined && { hse_responsible_id: data.hse_responsible_id }),
           ...(data.permit_number         !== undefined && { permit_number: data.permit_number }),
           ...(data.permit_type           !== undefined && { permit_type: data.permit_type }),
           ...(data.risk_classification   !== undefined && { risk_classification: data.risk_classification }),
@@ -632,6 +907,7 @@ export class ProjectManagementService {
     description?:      string | null;
     trade_code?:       string;
     status?:           string;
+    schedule_status?:  string;
     budget_allocated?: number;
     progress?:         number;
     start_date?:       string | null;
@@ -639,14 +915,34 @@ export class ProjectManagementService {
     responsible_id?:   number | null;
     contractor_id?:    number | null;
     contract_id?:      number | null;
-  }, tenant_id: number) {
+  }, tenant_id: number, changed_by?: number) {
     const lot = await prisma.projectLot.findFirst({
       where: { id, tenant_id },
       include: { project: { select: { phase: true } } },
     });
     if (!lot) throw new Error('Lot introuvable.');
     this.assertProjectPhaseAllowed(lot.project?.phase, PROJECT_PHASE_GUARDS.lots.allowedPhases, PROJECT_PHASE_GUARDS.lots.reason);
-    return prisma.projectLot.update({ where: { id }, data });
+
+    const statusChanged         = data.status          !== undefined && data.status          !== (lot as any).status;
+    const scheduleStatusChanged = data.schedule_status !== undefined && data.schedule_status !== (lot as any).schedule_status;
+
+    const updated = await prisma.projectLot.update({ where: { id }, data });
+
+    if (statusChanged || scheduleStatusChanged) {
+      await prisma.lotStatusHistory.create({
+        data: {
+          lot_id:               id,
+          tenant_id,
+          from_status:          statusChanged         ? (lot as any).status          : null,
+          to_status:            statusChanged         ? data.status!                 : (lot as any).status,
+          from_schedule_status: scheduleStatusChanged ? (lot as any).schedule_status : null,
+          to_schedule_status:   scheduleStatusChanged ? data.schedule_status!        : null,
+          changed_by:           changed_by ?? null,
+        },
+      });
+    }
+
+    return updated;
   }
 
   static async getLotsByProject(project_id: number) {
@@ -775,7 +1071,7 @@ export class ProjectManagementService {
     });
   }
 
-  static async updateTask(id: number, data: Partial<CreateTaskInput>, tenant_id: number) {
+  static async updateTask(id: number, data: Partial<CreateTaskInput> & { schedule_status?: string }, tenant_id: number, changed_by?: number) {
     const task = await prisma.task.findFirst({
       where: { id, tenant_id },
       include: { project: { select: { id: true, phase: true } } },
@@ -799,7 +1095,11 @@ export class ProjectManagementService {
       const canStart = await this.canStartTask(id);
       if (!canStart) throw new Error('Dépendances non satisfaites : impossible de changer le statut.');
     }
-    return prisma.task.update({
+
+    const statusChanged         = data.status          !== undefined && data.status          !== (task as any).status;
+    const scheduleStatusChanged = data.schedule_status !== undefined && data.schedule_status !== (task as any).schedule_status;
+
+    const updated = await prisma.task.update({
       where: { id },
       data: {
         ...data,
@@ -812,6 +1112,22 @@ export class ProjectManagementService {
         assignments: { include: { resource: true } },
       },
     });
+
+    if (statusChanged || scheduleStatusChanged) {
+      await prisma.taskStatusHistory.create({
+        data: {
+          task_id:              id,
+          tenant_id,
+          from_status:          statusChanged         ? (task as any).status          : null,
+          to_status:            statusChanged         ? data.status!                  : (task as any).status,
+          from_schedule_status: scheduleStatusChanged ? (task as any).schedule_status : null,
+          to_schedule_status:   scheduleStatusChanged ? data.schedule_status!         : null,
+          changed_by:           changed_by ?? null,
+        },
+      });
+    }
+
+    return updated;
   }
 
   static async deleteTask(id: number, tenant_id: number) {
@@ -966,6 +1282,16 @@ export class ProjectManagementService {
     return prisma.user.findMany({
       where:  { tenant_id },
       select: { id: true, firstname: true, lastname: true, email: true },
+    });
+  }
+
+  static async getAssignableRoles(tenant_id: number) {
+    return prisma.role.findMany({
+      where: {
+        OR: [{ tenant_id: null }, { tenant_id }],
+      },
+      select: { id: true, code: true, name: true },
+      orderBy: [{ code: 'asc' }, { name: 'asc' }],
     });
   }
 

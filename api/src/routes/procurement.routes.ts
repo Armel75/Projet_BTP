@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { ProcurementController } from "../controllers/procurement.controller.js";
-import { authenticateToken } from "../middlewares/auth.middleware.js";
+import { authenticateToken, requirePermission } from "../middlewares/auth.middleware.js";
 import { uploadDocuments } from "../middlewares/upload.middleware.js";
 import { prisma } from "../config/prisma.js";
 
@@ -10,6 +10,7 @@ const procurementRouter = Router();
 procurementRouter.post(
 	"/tenders/dce-uploads",
 	authenticateToken,
+	requirePermission("tender:update"),
 	uploadDocuments,
 	async (req: any, res: any) => {
 		try {
@@ -23,9 +24,8 @@ procurementRouter.post(
 			if (!tenantId) return res.status(401).json({ error: "Tenant requis." });
 			if (!projectId) return res.status(400).json({ error: "project_id requis pour l'upload de documents." });
 
-			// Create a Document record for each uploaded file
 			const createdDocuments = await Promise.all(
-				files.map(async (f: any, idx: number) => {
+				files.map(async (f: any) => {
 					const fileUrl = `/uploads/documents/${f.filename}`;
 					const ext = (f.originalname?.split(".").pop() ?? "").toLowerCase();
 					const fileType = ["pdf", "dwg", "docx", "xlsx", "pptx", "zip", "rar"].includes(ext) ? ext : "other";
@@ -42,7 +42,7 @@ procurementRouter.post(
 							discipline: "GENERAL",
 							status: "APPROVED",
 							revision: "A",
-						project_id: projectId,
+							project_id: projectId,
 							tenant_id: tenantId,
 							created_by: userId ?? null,
 						},
@@ -66,48 +66,48 @@ procurementRouter.post(
 );
 
 // Tenders
-procurementRouter.get("/tenders",                          authenticateToken, ProcurementController.getTenders);
-procurementRouter.post("/tenders",                         authenticateToken, ProcurementController.createTender);
-procurementRouter.get("/tenders/:id",                      authenticateToken, ProcurementController.getTender);
-procurementRouter.get("/tenders/:id/pdf",                  authenticateToken, ProcurementController.generateTenderPdf);
-procurementRouter.put("/tenders/:id",                      authenticateToken, ProcurementController.updateTender);
-procurementRouter.delete("/tenders/:id",                   authenticateToken, ProcurementController.deleteTender);
-procurementRouter.post("/tenders/:id/award",               authenticateToken, ProcurementController.awardTender);
+procurementRouter.get("/tenders",                          authenticateToken, requirePermission("tender:read"),    ProcurementController.getTenders);
+procurementRouter.post("/tenders",                         authenticateToken, requirePermission("tender:create"),  ProcurementController.createTender);
+procurementRouter.get("/tenders/:id",                      authenticateToken, requirePermission("tender:read"),    ProcurementController.getTender);
+procurementRouter.get("/tenders/:id/pdf",                  authenticateToken, requirePermission("tender:read"),    ProcurementController.generateTenderPdf);
+procurementRouter.put("/tenders/:id",                      authenticateToken, requirePermission("tender:update"),  ProcurementController.updateTender);
+procurementRouter.delete("/tenders/:id",                   authenticateToken, requirePermission("tender:delete"),  ProcurementController.deleteTender);
+procurementRouter.post("/tenders/:id/award",               authenticateToken, requirePermission("tender:approve"), ProcurementController.awardTender);
 
 // Bids
-procurementRouter.post("/tenders/:id/bids",                authenticateToken, ProcurementController.submitBid);
-procurementRouter.put("/tenders/:id/bids/:bidId",          authenticateToken, ProcurementController.updateBid);
-procurementRouter.delete("/tenders/:id/bids/:bidId",       authenticateToken, ProcurementController.deleteBid);
+procurementRouter.post("/tenders/:id/bids",                authenticateToken, requirePermission("tender:update"), ProcurementController.submitBid);
+procurementRouter.put("/tenders/:id/bids/:bidId",          authenticateToken, requirePermission("tender:update"), ProcurementController.updateBid);
+procurementRouter.delete("/tenders/:id/bids/:bidId",       authenticateToken, requirePermission("tender:update"), ProcurementController.deleteBid);
 
 // Suppliers
-procurementRouter.get("/suppliers",                        authenticateToken, ProcurementController.getSuppliers);
-procurementRouter.post("/suppliers",                       authenticateToken, ProcurementController.createSupplier);
-procurementRouter.put("/suppliers/:id",                    authenticateToken, ProcurementController.updateSupplier);
-procurementRouter.delete("/suppliers/:id",                 authenticateToken, ProcurementController.deleteSupplier);
+procurementRouter.get("/suppliers",                        authenticateToken, requirePermission("supplier:read"),   ProcurementController.getSuppliers);
+procurementRouter.post("/suppliers",                       authenticateToken, requirePermission("supplier:create"), ProcurementController.createSupplier);
+procurementRouter.put("/suppliers/:id",                    authenticateToken, requirePermission("supplier:update"), ProcurementController.updateSupplier);
+procurementRouter.delete("/suppliers/:id",                 authenticateToken, requirePermission("supplier:delete"), ProcurementController.deleteSupplier);
 
 // Purchase Orders
-procurementRouter.get("/purchase-orders",                  authenticateToken, ProcurementController.getPurchaseOrders);
-procurementRouter.post("/purchase-orders",                 authenticateToken, ProcurementController.createPOFromBid);
+procurementRouter.get("/purchase-orders",                  authenticateToken, requirePermission("purchase-order:read"),   ProcurementController.getPurchaseOrders);
+procurementRouter.post("/purchase-orders",                 authenticateToken, requirePermission("purchase-order:create"), ProcurementController.createPOFromBid);
 
 // Deliveries
-procurementRouter.get("/deliveries",                       authenticateToken, ProcurementController.getDeliveries);
-procurementRouter.post("/deliveries",                      authenticateToken, ProcurementController.createDelivery);
+procurementRouter.get("/deliveries",                       authenticateToken, requirePermission("delivery:read"),   ProcurementController.getDeliveries);
+procurementRouter.post("/deliveries",                      authenticateToken, requirePermission("delivery:create"), ProcurementController.createDelivery);
 
 // Goods Receipts
-procurementRouter.get("/goods-receipts",                   authenticateToken, ProcurementController.getGoodsReceipts);
-procurementRouter.post("/goods-receipts",                  authenticateToken, ProcurementController.createGoodsReceipt);
+procurementRouter.get("/goods-receipts",                   authenticateToken, requirePermission("goods-receipt:read"),   ProcurementController.getGoodsReceipts);
+procurementRouter.post("/goods-receipts",                  authenticateToken, requirePermission("goods-receipt:create"), ProcurementController.createGoodsReceipt);
 
 // Warehouses & Inventory
-procurementRouter.get("/warehouses",                       authenticateToken, ProcurementController.getWarehouses);
-procurementRouter.post("/warehouses",                      authenticateToken, ProcurementController.createWarehouse);
-procurementRouter.post("/warehouses/:id/locations",        authenticateToken, ProcurementController.createWarehouseLocation);
-procurementRouter.get("/inventory/balances",               authenticateToken, ProcurementController.getInventoryBalances);
+procurementRouter.get("/warehouses",                       authenticateToken, requirePermission("warehouse:read"),            ProcurementController.getWarehouses);
+procurementRouter.post("/warehouses",                      authenticateToken, requirePermission("warehouse:create"),          ProcurementController.createWarehouse);
+procurementRouter.post("/warehouses/:id/locations",        authenticateToken, requirePermission("warehouse-location:create"), ProcurementController.createWarehouseLocation);
+procurementRouter.get("/inventory/balances",               authenticateToken, requirePermission("stock:read"),                ProcurementController.getInventoryBalances);
 
 // Sage X3 Sync
-procurementRouter.post("/x3/sync/suppliers",               authenticateToken, ProcurementController.syncX3Suppliers);
-procurementRouter.post("/x3/sync/items",                   authenticateToken, ProcurementController.syncX3Items);
-procurementRouter.post("/x3/sync/purchase-orders",         authenticateToken, ProcurementController.syncX3PurchaseOrders);
-procurementRouter.get("/x3/sync/jobs",                     authenticateToken, ProcurementController.getX3SyncJobs);
+procurementRouter.post("/x3/sync/suppliers",               authenticateToken, requirePermission("erp-sync:manage"), ProcurementController.syncX3Suppliers);
+procurementRouter.post("/x3/sync/items",                   authenticateToken, requirePermission("erp-sync:manage"), ProcurementController.syncX3Items);
+procurementRouter.post("/x3/sync/purchase-orders",         authenticateToken, requirePermission("erp-sync:manage"), ProcurementController.syncX3PurchaseOrders);
+procurementRouter.get("/x3/sync/jobs",                     authenticateToken, requirePermission("erp-sync:read"),   ProcurementController.getX3SyncJobs);
 
 export default procurementRouter;
 

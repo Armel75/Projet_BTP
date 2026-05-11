@@ -21,7 +21,7 @@ export const PERMISSIONS = {
 
   // ── PROJECT CORE ───────────────────────────────────────────────────────────
   // Modèles : Project, ProjectLot, WBSNode, Resource, Task, TaskAssignment
-  project:          ['create', 'read', 'update', 'delete'],
+  project:          ['create', 'read', 'update', 'delete', 'read:all', 'metadata:update', 'team:update', 'phase:transition'],
   'project-lot':    ['create', 'read', 'update', 'delete'],
   wbs:              ['create', 'read', 'update', 'delete'],
   resource:         ['create', 'read', 'update', 'delete'],
@@ -31,7 +31,8 @@ export const PERMISSIONS = {
   // Modèles : Supplier, Tender, TenderBid, PurchaseOrder, Delivery,
   //           InventoryItem, ProjectStock, GoodsReceipt, StockMovement, MaterialConsumption
   supplier:         ['create', 'read', 'update', 'delete'],
-  tender:           ['create', 'read', 'update', 'delete'],
+  tender:           ['create', 'read', 'update', 'delete', 'approve'],
+  'situation-travaux': ['create', 'read', 'update', 'delete'],
   'purchase-order': ['create', 'read', 'update', 'delete', 'approve'],
   delivery:         ['create', 'read', 'update'],
   inventory:        ['create', 'read', 'update', 'delete'],
@@ -44,29 +45,33 @@ export const PERMISSIONS = {
   // ── CONTRACTS & ENGINEERING ────────────────────────────────────────────────
   // Modèles : Contract, ContractLineItem, ChangeOrder, RFI, Submittal
   contract:         ['create', 'read', 'update', 'delete'],
-  'change-order':   ['create', 'read', 'update', 'approve'],
-  rfi:              ['create', 'read', 'update'],
+  'change-order':   ['create', 'read', 'update', 'delete', 'approve'],
+  rfi:              ['create', 'read', 'read:all', 'update', 'delete'],
   submittal:        ['create', 'read', 'update'],
 
   // ── FINANCE ────────────────────────────────────────────────────────────────
   // Modèles : BudgetLine, Invoice, Payment, CostTransaction
-  budget:           ['create', 'read', 'update'],
+  budget:           ['create', 'read', 'update', 'delete'],
   invoice:          ['create', 'read', 'update', 'approve'],
   payment:          ['create', 'read'],
 
   // ── REPORTING ──────────────────────────────────────────────────────────────
   // Modèles : WeeklyReport, ControlReport, WorkAcceptance
-  report:           ['create', 'read', 'update', 'validate'],
-  'control-report': ['create', 'read', 'update', 'approve'],
-  'work-acceptance':['create', 'read', 'approve'],
+  report:           ['create', 'read', 'read:all', 'update', 'delete', 'validate'],
+  'control-report': ['create', 'read', 'read:all', 'update', 'delete', 'approve'],
+  'work-acceptance':['create', 'read', 'update', 'delete', 'approve'],
 
   // ── SITE OPERATIONS ────────────────────────────────────────────────────────
   // Modèles : DailyLog, Inspection, Incident, PunchItem, Meeting
-  'daily-log':      ['create', 'read', 'update', 'delete'],
-  inspection:       ['create', 'read', 'update', 'delete'],
-  incident:         ['create', 'read', 'update', 'delete'],
-  'punch-item':     ['create', 'read', 'update', 'delete'],
-  meeting:          ['create', 'read', 'update'],
+  'daily-log':      ['create', 'read', 'read:all', 'update', 'delete'],
+  incident:         ['create', 'read', 'read:all', 'update', 'delete'],
+  inspection:       ['create', 'read', 'read:all', 'update', 'delete'],
+  'punch-item':     ['create', 'read', 'read:all', 'update', 'delete'],
+  meeting:          ['create', 'read', 'read:all', 'update', 'delete'],
+
+  // ── EXECUTION NOTES & STATUS HISTORY ───────────────────────────────────────
+  // Modèles : ExecutionNote, TaskStatusHistory, LotStatusHistory, IncidentStatusHistory
+  'execution-note': ['create', 'read', 'update', 'delete', 'pin'],
 
   // ── DOCUMENTS ──────────────────────────────────────────────────────────────
   // Modèles : Document, DocumentVersion, Photo, DocumentExchange
@@ -95,11 +100,16 @@ export type PermissionCode = string;
 const ACTION_LABELS: Record<string, string> = {
   create:              'Créer',
   read:                'Voir',
+  'read:all':          'Voir tous',
+  'metadata:update':   'Modifier les métadonnées',
+  'team:update':       "Gérer l'équipe",
+  'phase:transition':  'Changer de phase',
   update:              'Modifier',
   delete:              'Supprimer',
   approve:             'Approuver',
   validate:            'Valider',
   manage:              'Gérer',
+  pin:                 'Épingler',
   'assign-role':       'Assigner un rôle',
   'assign-permission': 'Assigner une permission',
 };
@@ -115,6 +125,7 @@ const RESOURCE_LABELS: Record<string, string> = {
   task:              'tâche',
   supplier:          'fournisseur',
   tender:            "appel d'offres",
+  'situation-travaux':'situation de travaux',
   'purchase-order':  'bon de commande',
   delivery:          'livraison',
   inventory:         "article d'inventaire",
@@ -134,10 +145,11 @@ const RESOURCE_LABELS: Record<string, string> = {
   'control-report':  'rapport de contrôle',
   'work-acceptance': 'réception de travaux',
   'daily-log':       'journal de chantier',
-  inspection:        'inspection',
   incident:          'incident',
+  inspection:        'inspection',
   'punch-item':      'punch list',
   meeting:           'réunion',
+  'execution-note':  'note d\'exécution',
   document:          'document',
   workflow:          'workflow',
   'audit-log':       "journal d'audit",

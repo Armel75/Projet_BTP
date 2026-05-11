@@ -16,6 +16,7 @@ import { Button } from "../ui/button";
 import { Badge } from "../ui/badge";
 import { format } from "date-fns";
 import { fr } from "date-fns/locale";
+import { usePermissions } from "../../contexts/AuthContext";
 
 const API_BASE = import.meta.env.VITE_API_URL;
 
@@ -46,6 +47,13 @@ interface SituationTravaux {
   purchaseOrder?: { id: number; number?: string; title?: string };
   supplier?: { id: number; name?: string };
 }
+
+// ─── Reference lists ──────────────────────────────────────────────────────────
+
+interface ProjectRef   { id: number; code?: string; title?: string }
+interface ContractRef  { id: number; reference?: string; title?: string; project_id?: number }
+interface PORef        { id: number; number?: string; title?: string; project_id?: number }
+interface SupplierRef  { id: number; name?: string }
 
 interface SituationFormData {
   project_id: string;
@@ -118,6 +126,11 @@ function toInputDate(value?: string | null): string {
 }
 
 export default function SituationTravauxModule() {
+  const { can } = usePermissions();
+  const canRead = can("situation-travaux:read");
+  const canCreate = can("situation-travaux:create");
+  const canUpdate = can("situation-travaux:update");
+
   const [situations, setSituations] = useState<SituationTravaux[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -128,6 +141,12 @@ export default function SituationTravauxModule() {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState<SituationTravaux | null>(null);
   const [form, setForm] = useState<SituationFormData>(defaultForm);
+
+  // ─── Reference lists ──────────────────────────────────────────────────────
+  const [projectsList,   setProjectsList]   = useState<ProjectRef[]>([]);
+  const [contractsList,  setContractsList]  = useState<ContractRef[]>([]);
+  const [poList,         setPoList]         = useState<PORef[]>([]);
+  const [suppliersList,  setSuppliersList]  = useState<SupplierRef[]>([]);
 
   const fetchSituations = async () => {
     setLoading(true);
@@ -153,13 +172,47 @@ export default function SituationTravauxModule() {
     fetchSituations();
   }, [statusFilter]);
 
+  // Charger les listes de référence à l'ouverture du formulaire
+  useEffect(() => {
+    if (!dialogOpen) return;
+    apiFetch(`${API_BASE}/projects?limit=200`)
+      .then(r => r.json())
+      .then(d => setProjectsList(Array.isArray(d) ? d : Array.isArray(d?.data) ? d.data : []))
+      .catch(() => {});
+    apiFetch(`${API_BASE}/contracts`)
+      .then(r => r.json())
+      .then(d => setContractsList(Array.isArray(d) ? d : []))
+      .catch(() => {});
+    apiFetch(`${API_BASE}/procurement/purchase-orders`)
+      .then(r => r.json())
+      .then(d => setPoList(Array.isArray(d) ? d : []))
+      .catch(() => {});
+    apiFetch(`${API_BASE}/procurement/suppliers`)
+      .then(r => r.json())
+      .then(d => setSuppliersList(Array.isArray(d) ? d : []))
+      .catch(() => {});
+  }, [dialogOpen]);
+
+  // Contrats et BDC filtrés selon le projet sélectionné
+  const filteredContracts = useMemo(() => {
+    if (!form.project_id) return contractsList;
+    return contractsList.filter(c => c.project_id === Number(form.project_id));
+  }, [contractsList, form.project_id]);
+
+  const filteredPOs = useMemo(() => {
+    if (!form.project_id) return poList;
+    return poList.filter(po => po.project_id === Number(form.project_id));
+  }, [poList, form.project_id]);
+
   const openCreate = () => {
+    if (!canCreate) return;
     setEditing(null);
     setForm(defaultForm);
     setDialogOpen(true);
   };
 
   const openEdit = (item: SituationTravaux) => {
+    if (!canUpdate) return;
     setEditing(item);
     setForm({
       project_id: String(item.project_id ?? ""),
@@ -228,6 +281,9 @@ export default function SituationTravauxModule() {
   };
 
   const submitForm = async () => {
+    if (editing && !canUpdate) return;
+    if (!editing && !canCreate) return;
+
     setSaving(true);
     setError(null);
     try {
@@ -290,6 +346,14 @@ export default function SituationTravauxModule() {
     }
   };
 
+  if (!canRead) {
+    return (
+      <div className="rounded-xl border border-gb-border bg-gb-surface-solid p-6 text-sm text-gb-muted">
+        Vous n'avez pas la permission de consulter les situations de travaux.
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -338,9 +402,11 @@ export default function SituationTravauxModule() {
             <option value="PAID">Payee</option>
           </select>
 
-          <Button onClick={openCreate} className="h-11 px-6 rounded-xl font-bold">
-            <Plus size={18} className="mr-2" /> Nouvelle situation
-          </Button>
+          {canCreate && (
+            <Button onClick={openCreate} className="h-11 px-6 rounded-xl font-bold">
+              <Plus size={18} className="mr-2" /> Nouvelle situation
+            </Button>
+          )}
         </div>
       </div>
 
@@ -408,14 +474,16 @@ export default function SituationTravauxModule() {
                     <td className="p-4 text-center">{statusBadge(s.status)}</td>
                     <td className="p-4">
                       <div className="flex justify-end gap-2">
-                        <button
-                          type="button"
-                          onClick={() => openEdit(s)}
-                          className="w-9 h-9 rounded-lg bg-gb-app border border-gb-border text-gb-muted hover:text-gb-text flex items-center justify-center"
-                          title="Modifier"
-                        >
-                          <Edit size={16} />
-                        </button>
+                        {canUpdate && (
+                          <button
+                            type="button"
+                            onClick={() => openEdit(s)}
+                            className="w-9 h-9 rounded-lg bg-gb-app border border-gb-border text-gb-muted hover:text-gb-text flex items-center justify-center"
+                            title="Modifier"
+                          >
+                            <Edit size={16} />
+                          </button>
+                        )}
                         <button
                           type="button"
                           className="w-9 h-9 rounded-lg bg-gb-app border border-gb-border text-gb-muted group-hover:text-gb-text flex items-center justify-center"
@@ -455,39 +523,61 @@ export default function SituationTravauxModule() {
 
             <div className="p-6 grid grid-cols-1 md:grid-cols-3 gap-4">
               <label className="space-y-1">
-                <span className="text-xs font-bold text-gb-muted">Project ID *</span>
-                <input
+                <span className="text-xs font-bold text-gb-muted">Projet <span className="text-red-500">*</span></span>
+                <select
                   value={form.project_id}
-                  onChange={(e) => setForm((p) => ({ ...p, project_id: e.target.value }))}
-                  className="w-full h-10 px-3 rounded-xl bg-gb-app border border-gb-border"
-                />
+                  onChange={(e) => setForm((p) => ({ ...p, project_id: e.target.value, contract_id: "", purchase_order_id: "" }))}
+                  className="w-full h-10 px-3 rounded-xl bg-gb-app border border-gb-border text-gb-text text-sm"
+                >
+                  <option value="">Sélectionner un projet...</option>
+                  {projectsList.map(p => (
+                    <option key={p.id} value={p.id}>{p.code ? `${p.code} — ` : ""}{p.title || `Projet #${p.id}`}</option>
+                  ))}
+                </select>
               </label>
 
               <label className="space-y-1">
-                <span className="text-xs font-bold text-gb-muted">Contract ID</span>
-                <input
+                <span className="text-xs font-bold text-gb-muted">Contrat <span className="text-gb-muted/50 font-normal">(requis si pas de BDC)</span></span>
+                <select
                   value={form.contract_id}
                   onChange={(e) => setForm((p) => ({ ...p, contract_id: e.target.value }))}
-                  className="w-full h-10 px-3 rounded-xl bg-gb-app border border-gb-border"
-                />
+                  disabled={!form.project_id}
+                  className="w-full h-10 px-3 rounded-xl bg-gb-app border border-gb-border text-gb-text text-sm disabled:opacity-50"
+                >
+                  <option value="">— Aucun contrat —</option>
+                  {filteredContracts.map(c => (
+                    <option key={c.id} value={c.id}>{c.reference || `Contrat #${c.id}`}{c.title ? ` — ${c.title}` : ""}</option>
+                  ))}
+                </select>
               </label>
 
               <label className="space-y-1">
-                <span className="text-xs font-bold text-gb-muted">Purchase Order ID</span>
-                <input
+                <span className="text-xs font-bold text-gb-muted">Bon de commande <span className="text-gb-muted/50 font-normal">(requis si pas de contrat)</span></span>
+                <select
                   value={form.purchase_order_id}
                   onChange={(e) => setForm((p) => ({ ...p, purchase_order_id: e.target.value }))}
-                  className="w-full h-10 px-3 rounded-xl bg-gb-app border border-gb-border"
-                />
+                  disabled={!form.project_id}
+                  className="w-full h-10 px-3 rounded-xl bg-gb-app border border-gb-border text-gb-text text-sm disabled:opacity-50"
+                >
+                  <option value="">— Aucun bon de commande —</option>
+                  {filteredPOs.map(po => (
+                    <option key={po.id} value={po.id}>{po.number || `BDC #${po.id}`}{po.title ? ` — ${po.title}` : ""}</option>
+                  ))}
+                </select>
               </label>
 
               <label className="space-y-1">
-                <span className="text-xs font-bold text-gb-muted">Supplier ID</span>
-                <input
+                <span className="text-xs font-bold text-gb-muted">Fournisseur</span>
+                <select
                   value={form.supplier_id}
                   onChange={(e) => setForm((p) => ({ ...p, supplier_id: e.target.value }))}
-                  className="w-full h-10 px-3 rounded-xl bg-gb-app border border-gb-border"
-                />
+                  className="w-full h-10 px-3 rounded-xl bg-gb-app border border-gb-border text-gb-text text-sm"
+                >
+                  <option value="">— Aucun fournisseur —</option>
+                  {suppliersList.map(s => (
+                    <option key={s.id} value={s.id}>{s.name || `Fournisseur #${s.id}`}</option>
+                  ))}
+                </select>
               </label>
 
               <label className="space-y-1 md:col-span-2">

@@ -28,10 +28,20 @@ const STATUS_VARIANT: Record<string, "default" | "secondary" | "outline"> = {
 // ─── ProjectsView ──────────────────────────────────────────────────────────────
 
 export default function ProjectsView() {
-  const { can } = usePermissions();
+  const { can, canAny } = usePermissions();
+  const canEditProjectMetadata = can("project:metadata:update");
 
   const [projects,    setProjects]    = useState<any[]>([]);
-  const [pagination,  setPagination]  = useState({ page: 1, limit: 20, total: 0, pages: 1 });
+  const [pagination,  setPagination]  = useState({
+    page: 1,
+    limit: 20,
+    total: 0,
+    pages: 1,
+    hasNext: false,
+    hasPrev: false,
+    nextCursor: null as string | null,
+    prevCursor: null as string | null,
+  });
   const [loading,     setLoading]     = useState(true);
   const [error,       setError]       = useState<string | null>(null);
   const [dialogOpen,  setDialogOpen]  = useState(false);
@@ -89,15 +99,52 @@ export default function ProjectsView() {
 
   // ── Fetch ────────────────────────────────────────────────────────────────────
 
-  const fetchProjects = useCallback(async (page = 1) => {
+  const fetchProjects = useCallback(async (opts?: { after?: string; before?: string; direction?: "next" | "prev"; reset?: boolean }) => {
     setLoading(true);
     setError(null);
     try {
-      const res = await apiFetch(`${API_BASE}/projects?page=${page}&limit=${pagination.limit}`);
+      const params = new URLSearchParams({ limit: String(pagination.limit) });
+      if (opts?.after) params.set("after", opts.after);
+      if (opts?.before) params.set("before", opts.before);
+      const res = await apiFetch(`${API_BASE}/projects?${params.toString()}`);
       if (!res.ok) throw new Error((await res.json()).error || "Erreur de récupération");
       const json = await res.json();
       setProjects(json.data ?? json);
-      if (json.pagination) setPagination(json.pagination);
+      if (json.pagination) {
+        if (json.pagination.mode === "cursor") {
+          setPagination(prev => {
+            const nextPage = opts?.reset
+              ? 1
+              : opts?.direction === "next"
+                ? prev.page + 1
+                : opts?.direction === "prev"
+                  ? Math.max(1, prev.page - 1)
+                  : 1;
+            return {
+              page: nextPage,
+              limit: json.pagination.limit ?? prev.limit,
+              total: json.pagination.total ?? prev.total,
+              pages: json.pagination.pages ?? prev.pages,
+              hasNext: Boolean(json.pagination.hasNext),
+              hasPrev: Boolean(json.pagination.hasPrev),
+              nextCursor: json.pagination.nextCursor ?? null,
+              prevCursor: json.pagination.prevCursor ?? null,
+            };
+          });
+        } else {
+          setPagination(prev => ({
+            ...prev,
+            page: json.pagination.page ?? 1,
+            limit: json.pagination.limit ?? prev.limit,
+            total: json.pagination.total ?? 0,
+            pages: json.pagination.pages ?? 1,
+            hasNext: (json.pagination.page ?? 1) < (json.pagination.pages ?? 1),
+            hasPrev: (json.pagination.page ?? 1) > 1,
+            nextCursor: null,
+            prevCursor: null,
+          }));
+        }
+      }
     } catch (err: any) {
       setError(err.message);
     } finally {
@@ -108,11 +155,11 @@ export default function ProjectsView() {
   /**
    * Applique les filtres et récupère les résultats filtrés
    */
-  const handleApplyFilters = useCallback(async (payload: QueryPayload) => {
+  const handleApplyFilters = useCallback(async (payload: QueryPayload, page = 1) => {
     setLoading(true);
     setError(null);
     try {
-      const res = await apiFetch(`${API_BASE}/projects/query`, {
+      const res = await apiFetch(`${API_BASE}/projects/query?page=${page}&limit=${pagination.limit}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
@@ -126,9 +173,13 @@ export default function ProjectsView() {
       setAppliedPayload(payload);
       setPagination({
         page: json.page ?? 1,
-        limit: json.limit ?? 20,
+        limit: json.limit ?? pagination.limit,
         total: json.total ?? 0,
         pages: Math.ceil((json.total ?? 0) / (json.limit ?? 20)),
+        hasNext: (json.page ?? 1) < Math.ceil((json.total ?? 0) / (json.limit ?? 20)),
+        hasPrev: (json.page ?? 1) > 1,
+        nextCursor: null,
+        prevCursor: null,
       });
       setFilterOpen(false); // Fermer le panel après application
     } catch (err: any) {
@@ -136,18 +187,36 @@ export default function ProjectsView() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [pagination.limit]);
 
   /**
    * Réinitialise les filtres
    */
   const handleResetFilters = useCallback(() => {
     setAppliedPayload(null);
-    setPagination({ page: 1, limit: 20, total: 0, pages: 1 });
-    fetchProjects(1);
+    setPagination(prev => ({ ...prev, page: 1, total: 0, pages: 1, hasNext: false, hasPrev: false, nextCursor: null, prevCursor: null }));
+    fetchProjects({ reset: true });
   }, [fetchProjects]);
 
-  useEffect(() => { fetchProjects(); }, []);
+  useEffect(() => { fetchProjects({ reset: true }); }, []);
+
+  const handleNextPage = () => {
+    if (appliedPayload) {
+      handleApplyFilters(appliedPayload, pagination.page + 1);
+      return;
+    }
+    if (!pagination.nextCursor) return;
+    fetchProjects({ after: pagination.nextCursor, direction: "next" });
+  };
+
+  const handlePrevPage = () => {
+    if (appliedPayload) {
+      handleApplyFilters(appliedPayload, pagination.page - 1);
+      return;
+    }
+    if (!pagination.prevCursor) return;
+    fetchProjects({ before: pagination.prevCursor, direction: "prev" });
+  };
 
   const openCreateDialog = () => {
     setEditingProject(null);
@@ -163,7 +232,36 @@ export default function ProjectsView() {
   // ── Render : Project Detail ──────────────────────────────────────────────────
 
   if (selectedId !== null) {
-    return <ProjectDetail projectId={selectedId} onBack={() => setSelectedId(null)} />;
+    return (
+      <>
+        <ProjectDetail
+          projectId={selectedId}
+          onBack={() => setSelectedId(null)}
+          onEdit={(proj) => {
+            setEditingProject(proj);
+            setDialogOpen(true);
+          }}
+        />
+
+        <CreateProjectDialog
+          open={dialogOpen}
+          project={editingProject}
+          onClose={() => {
+            setDialogOpen(false);
+            setEditingProject(null);
+          }}
+          onSaved={() => {
+            setDialogOpen(false);
+            setEditingProject(null);
+            if (appliedPayload) {
+              handleApplyFilters(appliedPayload);
+            } else {
+              fetchProjects({ reset: true });
+            }
+          }}
+        />
+      </>
+    );
   }
 
   // ── Render : Loading ─────────────────────────────────────────────────────────
@@ -325,7 +423,7 @@ export default function ProjectsView() {
                 )}
               </div>
 
-              {can("project:update") && (
+              {canEditProjectMetadata && (
                 <div className="flex items-center justify-between gap-3">
                   <p className="text-[11px] text-gb-muted">
                     {(prj._count?.tasks ?? 0) > 0
@@ -371,14 +469,14 @@ export default function ProjectsView() {
           <span>{pagination.total} projet{pagination.total > 1 ? "s" : ""}</span>
           <div className="flex gap-2 items-center">
             <button
-              disabled={pagination.page <= 1}
-              onClick={() => fetchProjects(pagination.page - 1)}
+              disabled={!pagination.hasPrev}
+              onClick={handlePrevPage}
               className="px-4 py-2.5 min-h-[44px] rounded border border-gb-border disabled:opacity-40 hover:bg-gb-surface-hover transition-colors text-sm font-medium"
             >Précédent</button>
             <span className="px-3 text-xs">Page {pagination.page} / {pagination.pages}</span>
             <button
-              disabled={pagination.page >= pagination.pages}
-              onClick={() => fetchProjects(pagination.page + 1)}
+              disabled={!pagination.hasNext}
+              onClick={handleNextPage}
               className="px-4 py-2.5 min-h-[44px] rounded border border-gb-border disabled:opacity-40 hover:bg-gb-surface-hover transition-colors text-sm font-medium"
             >Suivant</button>
           </div>
@@ -400,7 +498,7 @@ export default function ProjectsView() {
             // Réappliquer les filtres si des filtres sont actifs
             handleApplyFilters(appliedPayload);
           } else {
-            fetchProjects(pagination.page);
+            fetchProjects({ reset: true });
           }
         }}
       />

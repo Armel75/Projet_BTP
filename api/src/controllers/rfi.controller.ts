@@ -1,6 +1,19 @@
 import { Request, Response } from 'express';
 import { RFIService } from '../services/rfi.service.js';
+import { RbacService } from '../services/rbac.service.js';
 import { AuthRequest } from '../middlewares/auth.middleware.js';
+
+async function canReadAllRFIs(req: Request): Promise<boolean> {
+  const user = (req as AuthRequest).user;
+  if (!user?.id) return false;
+
+  if (Array.isArray(user.permissions) && user.permissions.includes('rfi:read:all')) {
+    return true;
+  }
+
+  const permissions = await RbacService.getUserPermissions(user.id);
+  return permissions.includes('rfi:read:all');
+}
 
 export class RFIController {
 
@@ -21,12 +34,19 @@ export class RFIController {
   // GET /rfis
   static async list(req: Request, res: Response) {
     try {
+      const user = (req as AuthRequest).user;
+      if (!user?.id) {
+        return res.status(401).json({ error: 'Unauthorized' });
+      }
+
+      const hasReadAll = await canReadAllRFIs(req);
       const filters: any = {};
       if (req.query.project_id) filters.project_id = Number(req.query.project_id);
       if (req.query.lot_id)     filters.lot_id     = Number(req.query.lot_id);
       if (req.query.status)     filters.status     = req.query.status as string;
       if (req.query.priority)   filters.priority   = req.query.priority as string;
       if (req.query.category)   filters.category   = req.query.category as string;
+      if (!hasReadAll)          filters.submitted_by = user.id;
 
       const rfis = await RFIService.listRFIs(filters);
       res.json(rfis);
@@ -38,7 +58,16 @@ export class RFIController {
   // GET /rfis/:id
   static async getById(req: Request, res: Response) {
     try {
-      const rfi = await RFIService.getRFIById(Number(req.params.id));
+      const user = (req as AuthRequest).user;
+      if (!user?.id) {
+        return res.status(401).json({ error: 'Unauthorized' });
+      }
+
+      const hasReadAll = await canReadAllRFIs(req);
+      const rfi = await RFIService.getRFIByIdForTenantScoped(
+        Number(req.params.id),
+        hasReadAll ? undefined : user.id
+      );
       if (!rfi) return res.status(404).json({ error: 'RFI not found' });
       res.json(rfi);
     } catch (err: any) {

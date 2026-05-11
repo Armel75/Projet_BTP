@@ -47,7 +47,11 @@ export class SeedController {
         roleMap[r.code] = role.id;
 
         // Bind permissions to role (idempotent)
-        for (const permCode of r.permissions) {
+        const targetPermCodes = r.permissions === 'ALL'
+          ? PERMISSION_CATALOG.map((p) => p.code)
+          : r.permissions;
+
+        for (const permCode of targetPermCodes) {
           const permId = permissionMap[permCode];
           if (!permId) continue;
           await prisma.rolePermission.upsert({
@@ -225,19 +229,22 @@ export class SeedController {
           password_hash: seedPasswordHash,
         },
       });
-      await assignRole(ctUser.id, "CONDUCTEUR_TRAVAUX");
+      await assignRole(ctUser.id, "CHEF_CHANTIER");
 
       res.json({
         status: "seeded",
         permissions_created: PERMISSION_CATALOG.length,
-        roles_created: ROLE_CATALOG.map(r => ({ code: r.code, permissions: r.permissions.length })),
+        roles_created: ROLE_CATALOG.map(r => ({
+          code: r.code,
+          permissions: r.permissions === 'ALL' ? PERMISSION_CATALOG.length : r.permissions.length,
+        })),
         credentials: [
           { email: "admin@btp.erp",        password: seedPassword, role: "GESTIONNAIRE_SYSTEME" },
           { email: "dg@btp.erp",           password: seedPassword, role: "DG" },
           { email: "sg@btp.erp",           password: seedPassword, role: "SG" },
           { email: "directeur@btp.erp",    password: seedPassword, role: "DIRECTEUR" },
           { email: cpEmail,                password: seedPassword, role: "CHEF_PROJET" },
-          { email: "conducteur@btp.erp",   password: seedPassword, role: "CONDUCTEUR_TRAVAUX" },
+          { email: "conducteur@btp.erp",   password: seedPassword, role: "CHEF_CHANTIER" },
         ],
       });
     } catch (error) {

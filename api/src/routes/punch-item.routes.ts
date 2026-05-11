@@ -1,15 +1,15 @@
 import { Router } from 'express';
 import { PunchItemController } from '../controllers/punch-item.controller.js';
-import { authenticateToken } from '../middlewares/auth.middleware.js';
+import { authenticateToken, requireAnyPermission, requirePermission } from '../middlewares/auth.middleware.js';
 
 const router = Router();
 
 router.use(authenticateToken);
 
-router.post('/', PunchItemController.create);
-router.get('/', PunchItemController.list);
-router.get('/:id', PunchItemController.getById);
-router.put('/:id', PunchItemController.update);
-router.delete('/:id', PunchItemController.delete);
+router.post('/', requirePermission('punch-item:create'), PunchItemController.create);
+router.get('/', requireAnyPermission('punch-item:read', 'punch-item:read:all'), PunchItemController.list);
+router.get('/:id', requireAnyPermission('punch-item:read', 'punch-item:read:all'), PunchItemController.getById);
+router.put('/:id', requirePermission('punch-item:update'), PunchItemController.update);
+router.delete('/:id', requirePermission('punch-item:delete'), PunchItemController.delete);
 
 export default router;

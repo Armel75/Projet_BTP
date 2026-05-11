@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { BrowserRouter as Router, Routes, Route, Link, useLocation } from "react-router-dom";
-import { LayoutDashboard, FolderKanban, CheckSquare, Settings, Bell, Search, ShieldCheck, Users, ShoppingCart, ClipboardList, Banknote, LogOut, ShieldAlert, ClipboardCheck, ListTodo, ClipboardSignature, FolderOpen, CalendarDays, HelpCircle, BookCheck } from "lucide-react";
+import { LayoutDashboard, FolderKanban, CheckSquare, Settings, Bell, Search, ShieldCheck, Users, ShoppingCart, ClipboardList, Banknote, LogOut, ShieldAlert, ClipboardCheck, ListTodo, ClipboardSignature, FolderOpen, CalendarDays, HelpCircle, BookCheck, StickyNote } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "./components/ui/avatar";
 import DashboardView from "./views/DashboardView";
 import ProjectsView from "./views/ProjectsView";
@@ -15,6 +15,7 @@ import ResourcesView from "./views/ResourcesView";
 import ReportingView from "./views/ReportingView";
 import FinancialsView from "./views/FinancialsView";
 import IncidentsView from "./views/IncidentsView";
+import ExecutionNotesView from "./views/ExecutionNotesView";
 import InspectionsView from "./views/InspectionsView";
 import PunchListView from "./views/PunchListView";
 import WorkAcceptanceView from "./views/WorkAcceptanceView";
@@ -24,34 +25,47 @@ import RFIsView from "./views/RFIsView";
 import ControlReportsView from "./views/ControlReportsView";
 import { ThemeProvider } from "./components/ThemeProvider";
 import { ThemeToggle } from "./components/ThemeToggle";
-import { AuthProvider, useAuth } from "./contexts/AuthContext";
+import { AuthProvider, useAuth, usePermissions } from "./contexts/AuthContext";
 import { ProtectedRoute } from "./components/ProtectedRoute";
+import { NAV_PERMISSION_GROUPS } from "./constants/navigationPermissions";
 import LoginView from "./views/LoginView";
 import RegisterView from "./views/RegisterView";
 import ResetPasswordView from "./views/ResetPasswordView";
 
-const MAIN_LINKS = [
-  { path: "/", icon: <LayoutDashboard size={20} />, label: "Dashboard" },
-  { path: "/projects", icon: <FolderKanban size={20} />, label: "Projets" },
-  { path: "/workflow", icon: <ShieldCheck size={20} />, label: "Validation" },
-  { path: "/resources", icon: <Users size={20} />, label: "Ressources" },
-  { path: "/procurement", icon: <ShoppingCart size={20} />, label: "Achats" },
-  { path: "/tasks", icon: <CheckSquare size={20} />, label: "Chantier" },
-  { path: "/reporting", icon: <ClipboardList size={20} />, label: "Reporting" },
-  { path: "/incidents",    icon: <ShieldAlert size={20} />,    label: "Incidents" },
-  { path: "/inspections",  icon: <ClipboardCheck size={20} />, label: "Inspections" },
-  { path: "/punch-list",   icon: <ListTodo size={20} />,           label: "Levée des réserves" },
-  { path: "/receptions",   icon: <ClipboardSignature size={20} />, label: "Réceptions" },
-  { path: "/finance",      icon: <Banknote size={20} />,           label: "Finance" },
-  { path: "/documents",  icon: <FolderOpen size={20} />,   label: "Documents" },
-  { path: "/meetings",   icon: <CalendarDays size={20} />, label: "Réunions" },
-  { path: "/rfi",        icon: <HelpCircle size={20} />,   label: "RFI" },
-  { path: "/control-reports", icon: <BookCheck size={20} />, label: "Contrôle" },
+type MainLink = {
+  path: string;
+  icon: React.ReactNode;
+  label: string;
+  permissionAny: readonly string[];
+};
+
+const MAIN_LINKS: MainLink[] = [
+  { path: "/", icon: <LayoutDashboard size={20} />, label: "Dashboard", permissionAny: NAV_PERMISSION_GROUPS.dashboard },
+  { path: "/projects", icon: <FolderKanban size={20} />, label: "Projets", permissionAny: NAV_PERMISSION_GROUPS.projects },
+  { path: "/workflow", icon: <ShieldCheck size={20} />, label: "Validation", permissionAny: NAV_PERMISSION_GROUPS.workflow },
+  { path: "/resources", icon: <Users size={20} />, label: "Ressources", permissionAny: NAV_PERMISSION_GROUPS.resources },
+  { path: "/procurement", icon: <ShoppingCart size={20} />, label: "Achats", permissionAny: NAV_PERMISSION_GROUPS.procurement },
+  { path: "/tasks", icon: <CheckSquare size={20} />, label: "Chantier", permissionAny: NAV_PERMISSION_GROUPS.tasks },
+  { path: "/reporting", icon: <ClipboardList size={20} />, label: "Reporting", permissionAny: NAV_PERMISSION_GROUPS.reporting },
+  { path: "/incidents", icon: <ShieldAlert size={20} />, label: "Incidents", permissionAny: NAV_PERMISSION_GROUPS.incidents },
+  { path: "/execution-notes", icon: <StickyNote size={20} />, label: "Notes", permissionAny: NAV_PERMISSION_GROUPS.executionNotes },
+  { path: "/inspections", icon: <ClipboardCheck size={20} />, label: "Inspections", permissionAny: NAV_PERMISSION_GROUPS.inspections },
+  { path: "/punch-list", icon: <ListTodo size={20} />, label: "Levée des réserves", permissionAny: NAV_PERMISSION_GROUPS.punchList },
+  { path: "/receptions", icon: <ClipboardSignature size={20} />, label: "Réceptions", permissionAny: NAV_PERMISSION_GROUPS.receptions },
+  { path: "/finance", icon: <Banknote size={20} />, label: "Finance", permissionAny: NAV_PERMISSION_GROUPS.finance },
+  { path: "/documents", icon: <FolderOpen size={20} />, label: "Documents", permissionAny: NAV_PERMISSION_GROUPS.documents },
+  { path: "/meetings", icon: <CalendarDays size={20} />, label: "Réunions", permissionAny: NAV_PERMISSION_GROUPS.meetings },
+  { path: "/rfi", icon: <HelpCircle size={20} />, label: "RFI", permissionAny: NAV_PERMISSION_GROUPS.rfi },
+  { path: "/control-reports", icon: <BookCheck size={20} />, label: "Contrôle", permissionAny: NAV_PERMISSION_GROUPS.controlReports },
 ];
 
 function Sidebar() {
   const location = useLocation();
   const currentPath = location.pathname;
+  const { canAny } = usePermissions();
+
+  const visibleLinks = MAIN_LINKS.filter((link) => canAny(...link.permissionAny));
+  const canOpenSettings = canAny(...NAV_PERMISSION_GROUPS.settings);
 
   return (
     <aside className="hidden md:flex w-16 bg-gb-surface-solid border-r border-gb-border flex-col items-center py-6 shrink-0 z-20 transition-colors duration-300">
@@ -59,7 +73,7 @@ function Sidebar() {
         B
       </div>
       <nav className="flex-1 w-full px-2 flex flex-col items-center overflow-y-auto no-scrollbar min-h-0">
-        {MAIN_LINKS.map((link) => {
+        {visibleLinks.map((link) => {
           const isActive = currentPath === link.path;
           return (
             <Link
@@ -74,15 +88,17 @@ function Sidebar() {
         })}
       </nav>
 
-      <div className="mt-auto px-2">
-        <Link
-          to="/settings"
-          title="Administration"
-          className={`sidebar-icon ${currentPath === "/settings" ? "bg-gb-primary/20 text-gb-primary" : "text-gb-muted"}`}
-        >
-          <Settings size={20} />
-        </Link>
-      </div>
+      {canOpenSettings && (
+        <div className="mt-auto px-2">
+          <Link
+            to="/settings"
+            title="Administration"
+            className={`sidebar-icon ${currentPath === "/settings" ? "bg-gb-primary/20 text-gb-primary" : "text-gb-muted"}`}
+          >
+            <Settings size={20} />
+          </Link>
+        </div>
+      )}
     </aside>
   );
 }
@@ -90,11 +106,15 @@ function Sidebar() {
 function BottomNav() {
   const location = useLocation();
   const currentPath = location.pathname;
+  const { canAny } = usePermissions();
+
+  const visibleLinks = MAIN_LINKS.filter((link) => canAny(...link.permissionAny));
+  const canOpenSettings = canAny(...NAV_PERMISSION_GROUPS.settings);
 
   return (
     <nav className="md:hidden fixed bottom-0 left-0 right-0 h-16 bg-gb-surface-solid border-t border-gb-border z-50 flex items-center overflow-x-auto no-scrollbar px-2 pb-[env(safe-area-inset-bottom)] transition-colors duration-300">
       <div className="flex items-center min-w-max h-full">
-        {MAIN_LINKS.map((link) => {
+        {visibleLinks.map((link) => {
           const isActive = currentPath === link.path;
           return (
             <Link
@@ -113,19 +133,21 @@ function BottomNav() {
             </Link>
           );
         })}
-        <Link
-          to="/settings"
-          className={`flex flex-col items-center justify-center min-w-[72px] px-2 h-full space-y-1 ${
-            currentPath === "/settings" ? "text-gb-primary" : "text-gb-muted"
-          }`}
-        >
-          <div className={`${currentPath === "/settings" ? "bg-gb-primary/10 p-1.5 rounded-lg" : ""}`}>
-            <Settings size={20} />
-          </div>
-          <span className={`text-[9px] font-bold uppercase tracking-tighter truncate w-full text-center px-1 ${currentPath === "/settings" ? "text-gb-primary" : "text-gb-muted"}`}>
-            Admin
-          </span>
-        </Link>
+        {canOpenSettings && (
+          <Link
+            to="/settings"
+            className={`flex flex-col items-center justify-center min-w-[72px] px-2 h-full space-y-1 ${
+              currentPath === "/settings" ? "text-gb-primary" : "text-gb-muted"
+            }`}
+          >
+            <div className={`${currentPath === "/settings" ? "bg-gb-primary/10 p-1.5 rounded-lg" : ""}`}>
+              <Settings size={20} />
+            </div>
+            <span className={`text-[9px] font-bold uppercase tracking-tighter truncate w-full text-center px-1 ${currentPath === "/settings" ? "text-gb-primary" : "text-gb-muted"}`}>
+              Admin
+            </span>
+          </Link>
+        )}
       </div>
     </nav>
   );
@@ -197,26 +219,27 @@ function MainLayout() {
         <Header />
         <main className="flex-1 p-4 sm:p-6 overflow-auto">
           <Routes>
-            <Route path="/" element={<ProtectedRoute><DashboardView /></ProtectedRoute>} />
-            <Route path="/projects" element={<ProtectedRoute><ProjectsView /></ProtectedRoute>} />
-            <Route path="/workflow" element={<ProtectedRoute><WorkflowView /></ProtectedRoute>} />
-            <Route path="/resources" element={<ProtectedRoute><ResourcesView /></ProtectedRoute>} />
-            <Route path="/procurement" element={<ProtectedRoute><ProcurementView /></ProtectedRoute>} />
-            <Route path="/tasks" element={<ProtectedRoute><TasksView /></ProtectedRoute>} />
-            <Route path="/reporting" element={<ProtectedRoute><ReportingView /></ProtectedRoute>} />
-            <Route path="/incidents" element={<ProtectedRoute><IncidentsView /></ProtectedRoute>} />
-            <Route path="/inspections" element={<ProtectedRoute><InspectionsView /></ProtectedRoute>} />
-            <Route path="/punch-list" element={<ProtectedRoute><PunchListView /></ProtectedRoute>} />
-            <Route path="/receptions" element={<ProtectedRoute><WorkAcceptanceView /></ProtectedRoute>} />
-            <Route path="/finance" element={<ProtectedRoute><FinancialsView /></ProtectedRoute>} />
-            <Route path="/documents" element={<ProtectedRoute><DocumentsView /></ProtectedRoute>} />
-            <Route path="/meetings"  element={<ProtectedRoute><MeetingsView /></ProtectedRoute>} />
-            <Route path="/rfi"       element={<ProtectedRoute><RFIsView /></ProtectedRoute>} />
-                        <Route path="/control-reports" element={<ProtectedRoute><ControlReportsView /></ProtectedRoute>} />
-            <Route path="/settings" element={<ProtectedRoute><SettingsView /></ProtectedRoute>} />
-            <Route path="/settings/rbac" element={<ProtectedRoute><RbacAdminView /></ProtectedRoute>} />
-            <Route path="/settings/tenants" element={<ProtectedRoute><TenantAdminView /></ProtectedRoute>} />
-            <Route path="/settings/resource-types" element={<ProtectedRoute><ResourceTypesAdminView /></ProtectedRoute>} />
+            <Route path="/" element={<ProtectedRoute requireAnyPermission={[...NAV_PERMISSION_GROUPS.dashboard]}><DashboardView /></ProtectedRoute>} />
+            <Route path="/projects" element={<ProtectedRoute requireAnyPermission={["project:read", "project:read:all"]}><ProjectsView /></ProtectedRoute>} />
+            <Route path="/workflow" element={<ProtectedRoute requireAnyPermission={[...NAV_PERMISSION_GROUPS.workflow]}><WorkflowView /></ProtectedRoute>} />
+            <Route path="/resources" element={<ProtectedRoute requirePermission="resource:read"><ResourcesView /></ProtectedRoute>} />
+            <Route path="/procurement" element={<ProtectedRoute requireAnyPermission={[...NAV_PERMISSION_GROUPS.procurement]}><ProcurementView /></ProtectedRoute>} />
+            <Route path="/tasks" element={<ProtectedRoute requirePermission="task:read"><TasksView /></ProtectedRoute>} />
+            <Route path="/reporting" element={<ProtectedRoute requireAnyPermission={[...NAV_PERMISSION_GROUPS.reporting]}><ReportingView /></ProtectedRoute>} />
+            <Route path="/incidents" element={<ProtectedRoute requireAnyPermission={["incident:read", "incident:read:all"]}><IncidentsView /></ProtectedRoute>} />
+            <Route path="/execution-notes" element={<ProtectedRoute requirePermission="execution-note:read"><ExecutionNotesView /></ProtectedRoute>} />
+            <Route path="/inspections" element={<ProtectedRoute requireAnyPermission={["inspection:read", "inspection:read:all"]}><InspectionsView /></ProtectedRoute>} />
+            <Route path="/punch-list" element={<ProtectedRoute requireAnyPermission={["punch-item:read", "punch-item:read:all"]}><PunchListView /></ProtectedRoute>} />
+            <Route path="/receptions" element={<ProtectedRoute requirePermission="work-acceptance:read"><WorkAcceptanceView /></ProtectedRoute>} />
+            <Route path="/finance" element={<ProtectedRoute requireAnyPermission={[...NAV_PERMISSION_GROUPS.finance]}><FinancialsView /></ProtectedRoute>} />
+            <Route path="/documents" element={<ProtectedRoute requirePermission="document:read"><DocumentsView /></ProtectedRoute>} />
+            <Route path="/meetings"  element={<ProtectedRoute requireAnyPermission={["meeting:read", "meeting:read:all"]}><MeetingsView /></ProtectedRoute>} />
+            <Route path="/rfi"       element={<ProtectedRoute requireAnyPermission={["rfi:read", "rfi:read:all"]}><RFIsView /></ProtectedRoute>} />
+            <Route path="/control-reports" element={<ProtectedRoute requireAnyPermission={["control-report:read", "control-report:read:all"]}><ControlReportsView /></ProtectedRoute>} />
+            <Route path="/settings" element={<ProtectedRoute requireAnyPermission={[...NAV_PERMISSION_GROUPS.settings]}><SettingsView /></ProtectedRoute>} />
+            <Route path="/settings/rbac" element={<ProtectedRoute requireAnyPermission={["user:read", "role:read", "permission:read"]}><RbacAdminView /></ProtectedRoute>} />
+            <Route path="/settings/tenants" element={<ProtectedRoute requirePermission="tenant:read"><TenantAdminView /></ProtectedRoute>} />
+            <Route path="/settings/resource-types" element={<ProtectedRoute requirePermission="resource:read"><ResourceTypesAdminView /></ProtectedRoute>} />
             <Route path="*" element={<div className="text-gb-muted text-center mt-10">En cours de développement...</div>} />
           </Routes>
         </main>

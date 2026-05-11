@@ -2,8 +2,28 @@ import { Request, Response } from 'express';
 import path from 'node:path';
 import { readFile } from 'node:fs/promises';
 import { MeetingService } from '../services/meeting.service.js';
+import { RbacService } from '../services/rbac.service.js';
 import { AuthRequest } from '../middlewares/auth.middleware.js';
 import { TenantContext } from '../config/tenant-context.js';
+
+function fmtDate(d?: string | Date | null): string {
+  if (!d) return '—';
+  const dt = new Date(d);
+  if (Number.isNaN(dt.getTime())) return '—';
+  return dt.toLocaleDateString('fr-FR');
+}
+
+async function canReadAllMeetings(req: Request): Promise<boolean> {
+  const user = (req as AuthRequest).user;
+  if (!user?.id) return false;
+
+  if (Array.isArray(user.permissions) && user.permissions.includes('meeting:read:all')) {
+    return true;
+  }
+
+  const permissions = await RbacService.getUserPermissions(user.id);
+  return permissions.includes('meeting:read:all');
+}
 
 type PdfPageLike = {
   setContent: (html: string, opts?: Record<string, unknown>) => Promise<void>;
@@ -77,13 +97,6 @@ function esc(v?: string | null): string {
 
 function nl2br(v?: string | null): string {
   return esc(v).replace(/\n/g, '<br/>');
-}
-
-function fmtDate(d?: string | Date | null): string {
-  if (!d) return '—';
-  const dt = new Date(d);
-  if (Number.isNaN(dt.getTime())) return '—';
-  return dt.toLocaleDateString('fr-FR');
 }
 
 function fmtDateTime(d?: string | Date | null): string {
@@ -300,11 +313,18 @@ export class MeetingController {
   // GET /meetings
   static async list(req: Request, res: Response) {
     try {
+      const user = (req as AuthRequest).user;
+      if (!user?.id) {
+        return res.status(401).json({ error: 'Unauthorized' });
+      }
+
+      const hasReadAll = await canReadAllMeetings(req);
       const filters: any = {};
       if (req.query.project_id) filters.project_id = Number(req.query.project_id);
       if (req.query.lot_id)     filters.lot_id     = Number(req.query.lot_id);
       if (req.query.type)       filters.type       = req.query.type as string;
       if (req.query.status)     filters.status     = req.query.status as string;
+      if (!hasReadAll)          filters.created_by = user.id;
 
       const meetings = await MeetingService.listMeetings(filters);
       res.json(meetings);
@@ -316,7 +336,16 @@ export class MeetingController {
   // GET /meetings/:id
   static async getById(req: Request, res: Response) {
     try {
-      const meeting = await MeetingService.getMeetingById(Number(req.params.id));
+      const user = (req as AuthRequest).user;
+      if (!user?.id) {
+        return res.status(401).json({ error: 'Unauthorized' });
+      }
+
+      const hasReadAll = await canReadAllMeetings(req);
+      const meeting = await MeetingService.getMeetingByIdForTenantScoped(
+        Number(req.params.id),
+        hasReadAll ? undefined : user.id
+      );
       if (!meeting) return res.status(404).json({ error: 'Meeting not found' });
       res.json(meeting);
     } catch (err: any) {

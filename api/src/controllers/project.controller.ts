@@ -1,7 +1,8 @@
 import { Response } from "express";
 import { AuthRequest } from "../middlewares/auth.middleware.js";
 import { ProjectManagementService } from "../services/project-management.service.js";
-import { buildProjectWhere, getProjectAccessFilter } from "../utils/projectFilterUtils.js";
+import { buildProjectWhere, buildProjectScopeWhere, getProjectAccessFilter } from "../utils/projectFilterUtils.js";
+import { RbacService } from "../services/rbac.service.js";
 import { prisma } from "../config/prisma.js";
 
 type PdfPageLike = {
@@ -292,9 +293,33 @@ export class ProjectController {
   static async listProjects(req: AuthRequest, res: Response): Promise<void> {
     try {
       const tenant_id = req.user?.tenant_id;
+      const userId    = req.user?.id;
       const page  = Math.max(1, parseInt(String(req.query.page  ?? 1), 10));
       const limit = Math.min(100, Math.max(1, parseInt(String(req.query.limit ?? 20), 10)));
-      const result = await ProjectManagementService.listProjects(tenant_id, page, limit);
+      const afterRaw  = req.query.after;
+      const beforeRaw = req.query.before;
+      const after = typeof afterRaw === 'string' && /^\d+$/.test(afterRaw)
+        ? parseInt(afterRaw, 10)
+        : undefined;
+      const before = typeof beforeRaw === 'string' && /^\d+$/.test(beforeRaw)
+        ? parseInt(beforeRaw, 10)
+        : undefined;
+
+      if (after !== undefined && before !== undefined) {
+        res.status(400).json({ error: 'Paramètres incompatibles: utilisez soit after, soit before.' });
+        return;
+      }
+
+      const permissions = await RbacService.getUserPermissions(userId);
+      const canReadAll  = permissions.includes('project:read:all');
+      const result = await ProjectManagementService.listProjects(
+        tenant_id,
+        page,
+        limit,
+        userId,
+        canReadAll,
+        { after, before },
+      );
       res.json(result);
     } catch (error) {
       console.error('[ProjectController.listProjects]', error);
@@ -315,7 +340,7 @@ export class ProjectController {
       const limit = Math.min(100, Math.max(1, parseInt(String(req.query.limit ?? 20), 10)));
 
       // Construire la clause WHERE
-      const accessFilter = getProjectAccessFilter(req.user);
+      const accessFilter = await getProjectAccessFilter(req.user);
       const where = buildProjectWhere(logic, filters, tenant_id, accessFilter);
 
       // Récupérer les données
@@ -366,7 +391,10 @@ export class ProjectController {
   static async exportProjectsExcel(req: AuthRequest, res: Response): Promise<void> {
     try {
       const tenant_id = req.user?.tenant_id;
-      const result = await ProjectManagementService.listProjects(tenant_id, 1, 100000);
+      const userId    = req.user?.id;
+      const permissions = await RbacService.getUserPermissions(userId);
+      const canReadAll  = permissions.includes('project:read:all');
+      const result = await ProjectManagementService.listProjects(tenant_id, 1, 100000, userId, canReadAll);
       const projects = result.data ?? [];
 
       const header = [
@@ -415,7 +443,10 @@ export class ProjectController {
     let browser: BrowserLike | null = null;
     try {
       const tenant_id = req.user?.tenant_id;
-      const result = await ProjectManagementService.listProjects(tenant_id, 1, 100000);
+      const userId    = req.user?.id;
+      const permissions = await RbacService.getUserPermissions(userId);
+      const canReadAll  = permissions.includes('project:read:all');
+      const result = await ProjectManagementService.listProjects(tenant_id, 1, 100000, userId, canReadAll);
       const summaries = result.data ?? [];
       const projects = await Promise.all(
         summaries.map((project: any) => ProjectManagementService.getProjectById(project.id, tenant_id))
@@ -460,8 +491,16 @@ export class ProjectController {
 
   static async getProject(req: AuthRequest, res: Response): Promise<void> {
     try {
-      const id = parseId(req.params.id, res); if (id === null) return;
-      const project = await ProjectManagementService.getProjectById(id, req.user?.tenant_id);
+      const id         = parseId(req.params.id, res); if (id === null) return;
+      const userId     = req.user?.id;
+      const tenant_id  = req.user?.tenant_id;
+      const permissions = await RbacService.getUserPermissions(userId);
+      const canReadAll  = permissions.includes('project:read:all');
+      if (!canReadAll) {
+        const accessible = await ProjectManagementService.canUserAccessProject(id, userId, tenant_id);
+        if (!accessible) { res.status(404).json({ error: 'Projet introuvable.' }); return; }
+      }
+      const project = await ProjectManagementService.getProjectById(id, tenant_id);
       if (!project) { res.status(404).json({ error: 'Projet introuvable.' }); return; }
       res.json(project);
     } catch (error) {
@@ -505,6 +544,8 @@ export class ProjectController {
         budget_initial: Number(budget_initial),
         currency:       currency.trim().toUpperCase(),
         location:       location.trim(),
+        moe_firm_name: req.body.moe_firm_name || null,
+        control_bureau: req.body.control_bureau || null,
         client_name: req.body.client_name || null,
         client_contact_name: req.body.client_contact_name || null,
         client_phone: req.body.client_phone || null,
@@ -514,6 +555,7 @@ export class ProjectController {
         country: req.body.country || null,
         latitude: req.body.latitude !== undefined && req.body.latitude !== null && req.body.latitude !== '' ? Number(req.body.latitude) : null,
         longitude: req.body.longitude !== undefined && req.body.longitude !== null && req.body.longitude !== '' ? Number(req.body.longitude) : null,
+        hse_responsible_id: req.body.hse_responsible_id !== undefined && req.body.hse_responsible_id !== null && req.body.hse_responsible_id !== '' ? Number(req.body.hse_responsible_id) : null,
         budget_approved: req.body.budget_approved !== undefined && req.body.budget_approved !== null && req.body.budget_approved !== '' ? Number(req.body.budget_approved) : null,
         budget_committed: req.body.budget_committed !== undefined && req.body.budget_committed !== null && req.body.budget_committed !== '' ? Number(req.body.budget_committed) : null,
         contingency_budget: req.body.contingency_budget !== undefined && req.body.contingency_budget !== null && req.body.contingency_budget !== '' ? Number(req.body.contingency_budget) : null,
@@ -540,8 +582,26 @@ export class ProjectController {
     try {
       const id = parseId(req.params.id, res); if (id === null) return;
       const body: Record<string, any> = { ...req.body };
+
+      const userPermissions = await RbacService.getUserPermissions(req.user!.id);
+      const canUpdateMetadata = userPermissions.includes('project:metadata:update');
+      const canTransitionPhase = userPermissions.includes('project:phase:transition');
+
+      const hasPhaseField = Object.prototype.hasOwnProperty.call(body, 'phase');
+      const hasMetadataField = Object.keys(body).some((key) => key !== 'phase');
+
+      if (hasPhaseField && !canTransitionPhase) {
+        res.status(403).json({ error: "Forbidden: missing permission 'project:phase:transition'" });
+        return;
+      }
+
+      if (hasMetadataField && !canUpdateMetadata) {
+        res.status(403).json({ error: "Forbidden: missing permission 'project:metadata:update'" });
+        return;
+      }
+
       const numericFields = [
-        'budget_initial', 'latitude', 'longitude', 'budget_approved', 'budget_committed', 'contingency_budget'
+        'budget_initial', 'latitude', 'longitude', 'hse_responsible_id', 'budget_approved', 'budget_committed', 'contingency_budget'
       ];
       for (const f of numericFields) {
         if (body[f] !== undefined && body[f] !== null && body[f] !== '') body[f] = Number(body[f]);
@@ -648,7 +708,7 @@ export class ProjectController {
       }
       if (data.wbs_id !== undefined) data.wbs_id = data.wbs_id ? Number(data.wbs_id) : null;
       if (data.progress !== undefined) data.progress = Number(data.progress);
-      res.json(await ProjectManagementService.updateTask(id, data, req.user!.tenant_id));
+      res.json(await ProjectManagementService.updateTask(id, data, req.user!.tenant_id, req.user!.id));
     } catch (error: any) { res.status(400).json({ error: error.message }); }
   }
 
@@ -700,7 +760,7 @@ export class ProjectController {
       if (body.lot_number !== undefined) delete body.lot_number;
       if (body.start_date !== undefined) body.start_date = toDateTime(body.start_date);
       if (body.end_date   !== undefined) body.end_date   = toDateTime(body.end_date);
-      res.json(await ProjectManagementService.updateProjectLot(id, body, req.user!.tenant_id));
+      res.json(await ProjectManagementService.updateProjectLot(id, body, req.user!.tenant_id, req.user!.id));
     } catch (error: any) { res.status(400).json({ error: error.message }); }
   }
 
@@ -761,11 +821,80 @@ export class ProjectController {
     } catch (error: any) { res.status(400).json({ error: error.message }); }
   }
 
+  // ─── Chef de Projet & Membres ───────────────────────────────────────────────
+
+  static async assignProjectManager(req: AuthRequest, res: Response): Promise<void> {
+    try {
+      const id = parseId(req.params.id, res); if (id === null) return;
+      const { manager_id } = req.body;
+      const managerIdParsed = (manager_id !== null && manager_id !== undefined && manager_id !== '')
+        ? Number(manager_id)
+        : null;
+      if (managerIdParsed !== null && isNaN(managerIdParsed)) {
+        res.status(400).json({ error: 'manager_id invalide.' }); return;
+      }
+      const result = await ProjectManagementService.assignProjectManager(id, managerIdParsed, req.user!.tenant_id);
+      res.json(result);
+    } catch (error: any) {
+      console.error('[ProjectController.assignProjectManager]', error);
+      if (error.message?.includes('introuvable')) res.status(404).json({ error: error.message });
+      else res.status(500).json({ error: error.message || 'Erreur serveur.' });
+    }
+  }
+
+  static async listProjectMembers(req: AuthRequest, res: Response): Promise<void> {
+    try {
+      const id = parseId(req.params.id, res); if (id === null) return;
+      const members = await ProjectManagementService.listProjectMembers(id, req.user!.tenant_id);
+      res.json(members);
+    } catch (error: any) {
+      console.error('[ProjectController.listProjectMembers]', error);
+      if (error.message?.includes('introuvable')) res.status(404).json({ error: error.message });
+      else res.status(500).json({ error: error.message || 'Erreur serveur.' });
+    }
+  }
+
+  static async addProjectMember(req: AuthRequest, res: Response): Promise<void> {
+    try {
+      const id = parseId(req.params.id, res); if (id === null) return;
+      const { user_id, role_id } = req.body;
+      if (!user_id) { res.status(400).json({ error: 'user_id requis.' }); return; }
+      if (!role_id) { res.status(400).json({ error: 'role_id requis.' }); return; }
+      const result = await ProjectManagementService.addProjectMember(
+        id, Number(user_id), Number(role_id), req.user!.tenant_id
+      );
+      res.status(201).json(result);
+    } catch (error: any) {
+      console.error('[ProjectController.addProjectMember]', error);
+      if (error.message?.includes('introuvable')) res.status(404).json({ error: error.message });
+      else res.status(500).json({ error: error.message || 'Erreur serveur.' });
+    }
+  }
+
+  static async removeProjectMember(req: AuthRequest, res: Response): Promise<void> {
+    try {
+      const projectId    = parseId(req.params.id, res); if (projectId === null) return;
+      const membershipId = parseId(req.params.membershipId, res); if (membershipId === null) return;
+      await ProjectManagementService.removeProjectMember(membershipId, projectId, req.user!.tenant_id);
+      res.json({ success: true });
+    } catch (error: any) {
+      console.error('[ProjectController.removeProjectMember]', error);
+      if (error.message?.includes('introuvable')) res.status(404).json({ error: error.message });
+      else res.status(500).json({ error: error.message || 'Erreur serveur.' });
+    }
+  }
+
   // ─── Helpers (selects formulaires) ─────────────────────────────────────────
 
   static async getUsers(req: AuthRequest, res: Response): Promise<void> {
     try {
       res.json(await ProjectManagementService.getUsersByTenant(req.user!.tenant_id));
+    } catch (error) { res.status(500).json({ error: 'Erreur.' }); }
+  }
+
+  static async getAssignableRoles(req: AuthRequest, res: Response): Promise<void> {
+    try {
+      res.json(await ProjectManagementService.getAssignableRoles(req.user!.tenant_id));
     } catch (error) { res.status(500).json({ error: 'Erreur.' }); }
   }
 

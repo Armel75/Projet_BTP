@@ -81,6 +81,7 @@ interface ControlReportFilters {
   status?: string;
   severity?: string;
   priority?: string;
+  created_by?: number;
 }
 
 const TERMINAL_STATUSES = new Set(['APPROVED', 'REJECTED', 'CLOSED']);
@@ -208,6 +209,7 @@ export class ControlReportService {
     if (filters.status) where.status = filters.status;
     if (filters.severity) where.severity = filters.severity;
     if (filters.priority) where.priority = filters.priority;
+    if (filters.created_by) where.created_by = filters.created_by;
 
     return prisma.controlReport.findMany({
       where,
@@ -220,6 +222,19 @@ export class ControlReportService {
     const tenantId = this.requireTenantId();
     return prisma.controlReport.findFirst({
       where: { id, tenant_id: tenantId, is_archived: false },
+      include: CONTROL_REPORT_INCLUDE,
+    });
+  }
+
+  static async getControlReportByIdForTenantScoped(id: number, created_by?: number) {
+    const tenantId = this.requireTenantId();
+    return prisma.controlReport.findFirst({
+      where: {
+        id,
+        tenant_id: tenantId,
+        is_archived: false,
+        ...(created_by !== undefined && { created_by }),
+      },
       include: CONTROL_REPORT_INCLUDE,
     });
   }

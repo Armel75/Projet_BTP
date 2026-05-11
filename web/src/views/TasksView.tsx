@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useMemo } from "react";
 import { CheckSquare, Filter, Plus, Loader2, X, AlertCircle, ChevronRight } from "lucide-react";
 import { apiFetch, API_BASE } from "../lib/api";
 import { usePermissions } from "../contexts/AuthContext";
@@ -19,7 +19,7 @@ interface Task {
   project?: TaskProject;
   lot?: TaskLot | null;
   wbs?: { id: number; code: string; name: string } | null;
-  assignments?: { resource: { id: number; name: string } }[];
+  assignments?: { id: number; resource: { id: number; name: string } }[];
 }
 
 const TASK_WORKFLOW_GUARD = {
@@ -71,9 +71,17 @@ const NEXT_STATUS: Record<string, string | null> = {
 };
 
 const NEXT_LABEL: Record<string, string> = {
-  TODO:        "Démarrer",
+  TODO:        "Démarrer la tâche",
   IN_PROGRESS: "Terminer",
   ON_HOLD:     "Reprendre",
+};
+
+const STATUS_LABEL: Record<string, string> = {
+  TODO: "À faire",
+  IN_PROGRESS: "En cours",
+  ON_HOLD: "En pause",
+  DONE: "Terminé",
+  CANCELLED: "Annulé",
 };
 
 // ─── Component ────────────────────────────────────────────────────────────────
@@ -91,6 +99,7 @@ export default function TasksView() {
   // Filter
   const [filterProject, setFilterProject] = useState<number | "">("");
   const [filterPriority, setFilterPriority] = useState<string>("");
+  const [filterAssignee, setFilterAssignee] = useState<string>("");
   const [showFilter, setShowFilter] = useState(false);
 
   // Create dialog
@@ -144,6 +153,14 @@ export default function TasksView() {
     }
     const next = NEXT_STATUS[task.status];
     if (!next) return;
+
+    const currentStatusLabel = STATUS_LABEL[task.status] ?? task.status;
+    const nextStatusLabel = STATUS_LABEL[next] ?? next;
+    const confirmed = window.confirm(
+      `Confirmer le changement de statut de la tâche "${task.title}" ?\n\n${currentStatusLabel} -> ${nextStatusLabel}`
+    );
+    if (!confirmed) return;
+
     const payload: Record<string, any> = { status: next };
     if (next === "DONE") payload.progress = 100;
     const res = await apiFetch(`${API_BASE}/projects/tasks/${task.id}`, {
@@ -207,13 +224,34 @@ export default function TasksView() {
 
   // ── Filtered tasks ───────────────────────────────────────────────────────
 
+  const assigneeOptions = useMemo(() => {
+    const map = new Map<number, string>();
+    for (const task of tasks) {
+      for (const assignment of task.assignments ?? []) {
+        const resource = assignment.resource;
+        if (resource?.id && resource?.name) {
+          map.set(resource.id, resource.name);
+        }
+      }
+    }
+    return Array.from(map.entries())
+      .map(([id, name]) => ({ id, name }))
+      .sort((a, b) => a.name.localeCompare(b.name, "fr"));
+  }, [tasks]);
+
   const filtered = tasks.filter(t => {
     if (filterProject && t.project?.id !== filterProject) return false;
     if (filterPriority && t.priority !== filterPriority) return false;
+    if (filterAssignee === "ASSIGNED_ONLY" && (t.assignments?.length ?? 0) === 0) return false;
+    if (filterAssignee === "UNASSIGNED_ONLY" && (t.assignments?.length ?? 0) > 0) return false;
+    if (filterAssignee && filterAssignee !== "ASSIGNED_ONLY" && filterAssignee !== "UNASSIGNED_ONLY") {
+      const assigneeId = Number(filterAssignee);
+      if (!t.assignments?.some((a) => a.resource?.id === assigneeId)) return false;
+    }
     return true;
   });
 
-  const activeFilterCount = [filterProject, filterPriority].filter(Boolean).length;
+  const activeFilterCount = [filterProject, filterPriority, filterAssignee].filter(Boolean).length;
   const selectedCreateProject = projects.find((p) => p.id === Number(form.project_id));
   const selectedProjectLots = form.project_id ? (projectLots[Number(form.project_id)] ?? []) : [];
   const canCreateForSelectedProject = !selectedCreateProject || isTaskPhaseAllowed(selectedCreateProject.phase);
@@ -260,7 +298,7 @@ export default function TasksView() {
                 <div className="flex items-center justify-between">
                   <span className="text-xs font-bold text-gb-text">Filtres</span>
                   {activeFilterCount > 0 && (
-                    <button onClick={() => { setFilterProject(""); setFilterPriority(""); }} className="text-[10px] text-gb-primary hover:underline">Réinitialiser</button>
+                    <button onClick={() => { setFilterProject(""); setFilterPriority(""); setFilterAssignee(""); }} className="text-[10px] text-gb-primary hover:underline">Réinitialiser</button>
                   )}
                 </div>
                 <div>
@@ -288,6 +326,21 @@ export default function TasksView() {
                     <option value="CRITICAL">Critique</option>
                   </select>
                 </div>
+                <div>
+                  <label className="block text-xs text-gb-muted mb-1">Affectation</label>
+                  <select
+                    value={filterAssignee}
+                    onChange={e => setFilterAssignee(e.target.value)}
+                    className="w-full bg-gb-app border border-gb-border rounded-lg px-2 py-1.5 text-sm"
+                  >
+                    <option value="">Toutes</option>
+                    <option value="ASSIGNED_ONLY">Affectées</option>
+                    <option value="UNASSIGNED_ONLY">Non affectées</option>
+                    {assigneeOptions.map(option => (
+                      <option key={option.id} value={option.id}>Affectée à: {option.name}</option>
+                    ))}
+                  </select>
+                </div>
               </div>
             )}
           </div>
@@ -311,6 +364,9 @@ export default function TasksView() {
       )}
 
       {/* Kanban board */}
+      <div className="relative">
+        {/* Scroll hint — visible only on mobile */}
+        <div className="pointer-events-none absolute inset-y-0 right-0 w-12 bg-gradient-to-l from-gb-app to-transparent z-10 md:hidden" />
       <div className="flex gap-4 overflow-x-auto pb-4">
         {COLUMNS.map(col => {
           const colTasks = filtered.filter(t => t.status === col.status);
@@ -379,6 +435,19 @@ export default function TasksView() {
                         </p>
                       )}
 
+                      {!!task.assignments?.length && (
+                        <div className="mt-2 flex flex-wrap gap-1.5">
+                          {task.assignments.map((assignment) => (
+                            <span
+                              key={assignment.id}
+                              className="inline-flex items-center rounded-full border border-gb-border bg-gb-app px-2 py-0.5 text-[10px] text-gb-muted"
+                            >
+                              {assignment.resource.name}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+
                       {/* Dates */}
                       {(task.planned_start || task.planned_end) && (
                         <p className="text-[10px] text-gb-muted mt-1">
@@ -402,7 +471,7 @@ export default function TasksView() {
                           onClick={() => advanceStatus(task)}
                           disabled={!isTaskPhaseAllowed(task.project?.phase)}
                           title={!isTaskPhaseAllowed(task.project?.phase) ? TASK_WORKFLOW_GUARD.reason : undefined}
-                          className="mt-3 w-full flex items-center justify-center gap-1 text-[11px] font-semibold text-gb-muted hover:text-gb-primary border border-transparent hover:border-gb-primary/30 rounded-lg py-1 transition-all disabled:cursor-not-allowed disabled:opacity-40"
+                          className="mt-3 w-full inline-flex items-center justify-center gap-1.5 rounded-lg py-2 text-[11px] font-bold border border-gb-border bg-gb-surface-solid text-gb-text shadow-sm hover:bg-gb-surface-hover hover:border-gb-primary/40 transition-colors disabled:cursor-not-allowed disabled:opacity-40"
                         >
                           {nextLabel} <ChevronRight size={11} />
                         </button>
@@ -415,14 +484,15 @@ export default function TasksView() {
           );
         })}
       </div>
+      </div>{/* end relative scroll-hint wrapper */}
 
       {/* Create Task Dialog */}
       {showCreate && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={() => setShowCreate(false)} />
-          <div className="relative bg-gb-surface-solid border border-gb-border rounded-2xl shadow-2xl w-full max-w-lg">
+          <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" />
+          <div className="relative bg-gb-surface-solid border border-gb-border rounded-2xl shadow-2xl w-full max-w-lg max-h-[92dvh] flex flex-col overflow-hidden">
             {/* Header */}
-            <div className="flex items-center justify-between p-5 border-b border-gb-border">
+            <div className="shrink-0 flex items-center justify-between p-5 border-b border-gb-border">
               <div>
                 <h4 className="text-base font-bold text-gb-text">Nouvelle tâche</h4>
                 <p className="text-xs text-gb-muted mt-0.5">Renseignez les informations de la tâche</p>
@@ -433,7 +503,7 @@ export default function TasksView() {
             </div>
 
             {/* Body */}
-            <div className="p-5 space-y-4">
+            <div className="min-h-0 flex-1 overflow-y-auto p-5 space-y-4">
               {/* Projet (requis) */}
               <div>
                 <label className="block text-xs font-semibold text-gb-text mb-1.5">
@@ -553,7 +623,7 @@ export default function TasksView() {
             </div>
 
             {/* Footer */}
-            <div className="flex items-center justify-end gap-2 p-5 border-t border-gb-border">
+            <div className="shrink-0 flex items-center justify-end gap-2 p-5 border-t border-gb-border">
               <button onClick={() => setShowCreate(false)}
                 className="px-4 py-2 text-sm font-medium text-gb-muted border border-gb-border rounded-lg hover:bg-gb-surface-hover transition-colors">
                 Annuler

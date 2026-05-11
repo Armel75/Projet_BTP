@@ -1,6 +1,19 @@
 import { Request, Response } from 'express';
 import { DailyLogService } from '../services/daily-log.service.js';
 import { AuthRequest } from '../middlewares/auth.middleware.js';
+import { RbacService } from '../services/rbac.service.js';
+
+async function canReadAllDailyLogs(req: Request): Promise<boolean> {
+  const user = (req as AuthRequest).user;
+  if (!user?.id) return false;
+
+  if (Array.isArray(user.permissions) && user.permissions.includes('daily-log:read:all')) {
+    return true;
+  }
+
+  const permissions = await RbacService.getUserPermissions(user.id);
+  return permissions.includes('daily-log:read:all');
+}
 
 export class DailyLogController {
   static async create(req: Request, res: Response) {
@@ -19,15 +32,21 @@ export class DailyLogController {
 
   static async list(req: Request, res: Response) {
     try {
+      const user = (req as AuthRequest).user;
+      if (!user?.id) {
+        return res.status(401).json({ error: 'Unauthorized' });
+      }
+
+      const hasReadAll = await canReadAllDailyLogs(req);
       const filters: any = {};
       if (req.query.project_id) filters.project_id = Number(req.query.project_id);
       if (req.query.date) filters.date = new Date(req.query.date as string);
-      if (req.query.created_by) filters.created_by = Number(req.query.created_by);
       if (req.query.is_archived !== undefined) {
         filters.is_archived = req.query.is_archived === 'true';
       } else {
         filters.is_archived = false;
       }
+      if (!hasReadAll) filters.created_by = user.id;
 
       const logs = await DailyLogService.getDailyLogs(filters);
       res.json(logs);
@@ -38,7 +57,16 @@ export class DailyLogController {
 
   static async getById(req: Request, res: Response) {
     try {
-      const log = await DailyLogService.getDailyLogById(Number(req.params.id));
+      const user = (req as AuthRequest).user;
+      if (!user?.id) {
+        return res.status(401).json({ error: 'Unauthorized' });
+      }
+
+      const hasReadAll = await canReadAllDailyLogs(req);
+      const log = await DailyLogService.getDailyLogByIdForTenantScoped(
+        Number(req.params.id),
+        hasReadAll ? undefined : user.id
+      );
       if (!log) return res.status(404).json({ error: "Daily log not found" });
       res.json(log);
     } catch (error: any) {

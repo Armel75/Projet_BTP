@@ -3,7 +3,7 @@ import bcrypt from "bcrypt";
 import { randomBytes } from "crypto";
 
 const MATRICULE_REGEX = /^[A-Z]{2}[0-9]+$/;
-const SIMPLE_EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const SOREPCO_EMAIL_REGEX = /^[a-z0-9._%+-]+@(?:[a-z0-9-]+\.)*groupesorepco\.com$/i;
 const PHONE_REGEX = /^[0-9]+$/;
 
 export class RbacService {
@@ -177,8 +177,8 @@ export class RbacService {
     if (!matricule) throw { status: 400, message: "Le matricule est obligatoire." };
     if (!password) throw { status: 400, message: "Le mot de passe est obligatoire." };
 
-    if (!SIMPLE_EMAIL_REGEX.test(email)) {
-      throw { status: 400, message: "Format d'email invalide." };
+    if (!SOREPCO_EMAIL_REGEX.test(email)) {
+      throw { status: 400, message: "L'email doit respecter le format nom@groupesorepco.com ou nom@sous-domaine.groupesorepco.com." };
     }
 
     if (username.length < 3) {
@@ -271,7 +271,9 @@ export class RbacService {
     let nextEmail: string | null = null;
     if (data.email !== undefined) {
       nextEmail = String(data.email).trim().toLowerCase();
-      if (!SIMPLE_EMAIL_REGEX.test(nextEmail)) throw { status: 400, message: "Format d'email invalide." };
+      if (!SOREPCO_EMAIL_REGEX.test(nextEmail)) {
+        throw { status: 400, message: "L'email doit respecter le format nom@groupesorepco.com ou nom@sous-domaine.groupesorepco.com." };
+      }
       updateData.email = nextEmail;
     }
 

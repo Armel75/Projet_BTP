@@ -14,19 +14,29 @@ import ChangeOrderModule from "../components/financials/ChangeOrderModule";
 import InvoiceModule from "../components/financials/InvoiceModule";
 import PaymentModule from "../components/financials/PaymentModule";
 import SituationTravauxModule from "../components/financials/SituationTravauxModule";
+import { usePermissions } from "../contexts/AuthContext";
+import { NAV_PERMISSION_GROUPS } from "../constants/navigationPermissions";
 
 type FinancialTab = "contracts" | "change-orders" | "situations" | "invoices" | "payments";
 
 export default function FinancialsView() {
-  const [activeTab, setActiveTab] = useState<FinancialTab>("contracts");
+  const { canAny } = usePermissions();
 
   const tabs = [
-    { id: "contracts", label: "Contrats", icon: FileSignature, color: "text-blue-500", bg: "bg-blue-500/10" },
-    { id: "change-orders", label: "Avenants", icon: FileEdit, color: "text-amber-500", bg: "bg-amber-500/10" },
-    { id: "situations", label: "Situations", icon: ClipboardList, color: "text-cyan-500", bg: "bg-cyan-500/10" },
-    { id: "invoices", label: "Facturation", icon: Receipt, color: "text-emerald-500", bg: "bg-emerald-500/10" },
-    { id: "payments", label: "Paiements", icon: CreditCard, color: "text-purple-500", bg: "bg-purple-500/10" },
-  ];
+    { id: "contracts", label: "Contrats", icon: FileSignature, color: "text-blue-500", bg: "bg-blue-500/10", visible: canAny(...NAV_PERMISSION_GROUPS.financeTabs.contracts) },
+    { id: "change-orders", label: "Avenants", icon: FileEdit, color: "text-amber-500", bg: "bg-amber-500/10", visible: canAny(...NAV_PERMISSION_GROUPS.financeTabs.changeOrders) },
+    { id: "situations", label: "Situations", icon: ClipboardList, color: "text-cyan-500", bg: "bg-cyan-500/10", visible: canAny(...NAV_PERMISSION_GROUPS.financeTabs.situations) },
+    { id: "invoices", label: "Facturation", icon: Receipt, color: "text-emerald-500", bg: "bg-emerald-500/10", visible: canAny(...NAV_PERMISSION_GROUPS.financeTabs.invoices) },
+    { id: "payments", label: "Paiements", icon: CreditCard, color: "text-purple-500", bg: "bg-purple-500/10", visible: canAny(...NAV_PERMISSION_GROUPS.financeTabs.payments) },
+  ].filter((tab) => tab.visible);
+
+  const [activeTab, setActiveTab] = useState<FinancialTab>((tabs[0]?.id as FinancialTab) || "contracts");
+
+  React.useEffect(() => {
+    if (!tabs.some((t) => t.id === activeTab)) {
+      setActiveTab((tabs[0]?.id as FinancialTab) || "contracts");
+    }
+  }, [activeTab, tabs]);
 
   return (
     <div className="space-y-8 pb-10">
@@ -40,6 +50,12 @@ export default function FinancialsView() {
         </div>
       </div>
 
+      {tabs.length === 0 ? (
+        <div className="rounded-xl border border-gb-border bg-gb-surface-solid p-6 text-sm text-gb-muted">
+          Vous n'avez aucune permission de lecture sur les sous-modules financiers.
+        </div>
+      ) : (
+      <>
       {/* Tabs Navigation */}
       <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
         {tabs.map((tab) => {
@@ -82,12 +98,14 @@ export default function FinancialsView() {
         transition={{ duration: 0.3 }}
         className="min-h-[500px]"
       >
-        {activeTab === "contracts" && <ContractModule />}
-        {activeTab === "change-orders" && <ChangeOrderModule />}
-        {activeTab === "situations" && <SituationTravauxModule />}
-        {activeTab === "invoices" && <InvoiceModule />}
-        {activeTab === "payments" && <PaymentModule />}
+        {activeTab === "contracts" && canAny(...NAV_PERMISSION_GROUPS.financeTabs.contracts) && <ContractModule />}
+        {activeTab === "change-orders" && canAny(...NAV_PERMISSION_GROUPS.financeTabs.changeOrders) && <ChangeOrderModule />}
+        {activeTab === "situations" && canAny(...NAV_PERMISSION_GROUPS.financeTabs.situations) && <SituationTravauxModule />}
+        {activeTab === "invoices" && canAny(...NAV_PERMISSION_GROUPS.financeTabs.invoices) && <InvoiceModule />}
+        {activeTab === "payments" && canAny(...NAV_PERMISSION_GROUPS.financeTabs.payments) && <PaymentModule />}
       </motion.div>
+      </>
+      )}
     </div>
   );
 }

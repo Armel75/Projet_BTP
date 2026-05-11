@@ -3,6 +3,8 @@
  * Traite chaque type de champ (string, number, date, enum, etc.)
  */
 
+import { RbacService } from '../services/rbac.service.js';
+
 interface FilterItem {
   field: string;
   op: string;
@@ -102,44 +104,61 @@ export function buildProjectWhere(
   logic: 'AND' | 'OR',
   filters: FilterItem[],
   tenantId: number,
-  accessFilter?: any
+  scopeFilter?: any
 ): any {
   // Convertir chaque filtre en condition Prisma
   const conditions = filters
     .map((f) => toPrismaCondition(f))
     .filter((c) => c !== null);
 
-  // Si pas de filtres valides
-  if (conditions.length === 0) {
-    return {
-      AND: [
-        { tenant_id: { equals: tenantId } },
-        accessFilter || { is_archived: { equals: false } }, // Par défaut, pas archivés
-      ],
-    };
+  const andClauses: any[] = [
+    { tenant_id: { equals: tenantId } },
+  ];
+
+  // Filtre de périmètre utilisateur (qui peut voir quoi)
+  if (scopeFilter) andClauses.push(scopeFilter);
+
+  // Conditions issues des filtres API
+  if (conditions.length > 0) {
+    andClauses.push(
+      logic === 'OR' ? { OR: conditions } : { AND: conditions }
+    );
   }
 
-  // Combiner les conditions avec la logique AND/OR
-  const combinedConditions = logic === 'OR'
-    ? { OR: conditions }
-    : { AND: conditions };
+  // Par défaut : exclure les projets archivés
+  // (sauf si l'utilisateur filtre explicitement is_archived)
+  const hasArchivedFilter = conditions.some((c: any) => 'is_archived' in c);
+  if (!hasArchivedFilter) {
+    andClauses.push({ is_archived: { equals: false } });
+  }
 
-  // Ajouter tenant_id et access filter
+  return { AND: andClauses };
+}
+
+/**
+ * Construit le filtre Prisma de périmètre projet pour un utilisateur.
+ * - canReadAll = true  → null (pas de restriction, l'utilisateur voit tout)
+ * - canReadAll = false → filtre OR : créateur | chef de projet | responsable HSE | membre
+ */
+export function buildProjectScopeWhere(userId: number, canReadAll: boolean): any | null {
+  if (canReadAll) return null;
   return {
-    AND: [
-      { tenant_id: { equals: tenantId } },
-      combinedConditions,
-      accessFilter || { is_archived: { equals: false } },
+    OR: [
+      { created_by: userId },
+      { project_manager_id: userId },
+      { hse_responsible_id: userId },
+      { userRoles: { some: { user_id: userId } } },
     ],
   };
 }
 
 /**
- * Filtre d'accès basé sur les permissions
- * Peut être étendu selon les règles RBAC
+ * Résout le filtre de périmètre depuis le user JWT (async, requête DB).
+ * - Si l'utilisateur a 'project:read:all' → null (accès global)
+ * - Sinon → filtre restreint aux projets auxquels il est rattaché
  */
-export function getProjectAccessFilter(user: any): any | null {
-  // Pour l'instant, tout utilisateur authentifié peut voir les projets
-  // À adapter selon vos règles RBAC
-  return null;
+export async function getProjectAccessFilter(user: any): Promise<any | null> {
+  if (!user?.id) return null;
+  const permissions = await RbacService.getUserPermissions(user.id);
+  return buildProjectScopeWhere(user.id, permissions.includes('project:read:all'));
 }

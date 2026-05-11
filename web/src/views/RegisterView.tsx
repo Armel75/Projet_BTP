@@ -16,6 +16,8 @@ export default function RegisterView() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
+  const matriculeValue = formData.matricule.trim();
+  const showMatriculeFormatHint = matriculeValue.length > 0 && !MATRICULE_REGEX.test(matriculeValue);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
       const nextValue = e.target.name === 'matricule' ? e.target.value.toUpperCase() : e.target.value;
@@ -58,11 +60,14 @@ export default function RegisterView() {
         throw new Error(data.error || "Une erreur est survenue.");
       }
 
-      // Automatically log the user in on successful registration
-      localStorage.setItem("token", data.token);
-      navigate("/");
-      // Need a full reload to apply state correctly based on current context
-      window.location.reload(); 
+      // Require a manual sign-in after successful registration.
+      navigate("/login", {
+        replace: true,
+        state: {
+          registrationSuccess: true,
+          message: "Compte cree avec succes. Connectez-vous pour continuer.",
+        },
+      });
     } catch (err: any) {
       setError(err.message);
     } finally {
@@ -83,43 +88,45 @@ export default function RegisterView() {
         <form onSubmit={handleSubmit} className="space-y-4">
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm font-medium text-gb-text mb-1">Prénom</label>
-              <input type="text" name="firstname" value={formData.firstname} onChange={handleChange} className="w-full px-3 py-2 bg-gb-app border border-gb-border rounded text-gb-text focus:outline-none focus:border-gb-primary" required />
+              <label className="block text-sm font-medium text-gb-text mb-1">Prénom <span className="text-red-500">*</span></label>
+              <input type="text" name="firstname" value={formData.firstname} onChange={handleChange} placeholder="Ex: Alex" className="w-full px-3 py-2 bg-gb-app border border-gb-border rounded text-gb-text focus:outline-none focus:border-gb-primary" required />
             </div>
             <div>
-              <label className="block text-sm font-medium text-gb-text mb-1">Nom</label>
-              <input type="text" name="lastname" value={formData.lastname} onChange={handleChange} className="w-full px-3 py-2 bg-gb-app border border-gb-border rounded text-gb-text focus:outline-none focus:border-gb-primary" required />
+              <label className="block text-sm font-medium text-gb-text mb-1">Nom <span className="text-red-500">*</span></label>
+              <input type="text" name="lastname" value={formData.lastname} onChange={handleChange} placeholder="Ex: Dupont" className="w-full px-3 py-2 bg-gb-app border border-gb-border rounded text-gb-text focus:outline-none focus:border-gb-primary" required />
             </div>
           </div>
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm font-medium text-gb-text mb-1">Matricule</label>
-              <input type="text" name="matricule" value={formData.matricule} onChange={handleChange} className="w-full px-3 py-2 bg-gb-app border border-gb-border rounded text-gb-text focus:outline-none focus:border-gb-primary" required />
-                <p className="text-xs text-muted-foreground">
-                  Format: 2 lettres majuscules suivies de chiffres (sans espaces ni caracteres speciaux).
-                </p>
+              <label className="block text-sm font-medium text-gb-text mb-1">Matricule <span className="text-red-500">*</span></label>
+              <input type="text" name="matricule" value={formData.matricule} onChange={handleChange} placeholder="Ex: DL1748" className="w-full px-3 py-2 bg-gb-app border border-gb-border rounded text-gb-text focus:outline-none focus:border-gb-primary" required />
+                {showMatriculeFormatHint && (
+                  <p className="text-xs text-red-500">
+                    Format: 2 lettres majuscules suivies de chiffres (sans espaces ni caracteres speciaux).
+                  </p>
+                )}
             </div>
             <div>
-              <label className="block text-sm font-medium text-gb-text mb-1">Nom d'utilisateur</label>
-              <input type="text" name="username" value={formData.username} onChange={handleChange} className="w-full px-3 py-2 bg-gb-app border border-gb-border rounded text-gb-text focus:outline-none focus:border-gb-primary" required />
+              <label className="block text-sm font-medium text-gb-text mb-1">Nom d'utilisateur <span className="text-red-500">*</span></label>
+              <input type="text" name="username" value={formData.username} onChange={handleChange} placeholder="Ex: alex.dupont" className="w-full px-3 py-2 bg-gb-app border border-gb-border rounded text-gb-text focus:outline-none focus:border-gb-primary" required />
             </div>
           </div>
           <div>
-            <label className="block text-sm font-medium text-gb-text mb-1">Email</label>
-            <input type="email" name="email" value={formData.email} onChange={handleChange} className="w-full px-3 py-2 bg-gb-app border border-gb-border rounded text-gb-text focus:outline-none focus:border-gb-primary" required />
+            <label className="block text-sm font-medium text-gb-text mb-1">Email <span className="text-red-500">*</span></label>
+            <input type="email" name="email" value={formData.email} onChange={handleChange} placeholder="Ex: alex@groupesorepco.com" className="w-full px-3 py-2 bg-gb-app border border-gb-border rounded text-gb-text focus:outline-none focus:border-gb-primary" required />
           </div>
           <div>
-            <label className="block text-sm font-medium text-gb-text mb-1">Mot de passe</label>
-            <input type="password" name="password" value={formData.password} onChange={handleChange} className="w-full px-3 py-2 bg-gb-app border border-gb-border rounded text-gb-text focus:outline-none focus:border-gb-primary" required />
+            <label className="block text-sm font-medium text-gb-text mb-1">Mot de passe <span className="text-red-500">*</span></label>
+            <input type="password" name="password" value={formData.password} onChange={handleChange} placeholder="Minimum 8 caracteres" className="w-full px-3 py-2 bg-gb-app border border-gb-border rounded text-gb-text focus:outline-none focus:border-gb-primary" required />
           </div>
             <div className="space-y-2">
-              <label htmlFor="confirmPassword">Confirmer le mot de passe</label>
+              <label htmlFor="confirmPassword">Confirmer le mot de passe <span className="text-red-500">*</span></label>
               <div className="relative">
                 <input
                   id="confirmPassword"
                   name="confirmPassword"
                   type="password"
-                  placeholder="Confirmer le mot de passe"
+                  placeholder="Retapez le mot de passe"
                   value={formData.confirmPassword}
                   onChange={handleChange}
                   className="w-full px-3 py-2 bg-gb-app border border-gb-border rounded text-gb-text focus:outline-none focus:border-gb-primary"

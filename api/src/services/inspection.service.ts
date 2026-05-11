@@ -109,6 +109,20 @@ export class InspectionService {
     });
   }
 
+  static async getInspectionByIdForTenantScoped(id: number, created_by?: number) {
+    const tenantId = TenantContext.getTenantId();
+    if (!tenantId) throw new Error('Tenant session required');
+
+    return await prisma.inspection.findFirst({
+      where: {
+        id,
+        tenant_id: tenantId,
+        ...(created_by !== undefined && { created_by }),
+      },
+      include: INSPECTION_INCLUDE,
+    });
+  }
+
   static async updateInspection(id: number, data: {
     title?: string;
     type?: string;

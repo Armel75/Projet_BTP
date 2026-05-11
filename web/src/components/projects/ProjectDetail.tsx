@@ -1,7 +1,8 @@
-import React, { useState, useEffect, useCallback } from "react";
-import { ArrowLeft, LayoutGrid, Layers, GitBranch, Search, Filter, Coins, Plus, Trash2, Loader2, AlertCircle, X, Pencil, History, ChevronsRight, CheckCircle2, ClipboardSignature } from "lucide-react";
+﻿import React, { useState, useEffect, useCallback } from "react";
+import { ArrowLeft, LayoutGrid, Layers, GitBranch, Search, Filter, Coins, Plus, Trash2, Loader2, AlertCircle, X, Pencil, History, ChevronsRight, CheckCircle2, ClipboardSignature, StickyNote, UserCog, UserPlus, UserMinus, Info } from "lucide-react";
 import { WBSTree } from "./WBSTree";
 import { TaskDetail } from "./TaskDetail";
+import { ExecutionNotePanel } from "./ExecutionNotePanel";
 import { Badge } from "../ui/badge";
 import { motion, AnimatePresence } from "motion/react";
 import { apiFetch, API_BASE } from "../../lib/api";
@@ -11,6 +12,7 @@ import ProjectReceptionsTab from "./ProjectReceptionsTab";
 interface ProjectDetailProps {
   projectId: number;
   onBack: () => void;
+  onEdit?: (project: any) => void;
 }
 
 interface ProjectPhaseTransition {
@@ -137,8 +139,10 @@ function formatTaskDate(value?: string | null) {
   return parsed.toLocaleDateString("fr-FR");
 }
 
-export function ProjectDetail({ projectId, onBack }: ProjectDetailProps) {
-  const { can } = usePermissions();
+export function ProjectDetail({ projectId, onBack, onEdit }: ProjectDetailProps) {
+  const { can, canAny } = usePermissions();
+  const canManageTeam = can("project:team:update");
+  const canTransitionPhase = can("project:phase:transition");
 
   const [project,      setProject]      = useState<any>(null);
   const [wbs,          setWbs]          = useState<any[]>([]);
@@ -146,11 +150,20 @@ export function ProjectDetail({ projectId, onBack }: ProjectDetailProps) {
   const [tasks,        setTasks]        = useState<any[]>([]);
   const [budgetLines,  setBudgetLines]  = useState<any[]>([]);
   const [phaseTransitions, setPhaseTransitions] = useState<ProjectPhaseTransition[]>([]);
+  const [projectUsers, setProjectUsers] = useState<any[]>([]);
+  const [assignableRoles, setAssignableRoles] = useState<any[]>([]);
+  const [projectMembers, setProjectMembers] = useState<any[]>([]);
   const [loading,      setLoading]      = useState(true);
   const [workflowAdvancing, setWorkflowAdvancing] = useState(false);
   const [workflowFeedback, setWorkflowFeedback] = useState<string | null>(null);
+  const [assignmentBusy, setAssignmentBusy] = useState(false);
+  const [assignmentError, setAssignmentError] = useState<string | null>(null);
+  const [assignmentSuccess, setAssignmentSuccess] = useState<string | null>(null);
+  const [selectedManagerId, setSelectedManagerId] = useState<string>("");
+  const [memberUserId, setMemberUserId] = useState<string>("");
+  const [memberRoleId, setMemberRoleId] = useState<string>("");
   const [selectedTask, setSelectedTask] = useState<any>(null);
-  const [activeTab,    setActiveTab]    = useState<"wbs" | "lots" | "budget" | "receptions">("wbs");
+  const [activeTab,    setActiveTab]    = useState<"wbs" | "lots" | "budget" | "notes" | "receptions">("wbs");
   const [lotActionError, setLotActionError] = useState<string | null>(null);
 
   // ── WBS form state ─────────────────────────────────────────────────────────
@@ -164,7 +177,7 @@ export function ProjectDetail({ projectId, onBack }: ProjectDetailProps) {
   // ── Lot form state ─────────────────────────────────────────────────────────
   const [showLotDialog, setShowLotDialog] = useState(false);  const [editingLot,    setEditingLot]    = useState<any | null>(null);  const [lotAdding,     setLotAdding]     = useState(false);
   const [tradeCategories, setTradeCategories] = useState<{ code: string; label: string }[]>([]);
-  const EMPTY_LOT = { lot_number: "", name: "", trade_code: "", description: "", status: "CONCEPTION", budget_allocated: "", start_date: "", end_date: "" };
+  const EMPTY_LOT = { lot_number: "", name: "", trade_code: "", description: "", status: "CONCEPTION", schedule_status: "ON_TRACK", budget_allocated: "", start_date: "", end_date: "" };
   const [lotForm, setLotForm] = useState(EMPTY_LOT);
 
   // ── Task form state ────────────────────────────────────────────────────────
@@ -180,7 +193,13 @@ export function ProjectDetail({ projectId, onBack }: ProjectDetailProps) {
     RECEPTION_DEFINITIVE: "Réception définitive",
     CLOS: "Clos",
   };
-  const EMPTY_TASK = { lot_id: "", title: "", description: "", status: "TODO", priority: "MEDIUM", progress: "0", planned_start: "", planned_end: "" };
+  const SCHEDULE_STATUS_META: Record<string, { label: string; badge: string }> = {
+    ON_TRACK: { label: "Dans les délais",  badge: "border-emerald-500/20 bg-emerald-500/10 text-emerald-600" },
+    AT_RISK:  { label: "À risque",         badge: "border-amber-500/20 bg-amber-500/10 text-amber-600" },
+    DELAYED:  { label: "En retard",        badge: "border-red-500/20 bg-red-500/10 text-red-600" },
+    BLOCKED:  { label: "Bloqué",           badge: "border-slate-500/20 bg-slate-500/10 text-slate-500" },
+  };
+  const EMPTY_TASK = { lot_id: "", title: "", description: "", status: "TODO", schedule_status: "ON_TRACK", priority: "MEDIUM", progress: "0", planned_start: "", planned_end: "" };
   const [showTaskDialog, setShowTaskDialog] = useState(false);
   const [editingTask,    setEditingTask]    = useState<any | null>(null);
   const [taskSaving,     setTaskSaving]     = useState(false);
@@ -191,7 +210,7 @@ export function ProjectDetail({ projectId, onBack }: ProjectDetailProps) {
   const loadProjectDetail = useCallback(async () => {
     setLoading(true);
     try {
-      const [prjRes, wbsRes, lotsRes, tasksRes, budgetRes, tradeRes, transitionsRes] = await Promise.all([
+      const [prjRes, wbsRes, lotsRes, tasksRes, budgetRes, tradeRes, transitionsRes, usersRes, rolesRes, membersRes] = await Promise.all([
         apiFetch(`${API_BASE}/projects/${projectId}`),
         apiFetch(`${API_BASE}/projects/${projectId}/wbs`),
         apiFetch(`${API_BASE}/projects/${projectId}/lots`),
@@ -199,6 +218,9 @@ export function ProjectDetail({ projectId, onBack }: ProjectDetailProps) {
         apiFetch(`${API_BASE}/projects/${projectId}/budget-lines`),
         apiFetch(`${API_BASE}/projects/helpers/trade-categories`),
         apiFetch(`${API_BASE}/projects/${projectId}/phase-transitions`),
+        apiFetch(`${API_BASE}/projects/helpers/users`),
+        apiFetch(`${API_BASE}/projects/helpers/roles`),
+        apiFetch(`${API_BASE}/projects/${projectId}/members`),
       ]);
       if (prjRes.ok)    setProject(await prjRes.json());
       if (wbsRes.ok)    setWbs(await wbsRes.json());
@@ -207,6 +229,9 @@ export function ProjectDetail({ projectId, onBack }: ProjectDetailProps) {
       if (budgetRes.ok) setBudgetLines(await budgetRes.json());
       if (tradeRes.ok)  setTradeCategories(await tradeRes.json());
       if (transitionsRes.ok) setPhaseTransitions(await transitionsRes.json());
+      if (usersRes.ok) setProjectUsers(await usersRes.json());
+      if (rolesRes.ok) setAssignableRoles(await rolesRes.json());
+      if (membersRes.ok) setProjectMembers(await membersRes.json());
     } catch (err) {
       console.error("[ProjectDetail] load error", err);
     } finally {
@@ -217,6 +242,14 @@ export function ProjectDetail({ projectId, onBack }: ProjectDetailProps) {
   useEffect(() => {
     loadProjectDetail();
   }, [loadProjectDetail]);
+
+  useEffect(() => {
+    if (project?.project_manager_id) {
+      setSelectedManagerId(String(project.project_manager_id));
+      return;
+    }
+    setSelectedManagerId("");
+  }, [project?.project_manager_id]);
 
   const advanceProjectPhase = async () => {
     const workflow = project?.workflow as ProjectWorkflowSummary | undefined;
@@ -248,6 +281,92 @@ export function ProjectDetail({ projectId, onBack }: ProjectDetailProps) {
     }
   };
 
+  const assignManager = async () => {
+    if (!canManageTeam) return;
+    setAssignmentBusy(true);
+    setAssignmentError(null);
+    setAssignmentSuccess(null);
+    try {
+      const payload = {
+        manager_id: selectedManagerId ? Number(selectedManagerId) : null,
+      };
+      const res = await apiFetch(`${API_BASE}/projects/${projectId}/manager`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        setAssignmentError(err.error || "Impossible d'assigner le chef de projet.");
+        return;
+      }
+      setAssignmentSuccess("Chef de projet mis à jour.");
+      await loadProjectDetail();
+    } catch (error) {
+      console.error("[ProjectDetail.assignManager]", error);
+      setAssignmentError("Impossible d'assigner le chef de projet.");
+    } finally {
+      setAssignmentBusy(false);
+    }
+  };
+
+  const addMember = async () => {
+    if (!canManageTeam) return;
+    if (!memberUserId || !memberRoleId) {
+      setAssignmentError("Sélectionnez un utilisateur et un rôle.");
+      return;
+    }
+    setAssignmentBusy(true);
+    setAssignmentError(null);
+    setAssignmentSuccess(null);
+    try {
+      const res = await apiFetch(`${API_BASE}/projects/${projectId}/members`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ user_id: Number(memberUserId), role_id: Number(memberRoleId) }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        setAssignmentError(err.error || "Impossible d'ajouter le membre.");
+        return;
+      }
+      setAssignmentSuccess("Membre ajouté au projet.");
+      setMemberUserId("");
+      setMemberRoleId("");
+      await loadProjectDetail();
+    } catch (error) {
+      console.error("[ProjectDetail.addMember]", error);
+      setAssignmentError("Impossible d'ajouter le membre.");
+    } finally {
+      setAssignmentBusy(false);
+    }
+  };
+
+  const removeMember = async (membershipId: number) => {
+    if (!canManageTeam) return;
+    if (!window.confirm("Retirer ce membre du projet ?")) return;
+    setAssignmentBusy(true);
+    setAssignmentError(null);
+    setAssignmentSuccess(null);
+    try {
+      const res = await apiFetch(`${API_BASE}/projects/${projectId}/members/${membershipId}`, {
+        method: "DELETE",
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        setAssignmentError(err.error || "Impossible de retirer ce membre.");
+        return;
+      }
+      setAssignmentSuccess("Membre retiré du projet.");
+      await loadProjectDetail();
+    } catch (error) {
+      console.error("[ProjectDetail.removeMember]", error);
+      setAssignmentError("Impossible de retirer ce membre.");
+    } finally {
+      setAssignmentBusy(false);
+    }
+  };
+
   // ── Add Lot ────────────────────────────────────────────────────────────────
 
   const addLot = async () => {
@@ -261,6 +380,7 @@ export function ProjectDetail({ projectId, onBack }: ProjectDetailProps) {
         trade_code:  lotForm.trade_code,
         description: lotForm.description.trim() || null,
         status:      lotForm.status,
+        schedule_status: lotForm.schedule_status,
       };
       if (lotForm.budget_allocated !== "") payload.budget_allocated = Number(lotForm.budget_allocated);
       if (lotForm.start_date) payload.start_date = lotForm.start_date;
@@ -299,6 +419,7 @@ export function ProjectDetail({ projectId, onBack }: ProjectDetailProps) {
         trade_code:  lotForm.trade_code,
         description: lotForm.description.trim() || null,
         status:      lotForm.status,
+        schedule_status: lotForm.schedule_status,
       };
       if (lotForm.budget_allocated !== "") payload.budget_allocated = Number(lotForm.budget_allocated);
       if (lotForm.start_date) payload.start_date = lotForm.start_date;
@@ -349,12 +470,13 @@ export function ProjectDetail({ projectId, onBack }: ProjectDetailProps) {
     setTaskSaving(true);
     try {
       const payload: Record<string, any> = {
-        lot_id:   Number(taskForm.lot_id),
-        title:    taskForm.title.trim(),
-        description: taskForm.description.trim() || null,
-        status:   taskForm.status,
-        priority: taskForm.priority,
-        progress: Number(taskForm.progress),
+        lot_id:          Number(taskForm.lot_id),
+        title:           taskForm.title.trim(),
+        description:     taskForm.description.trim() || null,
+        status:          taskForm.status,
+        schedule_status: taskForm.schedule_status,
+        priority:        taskForm.priority,
+        progress:        Number(taskForm.progress),
       };
       if (taskForm.planned_start) payload.planned_start = taskForm.planned_start;
       if (taskForm.planned_end)   payload.planned_end   = taskForm.planned_end;
@@ -537,6 +659,7 @@ export function ProjectDetail({ projectId, onBack }: ProjectDetailProps) {
     { id: "wbs",        icon: GitBranch,         label: "SDT",        count: wbs.length },
     { id: "lots",       icon: Layers,            label: "Lots & Tâches", count: lots.length },
     { id: "budget",     icon: Coins,             label: "Budget",     count: budgetLines.length },
+    { id: "notes",      icon: StickyNote,        label: "Notes",      count: 0 },
     ...(RECEPTION_PHASES.includes(project.phase)
       ? [{ id: "receptions", icon: ClipboardSignature, label: "Réceptions", count: 0 }]
       : []),
@@ -629,21 +752,8 @@ export function ProjectDetail({ projectId, onBack }: ProjectDetailProps) {
         <ArrowLeft size={16} /> Retour aux projets
       </button>
 
-      {/* Project header */}
       <div className="flex flex-col md:flex-row md:items-end justify-between gap-4">
         <div>
-          <div className="flex items-center gap-3 mb-1">
-            <span className="text-xs font-mono font-bold text-gb-primary bg-gb-primary/10 px-2 py-1 rounded ring-1 ring-gb-primary/20">
-              {project.code}
-            </span>
-            <Badge variant="outline" className="border-gb-border text-gb-muted">
-              {STATUS_LABELS[project.status] ?? project.status}
-            </Badge>
-            <span className={`inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-bold ${currentPhase.badge}`}>
-              <span className={`h-2 w-2 rounded-full ${currentPhase.dot}`} />
-              {currentPhase.label}
-            </span>
-          </div>
           <h2 className="text-3xl font-extrabold text-gb-text tracking-tight">{project.title}</h2>
           <p className="text-gb-muted text-sm flex items-center gap-2 mt-2">
             <span className="font-medium text-gb-text/70">{project.location}</span>
@@ -923,7 +1033,7 @@ export function ProjectDetail({ projectId, onBack }: ProjectDetailProps) {
 
               {showTaskDialog && (
                 <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-                  <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={() => { setShowTaskDialog(false); setEditingTask(null); }} />
+                  <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" />
                   <div className="relative bg-gb-surface-solid border border-gb-border rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
                     <div className="flex items-center justify-between p-5 border-b border-gb-border">
                       <div>
@@ -1002,6 +1112,20 @@ export function ProjectDetail({ projectId, onBack }: ProjectDetailProps) {
                             <option value="CRITICAL">Critique</option>
                           </select>
                         </div>
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-semibold text-gb-text mb-1.5">Statut planning</label>
+                        <select
+                          value={taskForm.schedule_status}
+                          onChange={e => setTaskForm(p => ({ ...p, schedule_status: e.target.value }))}
+                          className="w-full bg-gb-app border border-gb-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gb-primary"
+                        >
+                          <option value="ON_TRACK">Dans les délais</option>
+                          <option value="AT_RISK">À risque</option>
+                          <option value="DELAYED">En retard</option>
+                          <option value="BLOCKED">Bloqué</option>
+                        </select>
                       </div>
 
                       <div>
@@ -1179,6 +1303,21 @@ export function ProjectDetail({ projectId, onBack }: ProjectDetailProps) {
                         </div>
                       </div>
 
+                      {/* Statut planning */}
+                      <div>
+                        <label className="block text-xs font-semibold text-gb-text mb-1.5">Statut planning</label>
+                        <select
+                          value={lotForm.schedule_status}
+                          onChange={e => setLotForm(p => ({ ...p, schedule_status: e.target.value }))}
+                          className="w-full bg-gb-app border border-gb-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-gb-primary"
+                        >
+                          <option value="ON_TRACK">Dans les délais</option>
+                          <option value="AT_RISK">À risque</option>
+                          <option value="DELAYED">En retard</option>
+                          <option value="BLOCKED">Bloqué</option>
+                        </select>
+                      </div>
+
                       {/* Ligne 4 : Dates */}
                       <div className="grid grid-cols-2 gap-3">
                         <div>
@@ -1251,6 +1390,14 @@ export function ProjectDetail({ projectId, onBack }: ProjectDetailProps) {
                           <span className="text-[10px] font-mono bg-gb-app border border-gb-border px-2 py-0.5 rounded-full text-gb-muted shrink-0">
                             {lotTasks.length} tâche{lotTasks.length > 1 ? "s" : ""}
                           </span>
+                          {lot.schedule_status && lot.schedule_status !== "ON_TRACK" && (
+                            <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border shrink-0 ${(SCHEDULE_STATUS_META[lot.schedule_status] ?? SCHEDULE_STATUS_META["ON_TRACK"]).badge}`}>
+                              {(SCHEDULE_STATUS_META[lot.schedule_status] ?? SCHEDULE_STATUS_META["ON_TRACK"]).label}
+                            </span>
+                          )}
+                          {lot.is_archived && (
+                            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full border border-slate-400/20 bg-slate-400/10 text-slate-400 shrink-0">Archivé</span>
+                          )}
                         </div>
                         <div className="sm:ml-2 sm:shrink-0 w-full sm:w-auto">
                           <div className="flex flex-wrap items-center gap-1.5 justify-start sm:justify-end">
@@ -1280,6 +1427,7 @@ export function ProjectDetail({ projectId, onBack }: ProjectDetailProps) {
                                     trade_code:       lot.trade_code ?? "",
                                     description:      lot.description ?? "",
                                     status:           lot.status ?? "CONCEPTION",
+                                    schedule_status:  lot.schedule_status ?? "ON_TRACK",
                                     budget_allocated: lot.budget_allocated > 0 ? String(lot.budget_allocated) : "",
                                     start_date:       lot.start_date ? String(lot.start_date).split('T')[0] : "",
                                     end_date:         lot.end_date   ? String(lot.end_date).split('T')[0]   : "",
@@ -1409,14 +1557,15 @@ export function ProjectDetail({ projectId, onBack }: ProjectDetailProps) {
                                         if (!canManageTasks) return;
                                         setEditingTask(task);
                                         setTaskForm({
-                                          lot_id:        String(task.lot_id ?? task.lot?.id ?? lot.id),
-                                          title:         task.title ?? "",
-                                          description:   task.description ?? "",
-                                          status:        task.status ?? "TODO",
-                                          priority:      task.priority ?? "MEDIUM",
-                                          progress:      String(task.progress ?? 0),
-                                          planned_start: task.planned_start ? String(task.planned_start).split('T')[0] : "",
-                                          planned_end:   task.planned_end   ? String(task.planned_end).split('T')[0]   : "",
+                                          lot_id:          String(task.lot_id ?? task.lot?.id ?? lot.id),
+                                          title:           task.title ?? "",
+                                          description:     task.description ?? "",
+                                          status:          task.status ?? "TODO",
+                                          schedule_status: task.schedule_status ?? "ON_TRACK",
+                                          priority:        task.priority ?? "MEDIUM",
+                                          progress:        String(task.progress ?? 0),
+                                          planned_start:   task.planned_start ? String(task.planned_start).split('T')[0] : "",
+                                          planned_end:     task.planned_end   ? String(task.planned_end).split('T')[0]   : "",
                                         });
                                         setShowTaskDialog(true);
                                       }}
@@ -1511,6 +1660,16 @@ export function ProjectDetail({ projectId, onBack }: ProjectDetailProps) {
             </motion.div>
           )}
 
+          {/* Notes d'exécution */}
+          {activeTab === "notes" && (
+            <motion.div initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }} className="space-y-4">
+              <h3 className="text-lg font-bold text-gb-text flex items-center gap-2">
+                <StickyNote className="text-gb-primary" /> Notes d'exécution
+              </h3>
+              <ExecutionNotePanel project_id={projectId} lots={lots} tasks={tasks} />
+            </motion.div>
+          )}
+
           {/* Réceptions */}
           {activeTab === "receptions" && (
             <motion.div initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }}>
@@ -1542,6 +1701,352 @@ export function ProjectDetail({ projectId, onBack }: ProjectDetailProps) {
               </motion.div>
             )}
           </AnimatePresence>
+
+          {/* ── Fiche projet complète ─────────────────────────────── */}
+          <motion.aside
+            initial={{ opacity: 0, y: 12 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="bg-gb-surface-solid border border-gb-border rounded-2xl p-5 shadow-sm"
+          >
+            <div className="flex items-start justify-between gap-3 mb-4">
+              <div>
+                <p className="text-[10px] font-black uppercase tracking-widest text-gb-muted">Fiche projet</p>
+                <h3 className="mt-1 text-base font-black text-gb-text flex items-center gap-2">
+                  <Info size={16} className="text-gb-primary" />
+                  Informations complètes
+                </h3>
+              </div>
+              {onEdit && (
+                <button
+                  type="button"
+                  onClick={() => onEdit?.(project)}
+                  disabled={tasks.length > 0}
+                  title={tasks.length > 0 ? "Modification indisponible : le projet contient déjà des tâches." : "Modifier le projet"}
+                  className="inline-flex items-center gap-2 rounded-full border border-gb-primary/40 bg-gb-primary px-4 py-2 text-xs font-black uppercase tracking-wide text-gb-inverse shadow-[0_10px_24px_-14px_rgba(14,165,233,0.9)] transition-all hover:-translate-y-0.5 hover:shadow-[0_14px_28px_-14px_rgba(14,165,233,0.95)] disabled:cursor-not-allowed disabled:border-gb-border disabled:bg-gb-app disabled:text-gb-muted disabled:opacity-70 disabled:shadow-none disabled:hover:translate-y-0 shrink-0"
+                >
+                  <Pencil size={13} />
+                  Modifier le projet
+                </button>
+              )}
+            </div>
+
+            {/* Identification */}
+            <div className="rounded-xl border border-gb-border bg-gb-app/30 p-4">
+              <p className="text-[10px] font-bold text-gb-muted uppercase tracking-wider mb-3">Identification</p>
+              <div className="space-y-1.5 text-xs">
+                <div className="flex justify-between gap-2">
+                  <span className="text-gb-muted">Code</span>
+                  <span className="text-gb-text font-semibold font-mono">{project.code}</span>
+                </div>
+                <div className="flex justify-between gap-2">
+                  <span className="text-gb-muted">Statut</span>
+                  <span className="text-gb-text font-medium">{STATUS_LABELS[project.status] ?? project.status}</span>
+                </div>
+                <div className="flex justify-between gap-2">
+                  <span className="text-gb-muted">Phase</span>
+                  <span className="text-gb-text font-medium">{currentPhase.label}</span>
+                </div>
+                {project.building_type && (
+                  <div className="flex justify-between gap-2">
+                    <span className="text-gb-muted">Type d'ouvrage</span>
+                    <span className="text-gb-text font-medium text-right">{project.building_type}</span>
+                  </div>
+                )}
+                {project.erp_project_id && (
+                  <div className="flex justify-between gap-2">
+                    <span className="text-gb-muted">Réf. ERP</span>
+                    <span className="text-gb-text font-medium">{project.erp_project_id}</span>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Calendrier */}
+            {(project.start_date || project.end_date) && (
+              <div className="mt-3 rounded-xl border border-gb-border bg-gb-app/30 p-4">
+                <p className="text-[10px] font-bold text-gb-muted uppercase tracking-wider mb-3">Calendrier</p>
+                <div className="space-y-1.5 text-xs">
+                  {project.start_date && (
+                    <div className="flex justify-between gap-2">
+                      <span className="text-gb-muted">Date début</span>
+                      <span className="text-gb-text font-medium">{new Date(project.start_date).toLocaleDateString("fr-FR")}</span>
+                    </div>
+                  )}
+                  {project.end_date && (
+                    <div className="flex justify-between gap-2">
+                      <span className="text-gb-muted">Date fin prévue</span>
+                      <span className="text-gb-text font-medium">{new Date(project.end_date).toLocaleDateString("fr-FR")}</span>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* Client & MOE */}
+            {(project.client_name || project.client_contact_name || project.client_phone || project.moe_firm_name || project.control_bureau) && (
+              <div className="mt-3 rounded-xl border border-gb-border bg-gb-app/30 p-4">
+                <p className="text-[10px] font-bold text-gb-muted uppercase tracking-wider mb-3">Client & MOE</p>
+                <div className="space-y-1.5 text-xs">
+                  {project.client_name && (
+                    <div className="flex justify-between gap-2">
+                      <span className="text-gb-muted shrink-0">Client</span>
+                      <span className="text-gb-text font-medium text-right break-all">{project.client_name}</span>
+                    </div>
+                  )}
+                  {project.client_contact_name && (
+                    <div className="flex justify-between gap-2">
+                      <span className="text-gb-muted shrink-0">Contact</span>
+                      <span className="text-gb-text font-medium text-right">{project.client_contact_name}</span>
+                    </div>
+                  )}
+                  {project.client_phone && (
+                    <div className="flex justify-between gap-2">
+                      <span className="text-gb-muted shrink-0">Téléphone</span>
+                      <span className="text-gb-text font-medium">{project.client_phone}</span>
+                    </div>
+                  )}
+                  {project.moe_firm_name && (
+                    <div className="flex justify-between gap-2">
+                      <span className="text-gb-muted shrink-0">Maître d'œuvre</span>
+                      <span className="text-gb-text font-medium text-right break-all">{project.moe_firm_name}</span>
+                    </div>
+                  )}
+                  {project.control_bureau && (
+                    <div className="flex justify-between gap-2">
+                      <span className="text-gb-muted shrink-0">Bureau de contrôle</span>
+                      <span className="text-gb-text font-medium text-right break-all">{project.control_bureau}</span>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* Localisation détaillée */}
+            {(project.street_address || project.city || project.country || project.postal_code || (project.latitude && project.longitude)) && (
+              <div className="mt-3 rounded-xl border border-gb-border bg-gb-app/30 p-4">
+                <p className="text-[10px] font-bold text-gb-muted uppercase tracking-wider mb-3">Localisation détaillée</p>
+                <div className="space-y-1.5 text-xs">
+                  {project.street_address && (
+                    <div className="flex justify-between gap-2">
+                      <span className="text-gb-muted shrink-0">Adresse</span>
+                      <span className="text-gb-text font-medium text-right">{project.street_address}</span>
+                    </div>
+                  )}
+                  {project.postal_code && (
+                    <div className="flex justify-between gap-2">
+                      <span className="text-gb-muted shrink-0">Code postal</span>
+                      <span className="text-gb-text font-medium">{project.postal_code}</span>
+                    </div>
+                  )}
+                  {project.city && (
+                    <div className="flex justify-between gap-2">
+                      <span className="text-gb-muted shrink-0">Ville</span>
+                      <span className="text-gb-text font-medium">{project.city}</span>
+                    </div>
+                  )}
+                  {project.country && (
+                    <div className="flex justify-between gap-2">
+                      <span className="text-gb-muted shrink-0">Pays</span>
+                      <span className="text-gb-text font-medium">{project.country}</span>
+                    </div>
+                  )}
+                  {(project.latitude && project.longitude) && (
+                    <div className="flex justify-between gap-2">
+                      <span className="text-gb-muted shrink-0">GPS</span>
+                      <span className="text-gb-text font-medium font-mono">{project.latitude}, {project.longitude}</span>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* Finances */}
+            <div className="mt-3 rounded-xl border border-gb-border bg-gb-app/30 p-4">
+              <p className="text-[10px] font-bold text-gb-muted uppercase tracking-wider mb-3">Finances</p>
+              <div className="space-y-1.5 text-xs">
+                <div className="flex justify-between gap-2">
+                  <span className="text-gb-muted shrink-0">Budget initial</span>
+                  <span className="text-gb-text font-bold">{(project.budget_initial ?? 0).toLocaleString("fr-FR")} {project.currency}</span>
+                </div>
+                {project.budget_approved != null && (
+                  <div className="flex justify-between gap-2">
+                    <span className="text-gb-muted shrink-0">Budget approuvé</span>
+                    <span className="text-gb-text font-medium">{Number(project.budget_approved).toLocaleString("fr-FR")} {project.currency}</span>
+                  </div>
+                )}
+                {project.budget_committed != null && (
+                  <div className="flex justify-between gap-2">
+                    <span className="text-gb-muted shrink-0">Budget engagé</span>
+                    <span className="text-gb-text font-medium">{Number(project.budget_committed).toLocaleString("fr-FR")} {project.currency}</span>
+                  </div>
+                )}
+                {project.contingency_budget != null && (
+                  <div className="flex justify-between gap-2">
+                    <span className="text-gb-muted shrink-0">Réserve</span>
+                    <span className="text-gb-text font-medium">{Number(project.contingency_budget).toLocaleString("fr-FR")} {project.currency}</span>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* HSE & Réglementaire */}
+            {(project.permit_number || project.permit_type || project.risk_classification) && (
+              <div className="mt-3 rounded-xl border border-gb-border bg-gb-app/30 p-4">
+                <p className="text-[10px] font-bold text-gb-muted uppercase tracking-wider mb-3">HSE & Réglementaire</p>
+                <div className="space-y-1.5 text-xs">
+                  {project.permit_number && (
+                    <div className="flex justify-between gap-2">
+                      <span className="text-gb-muted shrink-0">N° permis</span>
+                      <span className="text-gb-text font-medium">{project.permit_number}</span>
+                    </div>
+                  )}
+                  {project.permit_type && (
+                    <div className="flex justify-between gap-2">
+                      <span className="text-gb-muted shrink-0">Type permis</span>
+                      <span className="text-gb-text font-medium">{project.permit_type}</span>
+                    </div>
+                  )}
+                  {project.risk_classification && (
+                    <div className="flex justify-between gap-2">
+                      <span className="text-gb-muted shrink-0">Classe de risque</span>
+                      <span className="text-gb-text font-medium">{project.risk_classification}</span>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+          </motion.aside>
+
+          {/* ── Gouvernance projet ───────────────────────────────────── */}
+          <motion.aside
+            initial={{ opacity: 0, y: 12 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="bg-gb-surface-solid border border-gb-border rounded-2xl p-5 shadow-sm"
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-[10px] font-black uppercase tracking-widest text-gb-muted">Gouvernance projet</p>
+                <h3 className="mt-1 text-base font-black text-gb-text flex items-center gap-2">
+                  <UserCog size={16} className="text-gb-primary" />
+                  Affectations
+                </h3>
+              </div>
+              <span className="inline-flex items-center gap-2 rounded-full border border-gb-border bg-gb-app px-2.5 py-1 text-[10px] font-black uppercase text-gb-muted">
+                {projectMembers.length} membre{projectMembers.length > 1 ? "s" : ""}
+              </span>
+            </div>
+
+            <div className="mt-4 rounded-xl border border-gb-border bg-gb-app/30 p-4 space-y-3">
+              <p className="text-xs font-semibold text-gb-muted uppercase tracking-wide">Chef de projet</p>
+              <select
+                value={selectedManagerId}
+                onChange={(e) => setSelectedManagerId(e.target.value)}
+                className="w-full rounded-lg border border-gb-border bg-gb-surface-solid px-3 py-2 text-sm text-gb-text"
+                disabled={!canManageTeam || assignmentBusy}
+              >
+                <option value="">Aucun chef de projet</option>
+                {projectUsers.map((u: any) => (
+                  <option key={u.id} value={String(u.id)}>
+                    {u.firstname} {u.lastname} {u.email ? `(${u.email})` : ""}
+                  </option>
+                ))}
+              </select>
+              {canManageTeam && (
+                <button
+                  onClick={assignManager}
+                  disabled={assignmentBusy}
+                  className="w-full rounded-lg bg-gb-primary px-4 py-2 text-sm font-bold text-gb-inverse hover:bg-gb-primary/90 disabled:opacity-50"
+                >
+                  {assignmentBusy ? "Enregistrement..." : "Enregistrer le chef de projet"}
+                </button>
+              )}
+            </div>
+
+            <div className="mt-4 rounded-xl border border-gb-border bg-gb-app/30 p-4 space-y-3">
+              <p className="text-xs font-semibold text-gb-muted uppercase tracking-wide">Ajouter un membre</p>
+              <select
+                value={memberUserId}
+                onChange={(e) => setMemberUserId(e.target.value)}
+                className="w-full rounded-lg border border-gb-border bg-gb-surface-solid px-3 py-2 text-sm text-gb-text"
+                disabled={!canManageTeam || assignmentBusy}
+              >
+                <option value="">Choisir un utilisateur</option>
+                {projectUsers
+                  .filter((u: any) => !projectMembers.some((m: any) => String(m.user_id) === String(u.id)))
+                  .map((u: any) => (
+                  <option key={u.id} value={String(u.id)}>
+                    {u.firstname} {u.lastname} {u.email ? `(${u.email})` : ""}
+                  </option>
+                ))}
+              </select>
+              <select
+                value={memberRoleId}
+                onChange={(e) => setMemberRoleId(e.target.value)}
+                className="w-full rounded-lg border border-gb-border bg-gb-surface-solid px-3 py-2 text-sm text-gb-text"
+                disabled={!canManageTeam || assignmentBusy}
+              >
+                <option value="">Choisir un rôle</option>
+                {assignableRoles.map((r: any) => (
+                  <option key={r.id} value={String(r.id)}>
+                    {r.code} - {r.name}
+                  </option>
+                ))}
+              </select>
+              {canManageTeam && (
+                <button
+                  onClick={addMember}
+                  disabled={assignmentBusy}
+                  className="inline-flex w-full items-center justify-center gap-2 rounded-lg border border-gb-border bg-gb-surface-solid px-4 py-2 text-sm font-semibold text-gb-text hover:bg-gb-surface-hover disabled:opacity-50"
+                >
+                  <UserPlus size={14} />
+                  Ajouter au projet
+                </button>
+              )}
+            </div>
+
+            <div className="mt-4 space-y-2">
+              {projectMembers.length === 0 ? (
+                <div className="rounded-xl border border-dashed border-gb-border bg-gb-app/30 px-4 py-3 text-sm text-gb-muted">
+                  Aucun membre assigné pour le moment.
+                </div>
+              ) : (
+                projectMembers.map((member: any) => (
+                  <div key={member.id} className="flex items-center justify-between gap-2 rounded-xl border border-gb-border bg-gb-app/40 px-3 py-2">
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-semibold text-gb-text">
+                        {member.user?.firstname} {member.user?.lastname}
+                      </p>
+                      <p className="truncate text-xs text-gb-muted">
+                        {member.role?.name || member.role?.code}
+                      </p>
+                    </div>
+                    {canManageTeam && (
+                      <button
+                        onClick={() => removeMember(member.id)}
+                        disabled={assignmentBusy}
+                        className="inline-flex items-center gap-1 rounded-md border border-gb-border px-2 py-1 text-xs font-semibold text-gb-muted hover:text-gb-danger disabled:opacity-50"
+                        title="Retirer du projet"
+                      >
+                        <UserMinus size={12} />
+                        Retirer
+                      </button>
+                    )}
+                  </div>
+                ))
+              )}
+            </div>
+
+            {assignmentError && (
+              <div className="mt-4 rounded-xl border border-gb-danger/20 bg-gb-danger/10 px-3 py-2 text-xs text-gb-danger">
+                {assignmentError}
+              </div>
+            )}
+            {assignmentSuccess && (
+              <div className="mt-4 rounded-xl border border-emerald-500/20 bg-emerald-500/10 px-3 py-2 text-xs text-emerald-700">
+                {assignmentSuccess}
+              </div>
+            )}
+          </motion.aside>
 
           <motion.aside
             initial={{ opacity: 0, y: 12 }}
@@ -1653,7 +2158,7 @@ export function ProjectDetail({ projectId, onBack }: ProjectDetailProps) {
                   </div>
                 )}
 
-                {can("project:update") && nextPhase && (
+                {canTransitionPhase && nextPhase && (
                   <button
                     onClick={advanceProjectPhase}
                     disabled={!workflow.canAdvance || workflowAdvancing}

@@ -130,7 +130,14 @@ function clampWindowDays(raw: number): number {
 
 function derivePersonas(permissions: string[]): DashboardPersona[] {
   const canExecutive = permissions.includes("invoice:approve") || permissions.includes("change-order:approve") || permissions.includes("tenant:read") || permissions.includes("report:validate");
-  const canManagement = permissions.includes("project:update") || permissions.includes("budget:update") || permissions.includes("task:update") || permissions.includes("contract:update");
+  const canManagement =
+    permissions.includes("project:update") ||
+    permissions.includes("project:metadata:update") ||
+    permissions.includes("project:team:update") ||
+    permissions.includes("project:phase:transition") ||
+    permissions.includes("budget:update") ||
+    permissions.includes("contract:update") ||
+    permissions.includes("change-order:update");
   const canOperational = permissions.includes("daily-log:create") || permissions.includes("incident:create") || permissions.includes("inspection:create") || permissions.includes("task:read");
 
   const personas: DashboardPersona[] = [];

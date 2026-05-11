@@ -23,7 +23,13 @@ const DEFAULT_SEED_MATRICULES = {
   sg: 'SG001',
   directeur: 'DR001',
   chefProjet: 'CP001',
-  conducteurTravaux: 'CT001',
+  chefChantier: 'CC001',
+  controleurChantier: 'CCH001',
+  acheteur: 'ACH001',
+  responsableAppelsOffres: 'RAO001',
+  gestionnaireRh: 'GRH001',
+  comptable: 'CPT001',
+  consultant: 'CST001',
 } as const;
 
 export async function syncSeedUsers(): Promise<void> {
@@ -57,7 +63,11 @@ export async function syncSeedUsers(): Promise<void> {
     });
     roleMap[r.code] = role.id;
 
-    for (const permCode of r.permissions) {
+    const targetPermCodes = r.permissions === 'ALL'
+      ? PERMISSION_CATALOG.map((p) => p.code)
+      : r.permissions;
+
+    for (const permCode of targetPermCodes) {
       const permId = permissionMap[permCode];
       if (!permId) continue;
       await prisma.rolePermission.upsert({
@@ -130,8 +140,14 @@ export async function syncSeedUsers(): Promise<void> {
   await ensureUser({ email: 'dg@btp.erp',         username: 'dg_btp',         matricule: DEFAULT_SEED_MATRICULES.dg,                firstname: 'Directeur',  lastname: 'Général',  roleCode: 'DG' });
   await ensureUser({ email: 'sg@btp.erp',         username: 'sg_btp',         matricule: DEFAULT_SEED_MATRICULES.sg,                firstname: 'Secrétaire', lastname: 'Général',  roleCode: 'SG' });
   await ensureUser({ email: 'directeur@btp.erp',  username: 'directeur_btp',  matricule: DEFAULT_SEED_MATRICULES.directeur,         firstname: 'Directeur',  lastname: 'Projets',  roleCode: 'DIRECTEUR' });
-  await ensureUser({ email: cpEmail,              username: cpUsername,        matricule: cpMatricule,   firstname: 'Jean',       lastname: 'Bâtisseur',roleCode: 'CHEF_PROJET' });
-  await ensureUser({ email: 'conducteur@btp.erp', username: 'conducteur_btp', matricule: DEFAULT_SEED_MATRICULES.conducteurTravaux, firstname: 'Marc',       lastname: 'Chantier', roleCode: 'CONDUCTEUR_TRAVAUX' });
+  await ensureUser({ email: cpEmail,              username: cpUsername,       matricule: cpMatricule,                          firstname: 'Jean',        lastname: 'Bâtisseur', roleCode: 'CHEF_PROJET' });
+  await ensureUser({ email: 'chantier@btp.erp',   username: 'chantier_btp',   matricule: DEFAULT_SEED_MATRICULES.chefChantier,  firstname: 'Marc',        lastname: 'Chantier',  roleCode: 'CHEF_CHANTIER' });
+  await ensureUser({ email: 'controle@btp.erp',   username: 'controle_btp',   matricule: DEFAULT_SEED_MATRICULES.controleurChantier, firstname: 'Nadia',    lastname: 'Contrôle',  roleCode: 'CONTROLEUR_CHANTIER' });
+  await ensureUser({ email: 'acheteur@btp.erp',   username: 'acheteur_btp',   matricule: DEFAULT_SEED_MATRICULES.acheteur,       firstname: 'Awa',         lastname: 'Achat',     roleCode: 'ACHETEUR' });
+  await ensureUser({ email: 'ao@btp.erp',         username: 'ao_btp',         matricule: DEFAULT_SEED_MATRICULES.responsableAppelsOffres, firstname: 'Koffi', lastname: 'Appels',    roleCode: 'RESPONSABLE_APPELS_OFFRES' });
+  await ensureUser({ email: 'rh@btp.erp',         username: 'rh_btp',         matricule: DEFAULT_SEED_MATRICULES.gestionnaireRh, firstname: 'Fatou',       lastname: 'Ressources', roleCode: 'GESTIONNAIRE_RH' });
+  await ensureUser({ email: 'comptable@btp.erp',  username: 'comptable_btp',  matricule: DEFAULT_SEED_MATRICULES.comptable,      firstname: 'Mariam',      lastname: 'Compta',    roleCode: 'COMPTABLE' });
+  await ensureUser({ email: 'consultant@btp.erp', username: 'consultant_btp', matricule: DEFAULT_SEED_MATRICULES.consultant,     firstname: 'Alex',        lastname: 'Consultant', roleCode: 'CONSULTANT' });
 
   // ── 6. Référentiel TradeCategory (corps d'état BTP) ─────────────────────────
   // Catalogue normatif global — créé uniquement si absent, jamais modifié.

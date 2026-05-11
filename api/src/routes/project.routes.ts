@@ -1,12 +1,13 @@
 import { Router } from "express";
 import { ProjectController } from '../controllers/project.controller.js';
-import { requireAuth, requirePermission } from '../middlewares/auth.middleware.js';
+import { requireAuth, requireAnyPermission, requirePermission } from '../middlewares/auth.middleware.js';
 
 const projectRouter = Router();
 projectRouter.use(requireAuth);
 
 // ─── Helpers pour formulaires (avant /:id pour éviter les conflits) ───────────
 projectRouter.get("/helpers/users",              requirePermission("project:read"),     ProjectController.getUsers);
+projectRouter.get("/helpers/roles",              requirePermission("project:team:update"),   ProjectController.getAssignableRoles);
 projectRouter.get("/helpers/suppliers",          requirePermission("project:read"),     ProjectController.getSuppliers);
 projectRouter.get("/helpers/trade-categories",   requirePermission("project-lot:read"), ProjectController.getTradeCategories);
 projectRouter.get("/:projectId/helpers/wbs",     requirePermission("wbs:read"),         ProjectController.getWBSForProject);
@@ -14,14 +15,14 @@ projectRouter.get("/:projectId/helpers/wbs",     requirePermission("wbs:read"), 
 projectRouter.get("/tasks",                      requirePermission("task:read"),        ProjectController.listAllTasks);
 
 // ─── Projects ─────────────────────────────────────────────────────────────────
-projectRouter.get("/",       requirePermission("project:read"),   ProjectController.listProjects);
-projectRouter.post("/query", requirePermission("project:read"),   ProjectController.queryProjects);
-projectRouter.get("/export/excel", requirePermission("project:read"), ProjectController.exportProjectsExcel);
-projectRouter.get("/export/pdf", requirePermission("project:read"), ProjectController.exportProjectsPdf);
-projectRouter.get("/:id",    requirePermission("project:read"),   ProjectController.getProject);
-projectRouter.get("/:projectId/phase-transitions", requirePermission("project:read"), ProjectController.getProjectPhaseTransitions);
+projectRouter.get("/",       requireAnyPermission("project:read", "project:read:all"),   ProjectController.listProjects);
+projectRouter.post("/query", requireAnyPermission("project:read", "project:read:all"),   ProjectController.queryProjects);
+projectRouter.get("/export/excel", requireAnyPermission("project:read", "project:read:all"), ProjectController.exportProjectsExcel);
+projectRouter.get("/export/pdf", requireAnyPermission("project:read", "project:read:all"), ProjectController.exportProjectsPdf);
+projectRouter.get("/:id",    requireAnyPermission("project:read", "project:read:all"),   ProjectController.getProject);
+projectRouter.get("/:projectId/phase-transitions", requireAnyPermission("project:read", "project:read:all"), ProjectController.getProjectPhaseTransitions);
 projectRouter.post("/",      requirePermission("project:create"), ProjectController.createProject);
-projectRouter.patch("/:id",  requirePermission("project:update"), ProjectController.updateProject);
+projectRouter.patch("/:id",  requireAnyPermission("project:metadata:update", "project:phase:transition"), ProjectController.updateProject);
 projectRouter.delete("/:id", requirePermission("project:delete"), ProjectController.deleteProject);
 
 // ─── WBS ──────────────────────────────────────────────────────────────────────
@@ -48,5 +49,11 @@ projectRouter.get("/:projectId/budget-lines",  requirePermission("budget:read"),
 projectRouter.post("/budget-lines",            requirePermission("budget:create"),  ProjectController.createBudgetLine);
 projectRouter.patch("/budget-lines/:id",       requirePermission("budget:update"),  ProjectController.updateBudgetLine);
 projectRouter.delete("/budget-lines/:id",      requirePermission("budget:delete"),  ProjectController.deleteBudgetLine);
+
+// ─── Chef de Projet & Membres ─────────────────────────────────────────────────
+projectRouter.put("/:id/manager",                    requirePermission("project:team:update"), ProjectController.assignProjectManager);
+projectRouter.get("/:id/members",                    requireAnyPermission("project:read", "project:read:all"),   ProjectController.listProjectMembers);
+projectRouter.post("/:id/members",                   requirePermission("project:team:update"), ProjectController.addProjectMember);
+projectRouter.delete("/:id/members/:membershipId",   requirePermission("project:team:update"), ProjectController.removeProjectMember);
 
 export default projectRouter;

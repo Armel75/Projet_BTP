@@ -266,7 +266,7 @@ export class WeeklyReportService {
     return await this.getWeeklyReportById(report.id);
   }
 
-  static async getWeeklyReports(project_id: number) {
+  static async getWeeklyReports(project_id: number, prepared_by?: number) {
     const tenantId = TenantContext.getTenantId();
     if (!tenantId) throw new Error("Tenant session required");
 
@@ -276,7 +276,8 @@ export class WeeklyReportService {
         tenant_id: tenantId,
         status: {
           not: 'DELETED'
-        }
+        },
+        ...(prepared_by !== undefined && { prepared_by }),
       },
       include: {
         preparedBy: true,
@@ -298,6 +299,32 @@ export class WeeklyReportService {
         status: {
           not: 'DELETED'
         }
+      },
+      include: {
+        preparedBy: true,
+        validatedBy: true,
+        items: {
+          include: {
+            task: true
+          }
+        },
+        project: true
+      }
+    });
+  }
+
+  static async getWeeklyReportByIdForTenantScoped(id: number, prepared_by?: number) {
+    const tenantId = TenantContext.getTenantId();
+    if (!tenantId) throw new Error("Tenant session required");
+
+    return await prisma.weeklyReport.findFirst({
+      where: {
+        id,
+        tenant_id: tenantId,
+        status: {
+          not: 'DELETED'
+        },
+        ...(prepared_by !== undefined && { prepared_by }),
       },
       include: {
         preparedBy: true,

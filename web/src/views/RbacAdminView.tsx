@@ -60,6 +60,7 @@ export default function RbacAdminView() {
         const err = await res.json().catch(() => ({}));
         throw new Error(err.error || "Une erreur est survenue");
       }
+
       await fetchData();
     } catch (e: any) {
       alert(e.message);
