@@ -137,20 +137,25 @@ export default function SupplierFormDialog({ open, onOpenChange, supplier, onSav
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[92dvh] max-w-3xl border border-gb-border bg-gb-surface-solid p-0 text-gb-text sm:max-w-3xl flex flex-col overflow-hidden" showCloseButton={!saving}>
+      <DialogContent className="max-h-[92dvh] max-w-3xl border border-gb-border bg-gb-surface-solid p-0 text-gb-text sm:max-w-3xl flex flex-col overflow-hidden" showCloseButton={false}>
         <DialogHeader className="border-b border-gb-border px-6 py-5">
-          <div className="flex items-start gap-4">
-            <div className="flex h-12 w-12 items-center justify-center rounded-2xl border border-gb-border bg-gb-app text-gb-primary">
-              <Building2 size={22} />
+          <div className="flex items-start justify-between gap-4">
+            <div className="flex items-start gap-4">
+              <div className="flex h-12 w-12 items-center justify-center rounded-2xl border border-gb-border bg-gb-app text-gb-primary">
+                <Building2 size={22} />
+              </div>
+              <div className="space-y-1">
+                <DialogTitle className="text-xl font-black tracking-tight text-gb-text">
+                  {isEdit ? "Modifier le fournisseur" : "Nouveau fournisseur"}
+                </DialogTitle>
+                <DialogDescription className="text-sm text-gb-muted">
+                  Renseignez uniquement des informations réellement persistées par l'API achats.
+                </DialogDescription>
+              </div>
             </div>
-            <div className="space-y-1">
-              <DialogTitle className="text-xl font-black tracking-tight text-gb-text">
-                {isEdit ? "Modifier le fournisseur" : "Nouveau fournisseur"}
-              </DialogTitle>
-              <DialogDescription className="text-sm text-gb-muted">
-                Renseignez uniquement des informations réellement persistées par l'API achats.
-              </DialogDescription>
-            </div>
+            <button type="button" onClick={() => onOpenChange(false)} disabled={saving} className="p-1.5 rounded-lg text-gb-muted hover:bg-gb-surface-hover transition-colors disabled:opacity-50">
+              Fermer
+            </button>
           </div>
         </DialogHeader>
 

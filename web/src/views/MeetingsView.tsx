@@ -528,7 +528,7 @@ function MeetingFormDialog({ open, onClose, meeting, onSaved }: {
               </h2>
             </div>
             <button onClick={onClose} className="p-2 rounded-xl text-gb-muted hover:text-gb-text hover:bg-gb-surface-hover transition-colors">
-              <X size={18} />
+              Fermer
             </button>
           </div>
 

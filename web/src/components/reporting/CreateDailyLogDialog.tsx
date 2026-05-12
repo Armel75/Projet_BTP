@@ -131,6 +131,7 @@ export default function CreateDailyLogDialog({ open, onOpenChange, projectId, on
   const [uploadingPhotos, setUploadingPhotos] = useState(0);
   const [resolvedPhotoUrls, setResolvedPhotoUrls] = useState<Record<string, string>>({});
   const skipCleanupRef = useRef(false);
+  const closeRequestedRef = useRef(false);
   const isEditMode = Boolean(initialData?.id);
 
   const getDisplayPhotoUrl = (photo: UploadedPhoto) => {
@@ -486,7 +487,13 @@ export default function CreateDailyLogDialog({ open, onOpenChange, projectId, on
   };
 
   const handleOpenStateChange = (nextOpen: boolean) => {
+    if (!nextOpen && !closeRequestedRef.current) {
+      return;
+    }
+
     if (!nextOpen) {
+      closeRequestedRef.current = false;
+
       if (uploadingPhotos > 0 || submitting) {
         return;
       }
@@ -519,6 +526,32 @@ export default function CreateDailyLogDialog({ open, onOpenChange, projectId, on
       return;
     }
 
+    const missingLabels = activities.filter((activity) =>
+      activity.task_type === "planned"
+        ? activity.task_id <= 0
+        : activity.task_title_custom.trim().length === 0
+    ).length;
+    if (missingLabels > 0) {
+      alert(
+        `${missingLabels} activité${missingLabels > 1 ? "s" : ""} sans intitulé.\n\n` +
+        `• Activité planifiée : sélectionnez une tâche dans la liste.\n` +
+        `• Activité imprévue : saisissez un intitulé libre.\n\n` +
+        `Corrigez ces champs avant d'enregistrer le journal.`
+      );
+      return;
+    }
+
+    const missingProgress = activities.filter((activity) =>
+      activity.progress_percentage.trim().length === 0
+    ).length;
+    if (missingProgress > 0) {
+      alert(
+        `${missingProgress} activité${missingProgress > 1 ? "s" : ""} sans pourcentage d'avancement.\n\n` +
+        `Renseignez un avancement entre 0 et 100 pour chaque activité avant d'enregistrer le journal.`
+      );
+      return;
+    }
+
     setSubmitting(true);
     try {
       const payload = {
@@ -547,6 +580,7 @@ export default function CreateDailyLogDialog({ open, onOpenChange, projectId, on
       if (res.ok) {
         skipCleanupRef.current = true;
         onSuccess();
+        closeRequestedRef.current = true;
         handleOpenStateChange(false);
       }
       else { const err = await res.json(); alert(err.error || (isEditMode ? "Erreur de modification" : "Erreur de création")); }
@@ -554,12 +588,30 @@ export default function CreateDailyLogDialog({ open, onOpenChange, projectId, on
     finally { setSubmitting(false); }
   };
 
+  const activityCount = activities.length;
+  const plannedActivityCount = activities.filter((activity) => activity.task_type === "planned").length;
+  const unplannedActivityCount = activityCount - plannedActivityCount;
+  const totalLaborHours = activities.reduce((sum, activity) => {
+    return sum + activity.labor.reduce((entrySum, labor) => entrySum + (parseFloat(labor.hours) || 0), 0);
+  }, 0);
+  const totalEquipmentCount = activities.reduce((sum, activity) => sum + activity.equipment.length, 0);
+  const totalMaterialCount = activities.reduce((sum, activity) => sum + activity.materials.length, 0);
+  const totalPhotoCount = activities.reduce((sum, activity) => sum + activity.photos.length, 0);
+  const activitiesMissingLabel = activities.filter((activity) => {
+    return activity.task_type === "planned"
+      ? activity.task_id <= 0
+      : activity.task_title_custom.trim().length === 0;
+  }).length;
+
   //  Render 
 
   return (
     <Dialog open={open} onOpenChange={handleOpenStateChange}>
-      <DialogContent className="sm:max-w-3xl bg-gb-surface-solid border-gb-border p-0 overflow-hidden flex flex-col max-h-[90vh]">
-        <DialogHeader className="p-6 border-b border-gb-border bg-gb-app/30 shrink-0">
+      <DialogContent showCloseButton={false} className="sm:max-w-3xl bg-gb-surface-solid border-gb-border p-0 overflow-hidden flex flex-col max-h-[90vh]">
+        <DialogHeader className="relative p-6 border-b border-gb-border bg-gb-app/30 shrink-0">
+          <Button type="button" variant="ghost" className="absolute top-4 right-4 rounded-xl h-10 px-5 font-bold" onClick={() => { closeRequestedRef.current = true; handleOpenStateChange(false); }}>
+            Fermer
+          </Button>
           <DialogTitle className="text-2xl font-black tracking-tight">{isEditMode ? "Modifier le Rapport Journalier" : "Nouveau Rapport Journalier"}</DialogTitle>
           <p className="text-xs text-gb-muted font-bold uppercase tracking-widest mt-1">{isEditMode ? "Mise a jour complete de l'activite chantier" : "Saisie complète de l'activité chantier"}</p>
         </DialogHeader>
@@ -587,6 +639,48 @@ export default function CreateDailyLogDialog({ open, onOpenChange, projectId, on
           <div className="space-y-1.5">
             <Label className="text-[10px] font-black text-gb-muted uppercase flex items-center gap-1.5"><Info size={12} /> Notes générales de la journée</Label>
             <Textarea value={notes} onChange={e => setNotes(e.target.value)} placeholder="Résumé global, incidents, livraisons, visiteurs..." className="min-h-[68px] bg-gb-app/50 border-gb-border rounded-xl resize-none" />
+          </div>
+
+          <div className="space-y-3">
+            <div className="flex items-center justify-between gap-3 flex-wrap">
+              <div>
+                <h3 className="text-sm font-black text-gb-text uppercase tracking-widest">Aperçu opérationnel</h3>
+                <p className="text-[10px] text-gb-muted mt-0.5">Lecture immédiate des données déjà saisies dans le journal</p>
+              </div>
+              {activityCount > 0 && (
+                <div className="text-[10px] font-black uppercase tracking-widest text-gb-muted">
+                  {plannedActivityCount} planifiée{plannedActivityCount > 1 ? "s" : ""} · {unplannedActivityCount} imprévue{unplannedActivityCount > 1 ? "s" : ""}
+                </div>
+              )}
+            </div>
+
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+              <div className="rounded-2xl border border-gb-border bg-gb-app/40 p-4">
+                <p className="text-[9px] font-black uppercase tracking-widest text-gb-muted">Activités</p>
+                <p className="mt-2 text-2xl font-black text-gb-text">{activityCount}</p>
+              </div>
+              <div className="rounded-2xl border border-blue-500/10 bg-blue-500/5 p-4">
+                <p className="text-[9px] font-black uppercase tracking-widest text-blue-600">Main d'œuvre</p>
+                <p className="mt-2 text-2xl font-black text-blue-600">{totalLaborHours}h</p>
+              </div>
+              <div className="rounded-2xl border border-amber-500/10 bg-amber-500/5 p-4">
+                <p className="text-[9px] font-black uppercase tracking-widest text-amber-600">Engins</p>
+                <p className="mt-2 text-2xl font-black text-amber-600">{totalEquipmentCount}</p>
+              </div>
+              <div className="rounded-2xl border border-purple-500/10 bg-purple-500/5 p-4">
+                <p className="text-[9px] font-black uppercase tracking-widest text-purple-600">Photos</p>
+                <p className="mt-2 text-2xl font-black text-purple-600">{totalPhotoCount}</p>
+              </div>
+            </div>
+
+            {(totalMaterialCount > 0 || activitiesMissingLabel > 0) && (
+              <div className="rounded-2xl border border-gb-border bg-gb-surface-solid px-4 py-3 flex flex-col md:flex-row md:items-center md:justify-between gap-2 text-xs">
+                <span className="font-bold text-gb-text">{totalMaterialCount} ligne{totalMaterialCount > 1 ? "s" : ""} matériau{totalMaterialCount > 1 ? "x" : ""} saisie{totalMaterialCount > 1 ? "s" : ""}</span>
+                {activitiesMissingLabel > 0 && (
+                  <span className="font-bold text-amber-600">{activitiesMissingLabel} activité{activitiesMissingLabel > 1 ? "s" : ""} reste{activitiesMissingLabel > 1 ? "nt" : ""} à rattacher ou nommer</span>
+                )}
+              </div>
+            )}
           </div>
 
           {/*  Activités du jour  */}
@@ -781,7 +875,7 @@ export default function CreateDailyLogDialog({ open, onOpenChange, projectId, on
         </form>
 
         <DialogFooter className="p-6 border-t border-gb-border bg-gb-app/30 gap-3 shrink-0">
-          <Button type="button" variant="ghost" className="rounded-xl h-11 px-8 font-bold" onClick={() => handleOpenStateChange(false)}>
+          <Button type="button" variant="ghost" className="rounded-xl h-11 px-8 font-bold" onClick={() => { closeRequestedRef.current = true; handleOpenStateChange(false); }}>
             Fermer
           </Button>
           <Button form="daily-log-form" type="submit" disabled={submitting || uploadingPhotos > 0} className="rounded-xl h-11 px-10 bg-gb-primary hover:bg-gb-primary-dark shadow-xl shadow-gb-primary/20 font-black min-w-[200px]">

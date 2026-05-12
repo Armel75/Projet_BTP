@@ -45,6 +45,31 @@ type ChartPoint = {
   secondary?: number;
 };
 
+type MaturityCriterion = {
+  code: string;
+  label: string;
+  description: string;
+  status: "not_met" | "partial" | "met";
+  score: number;
+  maxScore: number;
+};
+
+type MaturityDomain = {
+  code: string;
+  label: string;
+  score: number;
+  maxScore: number;
+  criteria: MaturityCriterion[];
+};
+
+type MaturityGrid = {
+  score: number;
+  maxScore: number;
+  percent: number;
+  level: "critical" | "progressing" | "advanced" | "top_1";
+  domains: MaturityDomain[];
+};
+
 type PersonaPayload = {
   persona: Persona;
   title: string;
@@ -72,6 +97,7 @@ type DashboardOverview = {
     management?: PersonaPayload;
     executive?: PersonaPayload;
   };
+  maturity: MaturityGrid;
 };
 
 const INCIDENT_COLORS = ["#ef4444", "#f59e0b", "#3b82f6", "#10b981", "#8b5cf6", "#14b8a6"];
@@ -114,6 +140,32 @@ function severityLabel(severity: PriorityAction["severity"]): string {
   if (severity === "high") return "Élevé";
   if (severity === "medium") return "Moyen";
   return "Faible";
+}
+
+function maturityLevelLabel(level: MaturityGrid["level"]): string {
+  if (level === "top_1") return "Top 1%";
+  if (level === "advanced") return "Avancé";
+  if (level === "progressing") return "Progression";
+  return "Critique";
+}
+
+function maturityLevelClass(level: MaturityGrid["level"]): string {
+  if (level === "top_1") return "bg-emerald-50 text-emerald-700 border-emerald-200";
+  if (level === "advanced") return "bg-blue-50 text-blue-700 border-blue-200";
+  if (level === "progressing") return "bg-amber-50 text-amber-700 border-amber-200";
+  return "bg-rose-50 text-rose-700 border-rose-200";
+}
+
+function criterionStatusLabel(status: MaturityCriterion["status"]): string {
+  if (status === "met") return "Conforme";
+  if (status === "partial") return "Partiel";
+  return "A corriger";
+}
+
+function criterionStatusClass(status: MaturityCriterion["status"]): string {
+  if (status === "met") return "bg-emerald-50 text-emerald-700 border-emerald-200";
+  if (status === "partial") return "bg-amber-50 text-amber-700 border-amber-200";
+  return "bg-rose-50 text-rose-700 border-rose-200";
 }
 
 export default function DashboardView() {
@@ -277,6 +329,60 @@ export default function DashboardView() {
             <h3 className="mt-2 text-2xl font-black tracking-tight text-gb-text">{formatKpiValue(kpi)}</h3>
           </motion.div>
         ))}
+      </div>
+
+      <div className="bg-gb-surface-solid border border-gb-border rounded-2xl p-5 shadow-sm">
+        <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
+          <div>
+            <h3 className="text-base font-black uppercase tracking-tight text-gb-text">Grille de maturité top 1%</h3>
+            <p className="text-xs text-gb-muted mt-1">Evaluation data-driven du portefeuille, basee sur vos donnees reelles.</p>
+          </div>
+          <div className="flex items-center gap-3">
+            <span className={`px-3 py-1.5 text-xs font-black uppercase border rounded-lg ${maturityLevelClass(overview.maturity.level)}`}>
+              {maturityLevelLabel(overview.maturity.level)}
+            </span>
+            <div className="text-right">
+              <p className="text-2xl font-black tracking-tight text-gb-text">{overview.maturity.percent}%</p>
+              <p className="text-[11px] font-semibold text-gb-muted">
+                {overview.maturity.score}/{overview.maturity.maxScore}
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <div className="mt-4 h-2 w-full rounded-full bg-gb-app overflow-hidden">
+          <div
+            className="h-full bg-gb-primary transition-all duration-500"
+            style={{ width: `${Math.max(0, Math.min(100, overview.maturity.percent))}%` }}
+          />
+        </div>
+
+        <div className="mt-5 grid grid-cols-1 xl:grid-cols-3 gap-4">
+          {overview.maturity.domains.map((domain) => (
+            <div key={domain.code} className="rounded-xl border border-gb-border bg-gb-app p-4">
+              <div className="flex items-center justify-between gap-3">
+                <h4 className="text-sm font-black text-gb-text">{domain.label}</h4>
+                <span className="text-xs font-black text-gb-primary">
+                  {domain.score}/{domain.maxScore}
+                </span>
+              </div>
+              <div className="mt-3 space-y-2">
+                {domain.criteria.map((criterion) => (
+                  <div key={criterion.code} className="rounded-lg border border-gb-border bg-gb-surface-solid p-3">
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="text-xs font-bold text-gb-text">{criterion.label}</p>
+                      <span className={`px-2 py-0.5 text-[10px] font-black uppercase border rounded-md ${criterionStatusClass(criterion.status)}`}>
+                        {criterionStatusLabel(criterion.status)}
+                      </span>
+                    </div>
+                    <p className="mt-1 text-[11px] text-gb-muted leading-relaxed">{criterion.description}</p>
+                    <p className="mt-2 text-[10px] font-bold text-gb-muted">Score: {criterion.score}/{criterion.maxScore}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">

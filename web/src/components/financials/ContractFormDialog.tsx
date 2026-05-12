@@ -319,23 +319,28 @@ export default function ContractFormDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[760px] p-0 bg-gb-surface-solid border-gb-border overflow-hidden flex flex-col max-h-[92vh]">
+      <DialogContent showCloseButton={false} className="sm:max-w-[760px] p-0 bg-gb-surface-solid border-gb-border overflow-hidden flex flex-col max-h-[92vh]">
         {/* Header */}
         <DialogHeader className="p-5 border-b border-gb-border bg-gb-app/20 shrink-0">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-gb-surface-solid border border-gb-border flex items-center justify-center text-gb-primary">
-              <FileSignature size={20} />
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-gb-surface-solid border border-gb-border flex items-center justify-center text-gb-primary">
+                <FileSignature size={20} />
+              </div>
+              <div>
+                <DialogTitle className="text-lg font-black text-gb-text">
+                  {isEdit ? "Modifier le contrat" : "Nouveau contrat"}
+                </DialogTitle>
+                <p className="text-xs text-gb-muted mt-0.5">
+                  {isEdit
+                    ? `Référence ${contract.reference}`
+                    : "La référence sera générée automatiquement à l'enregistrement"}
+                </p>
+              </div>
             </div>
-            <div>
-              <DialogTitle className="text-lg font-black text-gb-text">
-                {isEdit ? "Modifier le contrat" : "Nouveau contrat"}
-              </DialogTitle>
-              <p className="text-xs text-gb-muted mt-0.5">
-                {isEdit
-                  ? `Référence ${contract.reference}`
-                  : "La référence sera générée automatiquement à l'enregistrement"}
-              </p>
-            </div>
+            <button type="button" onClick={() => onOpenChange(false)} className="p-1.5 rounded-lg text-gb-muted hover:bg-gb-surface-hover transition-colors">
+              Fermer
+            </button>
           </div>
         </DialogHeader>
 

@@ -1148,8 +1148,7 @@ export function CreateProjectDialog({ open, onClose, onSaved, project }: CreateP
               {mode === "create" ? "Nouveau Projet" : "Modifier le projet"}
             </DialogTitle>
             <Button variant="ghost" size="icon-sm" onClick={handleClose} disabled={submitting} className="text-gb-muted hover:text-gb-text">
-              <X className="w-4 h-4" />
-              <span className="sr-only">Fermer</span>
+              Fermer
             </Button>
           </div>
         </DialogHeader>

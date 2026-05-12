@@ -39,6 +39,7 @@ export default function WeeklyReportDetailDrawer({ open, onOpenChange, reportId 
   const [loading, setLoading] = useState(true);
   const [downloadingPdf, setDownloadingPdf] = useState(false);
   const [previewingPdf, setPreviewingPdf] = useState(false);
+  const [workflowLoading, setWorkflowLoading] = useState<null | 'submit' | 'approve' | 'reject'>(null);
 
   useEffect(() => {
     if (open) {
@@ -118,6 +119,87 @@ export default function WeeklyReportDetailDrawer({ open, onOpenChange, reportId 
     }
   };
 
+  const submitForValidation = async () => {
+    if (!report || workflowLoading) return;
+
+    setWorkflowLoading('submit');
+    try {
+      const res = await apiFetch(`${API_BASE}/weekly-reports/${report.id}/submit`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      });
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        alert(err.error || 'Impossible de soumettre ce rapport.');
+        return;
+      }
+
+      await fetchReport();
+    } catch {
+      alert('Impossible de soumettre ce rapport.');
+    } finally {
+      setWorkflowLoading(null);
+    }
+  };
+
+  const approveReport = async () => {
+    if (!report || workflowLoading) return;
+
+    setWorkflowLoading('approve');
+    try {
+      const res = await apiFetch(`${API_BASE}/weekly-reports/${report.id}/approve`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      });
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        alert(err.error || 'Impossible d\'approuver ce rapport.');
+        return;
+      }
+
+      await fetchReport();
+    } catch {
+      alert('Impossible d\'approuver ce rapport.');
+    } finally {
+      setWorkflowLoading(null);
+    }
+  };
+
+  const rejectReport = async () => {
+    if (!report || workflowLoading) return;
+
+    const reason = window.prompt('Motif du rejet (obligatoire) :', '');
+    if (!reason || reason.trim().length < 3) {
+      alert('Le motif du rejet doit contenir au moins 3 caractères.');
+      return;
+    }
+
+    setWorkflowLoading('reject');
+    try {
+      const res = await apiFetch(`${API_BASE}/weekly-reports/${report.id}/reject`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reason: reason.trim() }),
+      });
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        alert(err.error || 'Impossible de rejeter ce rapport.');
+        return;
+      }
+
+      await fetchReport();
+    } catch {
+      alert('Impossible de rejeter ce rapport.');
+    } finally {
+      setWorkflowLoading(null);
+    }
+  };
+
   const getStatusBadge = (status: string) => {
     switch (status) {
       case "DRAFT": return <Badge className="bg-amber-500/10 text-amber-500 border-amber-500/20">Brouillon</Badge>;
@@ -125,6 +207,35 @@ export default function WeeklyReportDetailDrawer({ open, onOpenChange, reportId 
       case "APPROVED": return <Badge className="bg-emerald-500/10 text-emerald-500 border-emerald-500/20">Approuvé</Badge>;
       default: return <Badge variant="outline">{status}</Badge>;
     }
+  };
+
+  const computeWorkflowBlockers = () => {
+    if (!report) return [];
+
+    const blockers: Array<{ type: 'error' | 'warning', message: string }> = [];
+    const status = (report.status || 'DRAFT').toUpperCase();
+
+    // DRAFT state blockers
+    if (status === 'DRAFT') {
+      if (!report.summary || report.summary.trim().length === 0) {
+        blockers.push({ type: 'error', message: 'La synthèse de direction est obligatoire avant la soumission' });
+      }
+      if (!report.items || report.items.length === 0) {
+        blockers.push({ type: 'error', message: 'Au moins une ligne d\'avancement est requise avant la soumission' });
+      }
+    }
+
+    // SUBMITTED state info
+    if (status === 'SUBMITTED') {
+      blockers.push({ type: 'warning', message: 'Ce rapport est en attente de validation. Seul un validateur peut approuver ou rejeter.' });
+    }
+
+    // APPROVED state info (read-only)
+    if (status === 'APPROVED') {
+      blockers.push({ type: 'warning', message: 'Ce rapport est approuvé et verrouillé. Aucune modification n\'est possible.' });
+    }
+
+    return blockers;
   };
 
   return (
@@ -151,6 +262,45 @@ export default function WeeklyReportDetailDrawer({ open, onOpenChange, reportId 
                   
                   <div className="flex flex-col items-end gap-3 shrink-0">
                     <div className="flex items-center gap-2">
+                      {report.status === 'DRAFT' && (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          className="rounded-xl h-10 px-4 font-bold"
+                          onClick={submitForValidation}
+                          disabled={workflowLoading !== null || computeWorkflowBlockers().some(b => b.type === 'error')}
+                          title={computeWorkflowBlockers().some(b => b.type === 'error') ? 'Impossible de soumettre: des champs obligatoires manquent' : ''}
+                        >
+                          {workflowLoading === 'submit' ? <Loader2 size={14} className="mr-2 animate-spin" /> : <CheckCircle2 size={14} className="mr-2" />}
+                          {workflowLoading === 'submit' ? 'Soumission...' : 'Soumettre'}
+                        </Button>
+                      )}
+
+                      {report.status === 'SUBMITTED' && (
+                        <>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            className="rounded-xl h-10 px-4 font-bold text-emerald-600 border-emerald-500/30 hover:bg-emerald-500/5"
+                            onClick={approveReport}
+                            disabled={workflowLoading !== null}
+                          >
+                            {workflowLoading === 'approve' ? <Loader2 size={14} className="mr-2 animate-spin" /> : <CheckCircle2 size={14} className="mr-2" />}
+                            {workflowLoading === 'approve' ? 'Validation...' : 'Approuver'}
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            className="rounded-xl h-10 px-4 font-bold text-gb-danger border-gb-danger/30 hover:bg-gb-danger/5"
+                            onClick={rejectReport}
+                            disabled={workflowLoading !== null}
+                          >
+                            {workflowLoading === 'reject' ? <Loader2 size={14} className="mr-2 animate-spin" /> : <AlertTriangle size={14} className="mr-2" />}
+                            {workflowLoading === 'reject' ? 'Rejet...' : 'Rejeter'}
+                          </Button>
+                        </>
+                      )}
+
                       <Button
                         type="button"
                         variant="outline"
@@ -181,6 +331,67 @@ export default function WeeklyReportDetailDrawer({ open, onOpenChange, reportId 
             </DialogHeader>
 
             <div className="flex-1 overflow-y-auto p-8 space-y-10">
+              {/* Workflow Blockers / Status Info */}
+              {(() => {
+                const blockers = computeWorkflowBlockers();
+                if (blockers.length === 0) return null;
+
+                return (
+                  <div className="space-y-2">
+                    {blockers.map((blocker, idx) => (
+                      <div 
+                        key={idx}
+                        className={`p-4 rounded-2xl border flex items-start gap-3 ${
+                          blocker.type === 'error'
+                            ? 'bg-red-500/5 border-red-500/20 text-red-600'
+                            : 'bg-amber-500/5 border-amber-500/20 text-amber-600'
+                        }`}
+                      >
+                        {blocker.type === 'error' ? (
+                          <AlertTriangle size={16} className="flex-shrink-0 mt-0.5" />
+                        ) : (
+                          <AlertTriangle size={16} className="flex-shrink-0 mt-0.5" />
+                        )}
+                        <span className="text-sm font-bold">{blocker.message}</span>
+                      </div>
+                    ))}
+                  </div>
+                );
+              })()}
+
+              {/* Premium KPI Layer */}
+              <section className="space-y-4">
+                 <h4 className="text-[10px] font-black uppercase text-gb-muted tracking-widest flex items-center gap-2">
+                    <BarChart3 size={14} className="text-emerald-600" /> Indicateurs de Pilotage (KPI)
+                 </h4>
+                 <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                    <div className="bg-emerald-500/5 p-4 rounded-2xl border border-emerald-500/10">
+                       <p className="text-[9px] font-black uppercase tracking-widest text-gb-muted mb-2">Productivité</p>
+                       <p className="text-2xl font-black text-emerald-600">{report.productivity_score?.toFixed(1) || '0'}%</p>
+                    </div>
+                    <div className="bg-blue-500/5 p-4 rounded-2xl border border-blue-500/10">
+                       <p className="text-[9px] font-black uppercase tracking-widest text-gb-muted mb-2">Variance Planning</p>
+                       <p className="text-2xl font-black text-blue-600">{report.planning_variance_pct?.toFixed(1) || '0'}%</p>
+                    </div>
+                    <div className="bg-amber-500/5 p-4 rounded-2xl border border-amber-500/10">
+                       <p className="text-[9px] font-black uppercase tracking-widest text-gb-muted mb-2">Variance Coût</p>
+                       <p className="text-2xl font-black text-amber-600">{report.cost_variance_pct?.toFixed(1) || '0'}%</p>
+                    </div>
+                    <div className="bg-red-500/5 p-4 rounded-2xl border border-red-500/10">
+                       <p className="text-[9px] font-black uppercase tracking-widest text-gb-muted mb-2">Actions Retardées</p>
+                       <p className="text-2xl font-black text-red-600">{report.overdue_actions_count || 0}</p>
+                    </div>
+                    <div className="bg-purple-500/5 p-4 rounded-2xl border border-purple-500/10">
+                       <p className="text-[9px] font-black uppercase tracking-widest text-gb-muted mb-2">Tendance Incidents</p>
+                       <p className="text-sm font-black text-purple-600">{report.incident_trend || 'stable'}</p>
+                    </div>
+                    <div className="bg-indigo-500/5 p-4 rounded-2xl border border-indigo-500/10">
+                       <p className="text-[9px] font-black uppercase tracking-widest text-gb-muted mb-2">Prévision 2 Sem.</p>
+                       <p className="text-xs font-bold text-indigo-600 line-clamp-2">{report.forecast_2weeks || 'À confirmer'}</p>
+                    </div>
+                 </div>
+              </section>
+
               {/* Executive Summary */}
               <section className="space-y-4">
                  <h4 className="text-[10px] font-black uppercase text-gb-muted tracking-widest flex items-center gap-2">

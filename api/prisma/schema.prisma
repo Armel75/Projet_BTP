@@ -2466,6 +2466,23 @@ model WorkflowAction {
     labor_data          String? @db.NVarChar(Max)      // JSON: [{worker_name, trade, hours}]
     equipment_data      String? @db.NVarChar(Max)      // JSON: [{equipment_name, hours_used}]
     material_data       String? @db.NVarChar(Max)      // JSON: [{material_name, quantity, unit}]
+    
+    // Écart (gap) tracking: planned vs actual
+    planned_quantity    Int?                           // quantité planifiée
+    actual_quantity     Int?                           // quantité réalisée
+    planned_date        DateTime?                      // date planifiée
+    actual_date         DateTime?                      // date réalisée
+    cause_code          String? @db.NVarChar(100)      // code de cause si écart
+    impact_type         String? @db.NVarChar(50)       // type d'impact: délai, coût, qualité
+    corrective_action   String? @db.NVarChar(Max)      // action corrective à entreprendre
+    owner_id            Int?                           // responsable de la correction
+    target_correction_date DateTime?                   // date cible pour la correction
+    
+    // Contractual proof metadata
+    proof_timestamp     DateTime?                      // horodatage de la preuve (terrain)
+    proof_location      String? @db.NVarChar(500)      // localisation (lat/lon ou description)
+    proof_author_id     Int?                           // auteur de la preuve (user_id)
+    related_anomaly_id  Int?                           // lien vers une anomalie/incident
 
     daily_log DailyLog @relation(fields: [daily_log_id], references: [id], onDelete: Cascade)
     task      Task?    @relation(fields: [task_id],     references: [id], onDelete: NoAction, onUpdate: NoAction)
@@ -2735,6 +2752,14 @@ model WeeklyReport {
 
   prepared_by Int
   validated_by Int?
+
+  // Premium KPI layer
+  productivity_score Float?                    // Score de productivité 0-100
+  planning_variance_pct Float?                 // Variance planning (%) : (réalisé - planifié) / planifié
+  cost_variance_pct Float?                     // Variance coût (%)
+  overdue_actions_count Int? @default(0)       // Nombre d'actions retardées
+  incident_trend String? @db.NVarChar(50)      // Tendance incidents: stable, croissant, décroissant
+  forecast_2weeks String? @db.NVarChar(Max)    // Prévisions 2 semaines (JSON ou texte)
 
   preparedBy User @relation("PreparedBy", fields: [prepared_by], references: [id], onUpdate: NoAction, onDelete: NoAction)
   validatedBy User? @relation("ValidatedBy", fields: [validated_by], references: [id], onUpdate: NoAction, onDelete: NoAction)

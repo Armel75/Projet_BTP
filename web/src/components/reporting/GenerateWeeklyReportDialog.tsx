@@ -3,6 +3,7 @@ import { apiFetch } from "../../lib/api";
 const API_BASE = import.meta.env.VITE_API_URL;
 import { 
   Dialog, 
+  DialogClose,
   DialogContent, 
   DialogHeader, 
   DialogTitle, 
@@ -58,12 +59,17 @@ export default function GenerateWeeklyReportDialog({ open, onOpenChange, project
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[450px] bg-gb-surface-solid border-gb-border p-0 overflow-hidden">
+      <DialogContent showCloseButton={false} className="sm:max-w-[450px] bg-gb-surface-solid border-gb-border p-0 overflow-hidden">
         <DialogHeader className="p-8 border-b border-gb-border bg-gb-app/30">
-          <DialogTitle className="text-2xl font-black tracking-tight flex items-center gap-3">
-             <Zap className="text-purple-600" size={28} />
-             Génération Synthèse Hebdo
-          </DialogTitle>
+          <div className="flex items-start justify-between gap-3">
+            <DialogTitle className="text-2xl font-black tracking-tight flex items-center gap-3">
+              <Zap className="text-purple-600" size={28} />
+              Génération Synthèse Hebdo
+            </DialogTitle>
+            <DialogClose render={<Button variant="ghost" className="h-8 px-2 rounded-lg text-gb-muted hover:bg-gb-surface-hover" />}>
+              Fermer
+            </DialogClose>
+          </div>
           <p className="text-xs text-gb-muted font-bold uppercase tracking-widest mt-1">Consolidation automatique des journaux</p>
         </DialogHeader>
 

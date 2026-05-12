@@ -82,7 +82,7 @@ function SectionTitle({ label }: { label: string }) {
 
 const EMPTY = {
   title: "", type: "OPEN", category: "TRAVAUX",
-  status: "DRAFT", currency: "EUR", project_id: "",
+  status: "DRAFT", currency: "XAF", project_id: "",
   lot_id: "", budget_estimate: "", submission_deadline: "",
   opening_date: "", publication_date: "", clarification_deadline: "",
   site_visit_date: "", site_visit_location: "",
@@ -221,7 +221,7 @@ export default function TenderFormDialog({ open, onOpenChange, tender, onSaved }
         type:                tender.type ?? "OPEN",
         category:            tender.category ?? "TRAVAUX",
         status:              tender.status ?? "DRAFT",
-        currency:            tender.currency ?? "EUR",
+        currency:            tender.currency ?? "XAF",
         project_id:          tender.project_id ? String(tender.project_id) : "",
         lot_id:              tender.lot_id ? String(tender.lot_id) : "",
         budget_estimate:     tender.budget_estimate != null ? String(tender.budget_estimate) : "",
@@ -646,22 +646,22 @@ export default function TenderFormDialog({ open, onOpenChange, tender, onSaved }
                     fileInputRef.current?.click();
                   }
                 }}
-                className={`flex items-center gap-3 min-h-[52px] px-4 py-3 rounded-xl border-2 border-dashed transition-colors select-none ${
+                className={`flex items-center gap-4 min-h-[88px] px-5 py-4 rounded-xl border-2 border-dashed transition-colors select-none ${
                   !form.project_id
                     ? "opacity-40 cursor-not-allowed border-gb-border"
                     : uploading
-                    ? "cursor-wait border-gb-primary/40 bg-gb-primary/5"
+                    ? "cursor-wait border-gb-primary/50 bg-gb-primary/10"
                     : attachments.length > 0
-                    ? "cursor-pointer border-emerald-500/40 bg-emerald-500/5 hover:border-emerald-500/60"
-                    : "cursor-pointer border-gb-border hover:border-gb-primary/50 hover:bg-gb-primary/5"
+                    ? "cursor-pointer border-emerald-500/50 bg-emerald-500/8 hover:border-emerald-500/70 hover:bg-emerald-500/12"
+                    : "cursor-pointer border-gb-primary/40 bg-gb-primary/8 hover:border-gb-primary/60 hover:bg-gb-primary/12"
                 }`}
               >
                 {uploading ? (
-                  <><Loader2 size={16} className="text-gb-primary animate-spin shrink-0" /><span className="text-sm text-gb-primary font-semibold">Envoi en cours…</span></>
+                  <><Loader2 size={20} className="text-gb-primary animate-spin shrink-0" /><span className="text-base text-gb-primary font-semibold">Envoi en cours…</span></>
                 ) : attachments.length > 0 ? (
-                  <><CheckCircle2 size={16} className="text-emerald-500 shrink-0" /><span className="text-sm text-emerald-600 truncate font-semibold">{attachments.length} pièce(s) jointe(s)</span><span className="ml-auto text-[11px] font-semibold text-gb-muted">Ajouter d'autres fichiers</span></>
+                  <><CheckCircle2 size={20} className="text-emerald-500 shrink-0" /><span className="text-base text-emerald-600 truncate font-semibold">{attachments.length} pièce(s) jointe(s)</span><span className="ml-auto text-[12px] font-semibold text-gb-muted">Ajouter d'autres fichiers</span></>
                 ) : (
-                  <><Upload size={16} className="text-gb-muted shrink-0" /><span className="text-sm text-gb-muted font-semibold">Cliquer pour charger vos pièces DCE (PDF, Word, Excel, ZIP…)</span></>
+                  <><Upload size={20} className="text-gb-primary shrink-0" /><span className="text-base text-gb-text font-semibold">Cliquer pour charger vos pièces DCE (PDF, Word, Excel, ZIP…)</span></>
                 )}
               </div>
               {uploadError && (
@@ -719,8 +719,7 @@ export default function TenderFormDialog({ open, onOpenChange, tender, onSaved }
               </DialogTitle>
             </div>
             <Button type="button" variant="ghost" size="icon-sm" onClick={handleClose} disabled={saving} className="text-gb-muted hover:text-gb-text">
-              <X className="w-4 h-4" />
-              <span className="sr-only">Fermer</span>
+              Fermer
             </Button>
           </div>
         </DialogHeader>

@@ -28,6 +28,35 @@ type ChartPoint = {
   secondary?: number;
 };
 
+type MaturityCriterionStatus = "not_met" | "partial" | "met";
+
+type MaturityCriterion = {
+  code: string;
+  label: string;
+  description: string;
+  status: MaturityCriterionStatus;
+  score: number;
+  maxScore: number;
+};
+
+type MaturityDomain = {
+  code: string;
+  label: string;
+  score: number;
+  maxScore: number;
+  criteria: MaturityCriterion[];
+};
+
+type MaturityLevel = "critical" | "progressing" | "advanced" | "top_1";
+
+type MaturityGrid = {
+  score: number;
+  maxScore: number;
+  percent: number;
+  level: MaturityLevel;
+  domains: MaturityDomain[];
+};
+
 type PersonaPayload = {
   persona: DashboardPersona;
   title: string;
@@ -55,6 +84,7 @@ export type DashboardOverviewPayload = {
     management?: PersonaPayload;
     executive?: PersonaPayload;
   };
+  maturity: MaturityGrid;
 };
 
 type BuildParams = {
@@ -126,6 +156,182 @@ function monthLabel(date: Date): string {
 function clampWindowDays(raw: number): number {
   if (!Number.isFinite(raw)) return 30;
   return Math.max(7, Math.min(180, Math.trunc(raw)));
+}
+
+function criterionStatus(score: number, maxScore: number): MaturityCriterionStatus {
+  if (maxScore <= 0 || score <= 0) return "not_met";
+  if (score >= maxScore) return "met";
+  return "partial";
+}
+
+function createCriterion(input: {
+  code: string;
+  label: string;
+  description: string;
+  score: number;
+  maxScore?: number;
+}): MaturityCriterion {
+  const maxScore = input.maxScore ?? 10;
+  const safeScore = Math.max(0, Math.min(maxScore, Math.trunc(input.score)));
+  return {
+    code: input.code,
+    label: input.label,
+    description: input.description,
+    score: safeScore,
+    maxScore,
+    status: criterionStatus(safeScore, maxScore),
+  };
+}
+
+function maturityLevelFromPercent(percent: number): MaturityLevel {
+  if (percent >= 85) return "top_1";
+  if (percent >= 65) return "advanced";
+  if (percent >= 40) return "progressing";
+  return "critical";
+}
+
+function buildMaturityGrid(input: {
+  hasProjects: boolean;
+  projectCount: number;
+  windowDays: number;
+  openTasks: number;
+  overdueTasks: number;
+  weeklyProgressCount: number;
+  dailyLogsWindowCount: number;
+  meetingsWindowCount: number;
+  openIncidents: number;
+  incidentsCritical: number;
+  controlReportsOpen: number;
+  budgetApproved: number;
+  budgetBurnPct: number;
+  overdueInvoices: number;
+  changeOrdersPending: number;
+  workAcceptancesPending: number;
+  openPunchItems: number;
+}): MaturityGrid {
+  const overdueTaskRatio = input.openTasks > 0 ? input.overdueTasks / input.openTasks : 0;
+  const reportingDensityTarget = Math.max(1, input.projectCount * Math.max(1, Math.floor(input.windowDays / 14)));
+
+  const executionCriteria: MaturityCriterion[] = [
+    createCriterion({
+      code: "execution-overdue-tasks",
+      label: "Retards taches",
+      description: "Le volume de taches en retard reste sous controle.",
+      score: overdueTaskRatio <= 0.15 ? 10 : overdueTaskRatio <= 0.3 ? 5 : 0,
+    }),
+    createCriterion({
+      code: "execution-weekly-trend",
+      label: "Suivi avancement",
+      description: "Les rapports hebdomadaires alimentent la tendance d'avancement.",
+      score: input.weeklyProgressCount >= Math.max(1, input.projectCount) ? 10 : input.weeklyProgressCount > 0 ? 5 : 0,
+    }),
+    createCriterion({
+      code: "execution-daily-logs",
+      label: "Discipline journal chantier",
+      description: "Les journaux quotidiens sont suffisamment renseignes sur la periode.",
+      score: input.dailyLogsWindowCount >= reportingDensityTarget ? 10 : input.dailyLogsWindowCount > 0 ? 5 : 0,
+    }),
+  ];
+
+  const riskCriteria: MaturityCriterion[] = [
+    createCriterion({
+      code: "risk-critical-incidents",
+      label: "Incidents critiques",
+      description: "Aucun incident critique ouvert dans le portefeuille.",
+      score: input.incidentsCritical === 0 ? 10 : input.incidentsCritical <= 2 ? 5 : 0,
+    }),
+    createCriterion({
+      code: "risk-control-reports",
+      label: "Rapports controle ouverts",
+      description: "Les constats qualite/securite sont traites rapidement.",
+      score: input.controlReportsOpen === 0 ? 10 : input.controlReportsOpen <= 5 ? 5 : 0,
+    }),
+    createCriterion({
+      code: "risk-punch-items",
+      label: "Reserves en attente",
+      description: "Le stock de reserves ouvertes reste maitrise.",
+      score: input.openPunchItems <= 5 ? 10 : input.openPunchItems <= 15 ? 5 : 0,
+    }),
+  ];
+
+  const governanceCriteria: MaturityCriterion[] = [
+    createCriterion({
+      code: "governance-budget",
+      label: "Maitrise budgetaire",
+      description: "La consommation budgetaire reste dans une enveloppe soutenable.",
+      score: input.budgetApproved <= 0 ? 0 : input.budgetBurnPct <= 100 ? 10 : input.budgetBurnPct <= 110 ? 5 : 0,
+    }),
+    createCriterion({
+      code: "governance-cash",
+      label: "Discipline encaissement",
+      description: "Les factures en retard sont maintenues au minimum.",
+      score: input.overdueInvoices === 0 ? 10 : input.overdueInvoices <= 3 ? 5 : 0,
+    }),
+    createCriterion({
+      code: "governance-receptions",
+      label: "Flux de reception",
+      description: "Les receptions en attente sont debloquees sans accumulation.",
+      score: input.workAcceptancesPending === 0 ? 10 : input.workAcceptancesPending <= 3 ? 5 : 0,
+    }),
+    createCriterion({
+      code: "governance-arbitrage",
+      label: "Arbitrage avenants",
+      description: "Les avenants en attente restent limites pour proteger delai et cout.",
+      score: input.changeOrdersPending === 0 ? 10 : input.changeOrdersPending <= 3 ? 5 : 0,
+    }),
+    createCriterion({
+      code: "governance-rituals",
+      label: "Rituels de pilotage",
+      description: "Le portefeuille maintient un rythme de reunions de pilotage.",
+      score: input.meetingsWindowCount >= Math.max(1, input.projectCount) ? 10 : input.meetingsWindowCount > 0 ? 5 : 0,
+    }),
+  ];
+
+  const domains: MaturityDomain[] = [
+    {
+      code: "execution",
+      label: "Execution terrain",
+      score: executionCriteria.reduce((acc, item) => acc + item.score, 0),
+      maxScore: executionCriteria.reduce((acc, item) => acc + item.maxScore, 0),
+      criteria: executionCriteria,
+    },
+    {
+      code: "risk",
+      label: "Risque & conformite",
+      score: riskCriteria.reduce((acc, item) => acc + item.score, 0),
+      maxScore: riskCriteria.reduce((acc, item) => acc + item.maxScore, 0),
+      criteria: riskCriteria,
+    },
+    {
+      code: "governance",
+      label: "Gouvernance projet",
+      score: governanceCriteria.reduce((acc, item) => acc + item.score, 0),
+      maxScore: governanceCriteria.reduce((acc, item) => acc + item.maxScore, 0),
+      criteria: governanceCriteria,
+    },
+  ];
+
+  const score = domains.reduce((acc, domain) => acc + domain.score, 0);
+  const maxScore = domains.reduce((acc, domain) => acc + domain.maxScore, 0);
+  const percent = maxScore > 0 ? Number(((score / maxScore) * 100).toFixed(1)) : 0;
+
+  if (!input.hasProjects) {
+    return {
+      score: 0,
+      maxScore,
+      percent: 0,
+      level: "critical",
+      domains,
+    };
+  }
+
+  return {
+    score,
+    maxScore,
+    percent,
+    level: maturityLevelFromPercent(percent),
+    domains,
+  };
 }
 
 function derivePersonas(permissions: string[]): DashboardPersona[] {
@@ -535,6 +741,26 @@ export class DashboardService {
 
     const dashboards: DashboardOverviewPayload["dashboards"] = {};
 
+    const maturity = buildMaturityGrid({
+      hasProjects,
+      projectCount: projectIds.length,
+      windowDays,
+      openTasks,
+      overdueTasks,
+      weeklyProgressCount: weeklyProgress.length,
+      dailyLogsWindowCount,
+      meetingsWindowCount,
+      openIncidents,
+      incidentsCritical,
+      controlReportsOpen,
+      budgetApproved,
+      budgetBurnPct,
+      overdueInvoices,
+      changeOrdersPending,
+      workAcceptancesPending,
+      openPunchItems,
+    });
+
     if (personas.includes("operational")) {
       dashboards.operational = {
         persona: "operational",
@@ -616,6 +842,7 @@ export class DashboardService {
         projects,
       },
       dashboards,
+      maturity,
     };
   }
 }

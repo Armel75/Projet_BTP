@@ -320,6 +320,100 @@ export class WeeklyReportController {
       const report = await WeeklyReportService.updateWeeklyReport(Number(req.params.id), req.body);
       res.json(report);
     } catch (error: any) {
+      // Edit-lock conflict: report is locked from editing
+      if (typeof error?.message === 'string' && error.message.includes('Cannot modify a')) {
+        res.status(409).json({ error: error.message });
+        return;
+      }
+
+      if (error?.message === 'Weekly report not found') {
+        res.status(404).json({ error: error.message });
+        return;
+      }
+
+      res.status(400).json({ error: error.message });
+    }
+  }
+
+  static async submit(req: Request, res: Response) {
+    try {
+      const user = (req as AuthRequest).user;
+      if (!user?.id) {
+        return res.status(401).json({ error: 'Unauthorized' });
+      }
+
+      const report = await WeeklyReportService.transitionWeeklyReportStatus(Number(req.params.id), {
+        to_status: 'SUBMITTED',
+        actor_id: user.id,
+      });
+      res.json(report);
+    } catch (error: any) {
+      if (error?.message === 'Weekly report not found') {
+        res.status(404).json({ error: error.message });
+        return;
+      }
+
+      if (typeof error?.message === 'string' && error.message.includes('Invalid weekly report status transition')) {
+        res.status(409).json({ error: error.message });
+        return;
+      }
+
+      res.status(400).json({ error: error.message });
+    }
+  }
+
+  static async approve(req: Request, res: Response) {
+    try {
+      const user = (req as AuthRequest).user;
+      if (!user?.id) {
+        return res.status(401).json({ error: 'Unauthorized' });
+      }
+
+      const report = await WeeklyReportService.transitionWeeklyReportStatus(Number(req.params.id), {
+        to_status: 'APPROVED',
+        actor_id: user.id,
+        reason: req.body.reason,
+      });
+      res.json(report);
+    } catch (error: any) {
+      if (error?.message === 'Weekly report not found') {
+        res.status(404).json({ error: error.message });
+        return;
+      }
+
+      if (typeof error?.message === 'string' && error.message.includes('Invalid weekly report status transition')) {
+        res.status(409).json({ error: error.message });
+        return;
+      }
+
+      res.status(400).json({ error: error.message });
+    }
+  }
+
+  static async reject(req: Request, res: Response) {
+    try {
+      const user = (req as AuthRequest).user;
+      if (!user?.id) {
+        return res.status(401).json({ error: 'Unauthorized' });
+      }
+
+      const report = await WeeklyReportService.transitionWeeklyReportStatus(Number(req.params.id), {
+        to_status: 'DRAFT',
+        actor_id: user.id,
+        reason: req.body.reason,
+      });
+      res.json(report);
+    } catch (error: any) {
+      if (error?.message === 'Weekly report not found') {
+        res.status(404).json({ error: error.message });
+        return;
+      }
+
+      if (typeof error?.message === 'string' && error.message.includes('Invalid weekly report status transition')) {
+        res.status(409).json({ error: error.message });
+        return;
+      }
+
       res.status(400).json({ error: error.message });
     }
   }

@@ -545,7 +545,6 @@ function PunchItemFormDialog({
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
       className="fixed inset-0 z-50 flex items-center justify-center p-4"
-      onClick={onClose}
     >
       <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" />
       <motion.div
@@ -570,7 +569,7 @@ function PunchItemFormDialog({
             </div>
           </div>
           <button onClick={onClose} className="p-1.5 rounded-lg text-gb-muted hover:bg-gb-surface-hover transition-colors">
-            <X size={18} />
+            Fermer
           </button>
         </div>
 

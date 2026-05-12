@@ -143,13 +143,19 @@ export default function DailyLogModule() {
           </div>
         </div>
 
-        <Button 
-          onClick={() => setIsCreateOpen(true)}
-          className="h-11 px-6 rounded-xl shadow-lg shadow-gb-primary/20 w-full md:w-auto"
-        >
-          <Plus size={18} className="mr-2" />
-          Nouveau Rapport Journalier
-        </Button>
+        <div className="space-y-2 w-full md:w-auto">
+          <Button 
+            onClick={() => setIsCreateOpen(true)}
+            disabled={!selectedProjectId}
+            className="h-11 px-6 rounded-xl shadow-lg shadow-gb-primary/20 w-full md:w-auto"
+          >
+            <Plus size={18} className="mr-2" />
+            Nouveau Rapport Journalier
+          </Button>
+          {!selectedProjectId && (
+            <p className="text-sm text-gb-muted italic">⚠️ Choisissez un chantier ci-dessus pour créer un rapport</p>
+          )}
+        </div>
       </div>
 
       {loading ? (
@@ -225,7 +231,10 @@ export default function DailyLogModule() {
                        <span className="text-sm font-black text-gb-text">{log.equipment_entries?.length || 0}</span>
                     </div>
                  </div>
-                 <ChevronRight size={20} className="text-gb-muted group-hover:text-gb-primary transition-colors" />
+                 <div className="flex items-center gap-1.5 text-sm font-bold text-gb-muted group-hover:text-gb-primary transition-colors">
+                    <span>Voir détails</span>
+                    <ChevronRight size={20} className="shrink-0" />
+                 </div>
               </div>
             </motion.div>
           ))}

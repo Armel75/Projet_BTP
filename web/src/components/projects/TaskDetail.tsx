@@ -17,6 +17,18 @@ function formatTaskDate(value?: string | null) {
   return parsed.toLocaleDateString("fr-FR");
 }
 
+function getStatusLabel(status: string): string {
+  const statusMap: Record<string, string> = {
+    "DONE": "Terminée",
+    "IN_PROGRESS": "En cours",
+    "TODO": "À faire",
+    "ON_HOLD": "En pause",
+    "PENDING": "En attente",
+    "CANCELLED": "Annulée"
+  };
+  return statusMap[status] || status;
+}
+
 export function TaskDetail({ task, onClose }: TaskDetailProps) {
   const [assignments, setAssignments] = useState<any[]>([]);
   const [loadingAssignments, setLoadingAssignments] = useState(false);
@@ -89,7 +101,7 @@ export function TaskDetail({ task, onClose }: TaskDetailProps) {
         <div className="space-y-6">
           <div className="flex items-center space-x-3">
             <Badge className="px-3" variant={task.status === "DONE" ? "default" : "secondary"}>
-              {task.status}
+              {getStatusLabel(task.status)}
             </Badge>
             <span className="text-sm font-semibold text-gb-text/80">{task.progress}% achevé</span>
           </div>
@@ -123,13 +135,13 @@ export function TaskDetail({ task, onClose }: TaskDetailProps) {
             <div className="flex items-center justify-between">
               <h4 className="text-xs font-bold uppercase tracking-wider text-gb-muted">Ressources Affectées</h4>
               <Button 
-                variant="ghost" 
+                variant="default" 
                 size="sm" 
-                className="h-7 text-[10px] uppercase font-bold text-gb-primary hover:bg-gb-primary/5"
+                className="h-9 text-sm font-semibold shadow-md hover:shadow-lg transition-shadow"
                 onClick={() => setIsAssignOpen(true)}
               >
-                <Plus size={12} className="mr-1" />
-                Affecter
+                <Plus size={16} className="mr-2" />
+                Ajouter une ressource
               </Button>
             </div>
             

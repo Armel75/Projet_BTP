@@ -20,6 +20,29 @@ function toDate(input: Date | string) {
   return Number.isNaN(date.getTime()) ? new Date(0) : date;
 }
 
+function parseJsonArray(value: unknown) {
+  if (!value) return [] as any[];
+  if (Array.isArray(value)) return value;
+
+  try {
+    const parsed = JSON.parse(String(value));
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function sumTaskProgressLaborHours(taskProgressEntries: any[]) {
+  return taskProgressEntries.reduce((sum: number, entry: any) => {
+    const laborData = parseJsonArray(entry.labor_data);
+    return sum + laborData.reduce((entrySum: number, labor: any) => entrySum + (Number(labor?.hours) || 0), 0);
+  }, 0);
+}
+
+function countTaskProgressResources(taskProgressEntries: any[], field: 'equipment_data' | 'material_data') {
+  return taskProgressEntries.reduce((sum: number, entry: any) => sum + parseJsonArray(entry[field]).length, 0);
+}
+
 function buildWeeklyDelta(progressPoints: number[]) {
   if (progressPoints.length < 2) return 0;
   return clampPercentage(progressPoints[progressPoints.length - 1] - progressPoints[0]);
@@ -75,10 +98,23 @@ export class WeeklyReportService {
 
     // 3) Build weekly metrics from daily logs.
     const totalLaborHours = dailyLogs.reduce((sum: number, log: any) => {
-      return sum + log.labor_entries.reduce((entrySum: number, entry: any) => entrySum + (Number(entry.hours) || 0), 0);
+      const laborHours = log.labor_entries.length > 0
+        ? log.labor_entries.reduce((entrySum: number, entry: any) => entrySum + (Number(entry.hours) || 0), 0)
+        : sumTaskProgressLaborHours(log.task_progress);
+      return sum + laborHours;
     }, 0);
-    const totalEquipmentEntries = dailyLogs.reduce((sum: number, log: any) => sum + log.equipment_entries.length, 0);
-    const totalMaterialEntries = dailyLogs.reduce((sum: number, log: any) => sum + log.material_entries.length, 0);
+    const totalEquipmentEntries = dailyLogs.reduce((sum: number, log: any) => {
+      const equipmentCount = log.equipment_entries.length > 0
+        ? log.equipment_entries.length
+        : countTaskProgressResources(log.task_progress, 'equipment_data');
+      return sum + equipmentCount;
+    }, 0);
+    const totalMaterialEntries = dailyLogs.reduce((sum: number, log: any) => {
+      const materialCount = log.material_entries.length > 0
+        ? log.material_entries.length
+        : countTaskProgressResources(log.task_progress, 'material_data');
+      return sum + materialCount;
+    }, 0);
     const totalTaskProgressEntries = dailyLogs.reduce((sum: number, log: any) => sum + log.task_progress.length, 0);
 
     const linkedTaskUpdates = dailyLogs.reduce((sum: number, log: any) => {
@@ -167,7 +203,29 @@ export class WeeklyReportService {
       ? average(tasks.map((task: { progress: number | null }) => clampPercentage(Number(task.progress) || 0)))
       : average(fieldLatestProgress);
 
-    // 6) Create the report header.
+    // 5b) Calculate premium KPI metrics
+    const productivityScore = clampPercentage(
+      (totalLaborHours > 0 ? clampPercentage(avgProgress) * (Math.min(totalLaborHours / 40, 1) * 100) / 100 : 0)
+    );
+
+    // Count overdue actions (if any exist in the project)
+    let overdueActionsCount = 0;
+    try {
+      const now = new Date();
+      const overdueActions = await prisma.meetingActionItem.findMany({
+        where: {
+          project_id: data.project_id,
+          tenant_id: tenantId,
+          status: { not: 'COMPLETED' },
+          due_date: { lt: now }
+        }
+      });
+      overdueActionsCount = overdueActions.length;
+    } catch {
+      // Silently ignore if MeetingActionItem doesn't exist
+    }
+
+    // 6) Create the report header with KPI layer.
     const report = await prisma.weeklyReport.create({
       data: {
         project_id: data.project_id,
@@ -178,7 +236,14 @@ export class WeeklyReportService {
         summary: summary,
         prepared_by: data.prepared_by,
         status: 'DRAFT',
-        created_by: data.prepared_by
+        created_by: data.prepared_by,
+        // Premium KPI layer
+        productivity_score: productivityScore,
+        planning_variance_pct: 0,
+        cost_variance_pct: 0,
+        overdue_actions_count: overdueActionsCount,
+        incident_trend: 'stable',
+        forecast_2weeks: 'À confirmer selon l\'avancement en cours'
       }
     });
 
@@ -356,10 +421,16 @@ export class WeeklyReportService {
           tenant_id: tenantId,
           status: { not: 'DELETED' }
         },
-        select: { id: true }
+        select: { id: true, status: true }
       });
       if (!existing) {
         throw new Error('Weekly report not found');
+      }
+
+      // Edit-lock: Prevent modifications to SUBMITTED or APPROVED reports
+      const currentStatus = (existing.status || 'DRAFT').toUpperCase();
+      if (currentStatus === 'SUBMITTED' || currentStatus === 'APPROVED') {
+        throw new Error(`Cannot modify a ${currentStatus.toLowerCase()} weekly report. Please reopen it first if authorized.`);
       }
 
         if (data.items) {
@@ -382,6 +453,119 @@ export class WeeklyReportService {
                 items: true
             }
         });
+    });
+  }
+
+  static async transitionWeeklyReportStatus(id: number, data: {
+    to_status: 'DRAFT' | 'SUBMITTED' | 'APPROVED';
+    actor_id: number;
+    reason?: string;
+  }) {
+    const tenantId = TenantContext.getTenantId();
+    if (!tenantId) throw new Error("Tenant session required");
+
+    return await prisma.$transaction(async (tx: any) => {
+      const existing = await tx.weeklyReport.findFirst({
+        where: {
+          id,
+          tenant_id: tenantId,
+          status: { not: 'DELETED' }
+        },
+        select: {
+          id: true,
+          status: true,
+          validated_by: true,
+          week_start: true,
+          week_end: true,
+          project_id: true,
+          prepared_by: true,
+        }
+      });
+
+      if (!existing) {
+        throw new Error('Weekly report not found');
+      }
+
+      const fromStatus = (existing.status || 'DRAFT').toUpperCase();
+      const toStatus = data.to_status;
+
+      if (fromStatus === toStatus) {
+        return await tx.weeklyReport.findFirst({
+          where: { id, tenant_id: tenantId },
+          include: { items: true }
+        });
+      }
+
+      const allowedTransitions: Record<string, string[]> = {
+        DRAFT: ['SUBMITTED'],
+        SUBMITTED: ['APPROVED', 'DRAFT'],
+        APPROVED: [],
+      };
+
+      if (!allowedTransitions[fromStatus]?.includes(toStatus)) {
+        throw new Error(`Invalid weekly report status transition: ${fromStatus} -> ${toStatus}`);
+      }
+
+      // Fetch full report for mandatory field validation
+      const fullReport = await tx.weeklyReport.findFirst({
+        where: { id, tenant_id: tenantId },
+        include: { items: true }
+      });
+
+      if (!fullReport) {
+        throw new Error('Weekly report not found');
+      }
+
+      // Validate mandatory fields based on target status
+      if (toStatus === 'SUBMITTED') {
+        const hasSummary = fullReport.summary && fullReport.summary.trim().length > 0;
+        const hasItems = Array.isArray(fullReport.items) && fullReport.items.length > 0;
+        if (!hasSummary && !hasItems) {
+          throw new Error('Weekly report must have either a summary or at least one item before submission');
+        }
+      }
+
+      if (toStatus === 'APPROVED') {
+        const hasSummary = fullReport.summary && fullReport.summary.trim().length > 0;
+        if (!hasSummary) {
+          throw new Error('Weekly report must have a summary before approval');
+        }
+      }
+
+      const updated = await tx.weeklyReport.update({
+        where: { id },
+        data: {
+          status: toStatus,
+          validated_by: toStatus === 'APPROVED' ? data.actor_id : null,
+        },
+        include: {
+          items: true,
+          preparedBy: true,
+          validatedBy: true,
+          project: true,
+        }
+      });
+
+      await tx.auditLog.create({
+        data: {
+          user_id: data.actor_id,
+          tenant_id: tenantId,
+          action: 'WEEKLY_REPORT_STATUS_TRANSITION',
+          entity_type: 'WeeklyReport',
+          entity_id: String(id),
+          old_value: JSON.stringify({
+            status: fromStatus,
+            validated_by: existing.validated_by,
+          }),
+          new_value: JSON.stringify({
+            status: toStatus,
+            validated_by: updated.validated_by,
+            reason: data.reason || null,
+          })
+        }
+      });
+
+      return updated;
     });
   }
 

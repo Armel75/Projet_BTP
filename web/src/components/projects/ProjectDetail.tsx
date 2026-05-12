@@ -1,5 +1,5 @@
 ﻿import React, { useState, useEffect, useCallback } from "react";
-import { ArrowLeft, LayoutGrid, Layers, GitBranch, Search, Filter, Coins, Plus, Trash2, Loader2, AlertCircle, X, Pencil, History, ChevronsRight, CheckCircle2, ClipboardSignature, StickyNote, UserCog, UserPlus, UserMinus, Info } from "lucide-react";
+import { ArrowLeft, LayoutGrid, Layers, GitBranch, Search, Filter, Coins, Plus, Trash2, Loader2, AlertCircle, X, Pencil, History, ChevronsRight, CheckCircle2, ClipboardSignature, StickyNote, UserCog, UserPlus, UserMinus, Info, Eye } from "lucide-react";
 import { WBSTree } from "./WBSTree";
 import { TaskDetail } from "./TaskDetail";
 import { ExecutionNotePanel } from "./ExecutionNotePanel";
@@ -1041,7 +1041,7 @@ export function ProjectDetail({ projectId, onBack, onEdit }: ProjectDetailProps)
                         <p className="text-xs text-gb-muted mt-0.5">{editingTask ? `"${editingTask.title}"` : "Rattachez la tâche à un lot puis renseignez ses informations."}</p>
                       </div>
                       <button onClick={() => { setShowTaskDialog(false); setEditingTask(null); }} className="p-1.5 rounded-lg hover:bg-gb-surface-hover text-gb-muted hover:text-gb-text transition-colors">
-                        <X size={16} />
+                        Fermer
                       </button>
                     </div>
 
@@ -1198,7 +1198,7 @@ export function ProjectDetail({ projectId, onBack, onEdit }: ProjectDetailProps)
                         <p className="text-xs text-gb-muted mt-0.5">{editingLot ? `Lot n° ${editingLot.lot_number}` : "Renseignez les informations du lot"}</p>
                       </div>
                       <button onClick={() => { setShowLotDialog(false); setEditingLot(null); }} className="p-1.5 rounded-lg hover:bg-gb-surface-hover text-gb-muted hover:text-gb-text transition-colors">
-                        <X size={16} />
+                        Fermer
                       </button>
                     </div>
 
@@ -1551,6 +1551,12 @@ export function ProjectDetail({ projectId, onBack, onEdit }: ProjectDetailProps)
                                   </div>
                                 )}
                                 <div className="flex items-center gap-1.5 mt-3 pt-3 border-t border-gb-border">
+                                  <button
+                                    onClick={() => setSelectedTask(task)}
+                                    className="flex items-center gap-1 px-2 py-1 text-xs font-medium rounded-md border border-gb-border hover:border-gb-primary hover:text-gb-primary transition-colors"
+                                  >
+                                    <Eye size={12} /> Voir détail
+                                  </button>
                                   {can("task:update") && (
                                     <button
                                       onClick={() => {

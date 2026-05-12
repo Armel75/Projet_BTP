@@ -842,7 +842,7 @@ function InspectionFormDialog({
             </div>
           </div>
           <button onClick={onClose} className="p-1.5 rounded-lg text-gb-muted hover:bg-gb-surface-hover transition-colors">
-            <X size={18} />
+            Fermer
           </button>
         </div>
         {/* Dialog body */}

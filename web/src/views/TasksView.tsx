@@ -498,7 +498,7 @@ export default function TasksView() {
                 <p className="text-xs text-gb-muted mt-0.5">Renseignez les informations de la tâche</p>
               </div>
               <button onClick={() => setShowCreate(false)} className="p-1.5 rounded-lg hover:bg-gb-surface-hover text-gb-muted transition-colors">
-                <X size={16} />
+                Fermer
               </button>
             </div>
 

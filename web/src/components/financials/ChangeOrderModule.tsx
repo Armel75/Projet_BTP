@@ -379,20 +379,25 @@ export default function ChangeOrderModule() {
         setFormOpen(open);
         if (!open) resetForm();
       }}>
-        <DialogContent className="sm:max-w-[680px] p-0 bg-gb-surface-solid border-gb-border overflow-hidden flex flex-col max-h-[92dvh]">
+        <DialogContent showCloseButton={false} className="sm:max-w-[680px] p-0 bg-gb-surface-solid border-gb-border overflow-hidden flex flex-col max-h-[92dvh]">
           <DialogHeader className="p-5 border-b border-gb-border bg-gb-app/20">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-amber-500/10 text-amber-600 flex items-center justify-center">
-                <FileEdit size={18} />
+            <div className="flex items-center justify-between gap-3">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-amber-500/10 text-amber-600 flex items-center justify-center">
+                  <FileEdit size={18} />
+                </div>
+                <div>
+                  <DialogTitle className="text-lg font-black text-gb-text">
+                    {editing ? "Modifier un avenant" : "Créer un avenant"}
+                  </DialogTitle>
+                  <p className="text-xs text-gb-muted mt-0.5">
+                    {editing ? `Avenant #${editing.number}` : "Création d'un nouvel ordre de changement"}
+                  </p>
+                </div>
               </div>
-              <div>
-                <DialogTitle className="text-lg font-black text-gb-text">
-                  {editing ? "Modifier un avenant" : "Créer un avenant"}
-                </DialogTitle>
-                <p className="text-xs text-gb-muted mt-0.5">
-                  {editing ? `Avenant #${editing.number}` : "Création d'un nouvel ordre de changement"}
-                </p>
-              </div>
+              <button type="button" onClick={() => { setFormOpen(false); resetForm(); }} className="p-1.5 rounded-lg text-gb-muted hover:bg-gb-surface-hover transition-colors">
+                Fermer
+              </button>
             </div>
           </DialogHeader>
 
