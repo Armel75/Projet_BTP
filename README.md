@@ -1,20 +1,15 @@
-<div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
-</div>
+# Gestion de projet BTP
 
-# Run and deploy your AI Studio app
+Application permettant de gérer :
 
-This contains everything you need to run your app locally.
+- chantier
+- controle de chantier
+- fournisseur
+- incident
+- Commandes
 
-View your app in AI Studio: https://ai.studio/apps/08107b10-c738-4cdb-8724-74f0c7dce71e
+## Technologies
 
-## Run Locally
-
-**Prerequisites:**  Node.js
-
-
-1. Install dependencies:
-   `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-3. Run the app:
-   `npm run dev`
+- React js
+- SQL Server
+- Node Js
