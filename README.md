@@ -4,9 +4,16 @@ Application permettant de gérer :
 
 - chantier
 - controle de chantier
-- fournisseur
+- Gestion des Ressources
+- Gestion des Achats
+- Inspections qualité
 - incident
-- Commandes
+- Levée des réserves
+- Réception des travaux
+- Gestion Financière
+- Gestion documentaire
+- Réunions
+- Demande de renseignements
 
 ## Technologies
 
